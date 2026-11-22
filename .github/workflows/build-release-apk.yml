@@ -1,0 +1,87 @@
+name: Build & Release NexusPad APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build APK & Publish GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Decode debug keystore for APK signing
+        run: |
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+
+      - name: Run unit tests
+        run: gradle :app:testDebugUnitTest --tests com.example.ExampleUnitTest
+
+      - name: Build NexusPad APK
+        run: gradle :app:assembleDebug
+
+      - name: Prepare release APK & version tag
+        id: meta
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="v1.0.${{ github.run_number }}"
+          fi
+          APK_NAME="NexusPad-${TAG}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "${APK_NAME}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "apk_name=${APK_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexusPad-APK
+          path: ${{ steps.meta.outputs.apk_name }}
+
+      - name: Create GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: NexusPad ${{ steps.meta.outputs.tag }}
+          generate_release_notes: true
+          make_latest: true
+          body: |
+            ## NexusPad — Virtual Controller & Keyboard Mapper for GeForce NOW
+
+            Download the `.apk` file below and install it on your Android device.
+
+            ### Quick Setup
+            1. Install `${{ steps.meta.outputs.apk_name }}` on your Android phone or tablet.
+            2. Open **NexusPad** and go to **Setup** (or tap the readiness cards in **Cockpit**).
+            3. Grant **Display over other apps** to float custom virtual controls above GeForce NOW.
+            4. Enable **NexusPad Gamepad & Keyboard** IME for live `KeyEvent` dispatch, or test layouts directly in the built-in **Sandbox**.
+          files: |
+            ${{ steps.meta.outputs.apk_name }}
