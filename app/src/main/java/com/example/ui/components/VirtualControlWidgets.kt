@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.VibrationMode
 import com.example.input.InputBridge
 import com.example.model.AxisPair
 import com.example.model.CommandCatalog
@@ -67,7 +68,7 @@ fun VirtualControlCanvasItem(
     control: VirtualControl,
     notation: ControllerNotation,
     globalOpacity: Float,
-    hapticsEnabled: Boolean,
+    vibrationMode: VibrationMode,
     isEditMode: Boolean,
     isSelected: Boolean,
     isPressed: Boolean,
@@ -77,6 +78,9 @@ fun VirtualControlCanvasItem(
     modifier: Modifier = Modifier
 ) {
     val view = LocalView.current
+    val currentVibration by rememberUpdatedState(vibrationMode)
+    val currentControl by rememberUpdatedState(control)
+
     val effectiveAlpha = (control.opacity * globalOpacity).coerceIn(0.18f, 1.0f)
     val accentColor = Color(control.accent.hex)
     val sizeDp = control.sizeDp.dp
@@ -91,7 +95,7 @@ fun VirtualControlCanvasItem(
         if (!isEditMode && isTurboHolding && control.behavior == TriggerBehavior.TURBO) {
             val intervalMs = (1000L / control.turboRateHz.coerceIn(2, 24)).coerceAtLeast(35L)
             while (isTurboHolding) {
-                InputBridge.pulseTurbo(control.label, control.binding)
+                InputBridge.pulseTurbo(currentControl.label, currentControl.binding)
                 delay(intervalMs)
             }
         }
@@ -141,7 +145,7 @@ fun VirtualControlCanvasItem(
                     accentColor = accentColor,
                     isEditMode = isEditMode,
                     isSelected = isSelected,
-                    hapticsEnabled = hapticsEnabled
+                    vibrationMode = currentVibration
                 )
             }
             ControlType.DPAD_CLUSTER, ControlType.WASD_CLUSTER -> {
@@ -150,7 +154,7 @@ fun VirtualControlCanvasItem(
                     accentColor = accentColor,
                     isEditMode = isEditMode,
                     isSelected = isSelected,
-                    hapticsEnabled = hapticsEnabled
+                    vibrationMode = currentVibration
                 )
             }
             else -> {
@@ -163,13 +167,17 @@ fun VirtualControlCanvasItem(
                     isPressed = isPressed || isTurboHolding,
                     isToggled = isToggled,
                     onPressStart = {
-                        SystemIntegrations.performKeyHaptic(view, hapticsEnabled && control.hapticOnPress)
-                        when (control.behavior) {
+                        SystemIntegrations.performKeyHaptic(
+                            view = view,
+                            vibrationMode = currentVibration,
+                            controlEnabled = currentControl.hapticOnPress
+                        )
+                        when (currentControl.behavior) {
                             TriggerBehavior.HOLD -> {
-                                InputBridge.pressControl(control.id, control.label, control.binding)
+                                InputBridge.pressControl(currentControl.id, currentControl.label, currentControl.binding)
                             }
                             TriggerBehavior.TOGGLE -> {
-                                InputBridge.toggleControl(control.id, control.label, control.binding)
+                                InputBridge.toggleControl(currentControl.id, currentControl.label, currentControl.binding)
                             }
                             TriggerBehavior.TURBO -> {
                                 isTurboHolding = true
@@ -177,9 +185,9 @@ fun VirtualControlCanvasItem(
                         }
                     },
                     onPressEnd = {
-                        when (control.behavior) {
+                        when (currentControl.behavior) {
                             TriggerBehavior.HOLD -> {
-                                InputBridge.releaseControl(control.id, control.label, control.binding)
+                                InputBridge.releaseControl(currentControl.id, currentControl.label, currentControl.binding)
                             }
                             TriggerBehavior.TURBO -> {
                                 isTurboHolding = false
@@ -220,16 +228,28 @@ private fun ActionButtonSurface(
     val active = isPressed || isToggled
     val fillAlpha = if (active) 0.42f else 0.16f
     val borderColor = if (active) accentColor else accentColor.copy(alpha = 0.72f)
+    val latestOnPressStart by rememberUpdatedState(onPressStart)
+    val latestOnPressEnd by rememberUpdatedState(onPressEnd)
 
     val touchModifier = if (!isEditMode) {
-        Modifier.pointerInput(control.id, control.behavior) {
+        Modifier.pointerInput(control.id) {
             awaitEachGesture {
-                awaitFirstDown(requireUnconsumed = false)
-                onPressStart()
-                do {
-                    val event = awaitPointerEvent()
-                } while (event.changes.any { it.pressed })
-                onPressEnd()
+                val down = awaitFirstDown(requireUnconsumed = false)
+                val pointerId = down.id
+                down.consume()
+                latestOnPressStart()
+                try {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val tracked = event.changes.firstOrNull { it.id == pointerId }
+                        if (tracked == null || !tracked.pressed) {
+                            break
+                        }
+                        tracked.consume()
+                    }
+                } finally {
+                    latestOnPressEnd()
+                }
             }
         }
     } else {
@@ -371,10 +391,11 @@ private fun AnalogStickSurface(
     accentColor: Color,
     isEditMode: Boolean,
     isSelected: Boolean,
-    hapticsEnabled: Boolean
+    vibrationMode: VibrationMode
 ) {
     val view = LocalView.current
     val density = LocalDensity.current
+    val latestVibration by rememberUpdatedState(vibrationMode)
     var stickX by remember(control.id) { mutableFloatStateOf(0f) }
     var stickY by remember(control.id) { mutableFloatStateOf(0f) }
     var isActive by remember(control.id) { mutableStateOf(false) }
@@ -391,10 +412,13 @@ private fun AnalogStickSurface(
                     Modifier.pointerInput(control.id, control.deadzone, control.sensitivity) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
+                            val pointerId = down.id
+                            down.consume()
                             isActive = true
                             SystemIntegrations.performKeyHaptic(
-                                view,
-                                hapticsEnabled && control.hapticOnPress
+                                view = view,
+                                vibrationMode = latestVibration,
+                                controlEnabled = control.hapticOnPress
                             )
                             val center = Offset(size.width / 2f, size.height / 2f)
 
@@ -420,27 +444,30 @@ private fun AnalogStickSurface(
                             }
 
                             updateFromPos(down.position)
-                            do {
-                                val event = awaitPointerEvent()
-                                val pointer = event.changes.firstOrNull { it.id == down.id }
-                                    ?: event.changes.firstOrNull()
-                                if (pointer != null && pointer.pressed) {
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val pointer = event.changes.firstOrNull { it.id == pointerId }
+                                    if (pointer == null || !pointer.pressed) {
+                                        break
+                                    }
+                                    pointer.consume()
                                     updateFromPos(pointer.position)
                                 }
-                            } while (event.changes.any { it.pressed })
-
-                            isActive = false
-                            stickX = 0f
-                            stickY = 0f
-                            InputBridge.updateAnalogStick(
-                                axisPair = control.binding.axisPair,
-                                sourceLabel = control.label,
-                                rawX = 0f,
-                                rawY = 0f,
-                                deadzone = control.deadzone,
-                                sensitivity = control.sensitivity,
-                                active = false
-                            )
+                            } finally {
+                                isActive = false
+                                stickX = 0f
+                                stickY = 0f
+                                InputBridge.updateAnalogStick(
+                                    axisPair = control.binding.axisPair,
+                                    sourceLabel = control.label,
+                                    rawX = 0f,
+                                    rawY = 0f,
+                                    deadzone = control.deadzone,
+                                    sensitivity = control.sensitivity,
+                                    active = false
+                                )
+                            }
                         }
                     }
                 } else {
@@ -462,13 +489,11 @@ private fun AnalogStickSurface(
                 radius = outerR,
                 style = Stroke(width = if (isActive) 2.5.dp.toPx() else 1.5.dp.toPx())
             )
-            // Deadzone ring
             drawCircle(
                 color = accentColor.copy(alpha = 0.22f),
                 radius = outerR * control.deadzone.coerceIn(0.05f, 0.45f),
                 style = Stroke(width = 1.dp.toPx())
             )
-            // Crosshair guides
             drawLine(
                 color = accentColor.copy(alpha = 0.16f),
                 start = Offset(center.x - outerR * 0.7f, center.y),
@@ -482,7 +507,6 @@ private fun AnalogStickSurface(
                 strokeWidth = 1.dp.toPx()
             )
 
-            // Thumbstick puck
             val puckCenter = Offset(
                 x = center.x + stickX * maxTravel,
                 y = center.y + stickY * maxTravel
@@ -532,9 +556,10 @@ private fun DirectionalPadSurface(
     accentColor: Color,
     isEditMode: Boolean,
     isSelected: Boolean,
-    hapticsEnabled: Boolean
+    vibrationMode: VibrationMode
 ) {
     val view = LocalView.current
+    val latestVibration by rememberUpdatedState(vibrationMode)
     var activeX by remember(control.id) { mutableFloatStateOf(0f) }
     var activeY by remember(control.id) { mutableFloatStateOf(0f) }
     var isPressed by remember(control.id) { mutableStateOf(false) }
@@ -550,10 +575,13 @@ private fun DirectionalPadSurface(
                     Modifier.pointerInput(control.id) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
+                            val pointerId = down.id
+                            down.consume()
                             isPressed = true
                             SystemIntegrations.performKeyHaptic(
-                                view,
-                                hapticsEnabled && control.hapticOnPress
+                                view = view,
+                                vibrationMode = latestVibration,
+                                controlEnabled = control.hapticOnPress
                             )
                             val center = Offset(size.width / 2f, size.height / 2f)
                             val maxR = (size.width.coerceAtMost(size.height) / 2f).coerceAtLeast(16f)
@@ -574,26 +602,29 @@ private fun DirectionalPadSurface(
                             }
 
                             dispatchAt(down.position)
-                            do {
-                                val event = awaitPointerEvent()
-                                val pointer = event.changes.firstOrNull { it.id == down.id }
-                                    ?: event.changes.firstOrNull()
-                                if (pointer != null && pointer.pressed) {
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val pointer = event.changes.firstOrNull { it.id == pointerId }
+                                    if (pointer == null || !pointer.pressed) {
+                                        break
+                                    }
+                                    pointer.consume()
                                     dispatchAt(pointer.position)
                                 }
-                            } while (event.changes.any { it.pressed })
-
-                            isPressed = false
-                            activeX = 0f
-                            activeY = 0f
-                            InputBridge.updateDirectionalCluster(
-                                controlId = control.id,
-                                sourceLabel = control.label,
-                                axisPair = control.binding.axisPair,
-                                x = 0f,
-                                y = 0f,
-                                active = false
-                            )
+                            } finally {
+                                isPressed = false
+                                activeX = 0f
+                                activeY = 0f
+                                InputBridge.updateDirectionalCluster(
+                                    controlId = control.id,
+                                    sourceLabel = control.label,
+                                    axisPair = control.binding.axisPair,
+                                    x = 0f,
+                                    y = 0f,
+                                    active = false
+                                )
+                            }
                         }
                     }
                 } else {
@@ -608,14 +639,12 @@ private fun DirectionalPadSurface(
             val arm = w * 0.34f
             val pad = 3.dp.toPx()
 
-            // Vertical bar
             drawRoundRect(
                 color = Color(0xFF0E141E).copy(alpha = 0.78f),
                 topLeft = Offset((w - arm) / 2f, pad),
                 size = Size(arm, h - pad * 2),
                 cornerRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx())
             )
-            // Horizontal bar
             drawRoundRect(
                 color = Color(0xFF0E141E).copy(alpha = 0.78f),
                 topLeft = Offset(pad, (h - arm) / 2f),
@@ -623,7 +652,6 @@ private fun DirectionalPadSurface(
                 cornerRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx())
             )
 
-            // Active directional highlights
             if (isPressed && activeY < -0.35f) {
                 drawRoundRect(
                     color = accentColor.copy(alpha = 0.48f),
@@ -665,7 +693,6 @@ private fun DirectionalPadSurface(
             )
         }
 
-        // Direction labels
         Text(
             text = labels[0],
             color = Color.White,
@@ -732,7 +759,7 @@ fun PositionedVirtualControl(
     containerHeightPx: Float,
     notation: ControllerNotation,
     globalOpacity: Float,
-    hapticsEnabled: Boolean,
+    vibrationMode: VibrationMode,
     isEditMode: Boolean,
     isSelected: Boolean,
     isPressed: Boolean,
@@ -766,7 +793,7 @@ fun PositionedVirtualControl(
             control = control,
             notation = notation,
             globalOpacity = globalOpacity,
-            hapticsEnabled = hapticsEnabled,
+            vibrationMode = vibrationMode,
             isEditMode = isEditMode,
             isSelected = isSelected,
             isPressed = isPressed,

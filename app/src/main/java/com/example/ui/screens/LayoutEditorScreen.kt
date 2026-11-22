@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -31,12 +32,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -64,6 +68,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -119,6 +124,7 @@ fun LayoutEditorScreen(
     var showCommandRebindSheet by remember { mutableStateOf(false) }
     var showMetaDialog by remember { mutableStateOf(false) }
     var showUnsavedDialog by remember { mutableStateOf(false) }
+    var hideFloatingTools by remember { mutableStateOf(false) }
 
     val handleBack = {
         if (editorState.hasUnsavedChanges) {
@@ -137,295 +143,332 @@ fun LayoutEditorScreen(
         return
     }
 
-    Column(
+    // Full-screen uninterrupted canvas
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF070A10))
+            .testTag("editor_canvas")
     ) {
-        // Top Studio Toolbar
+        val density = LocalDensity.current
+        val widthPx = with(density) { maxWidth.toPx() }
+        val heightPx = with(density) { maxHeight.toPx() }
+
+        Image(
+            painter = painterResource(id = R.drawable.img_game_arena_bg),
+            contentDescription = "GeForce NOW Stream Canvas",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0x660B0E14))
+                .then(
+                    if (!editorState.isPlayTestMode) {
+                        Modifier.pointerInput(Unit) {
+                            detectTapGestures(onTap = { onSelectControl(null) })
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
+        )
+
+        // Snap grid overlay
+        if (!editorState.isPlayTestMode && settings.gridSnapEnabled && !hideFloatingTools) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val stepX = size.width / 10f
+                val stepY = size.height / 8f
+                for (i in 1 until 10) {
+                    drawLine(
+                        color = Color.White.copy(alpha = if (i == 5) 0.16f else 0.06f),
+                        start = Offset(i * stepX, 0f),
+                        end = Offset(i * stepX, size.height),
+                        strokeWidth = if (i == 5) 1.5.dp.toPx() else 1.dp.toPx()
+                    )
+                }
+                for (j in 1 until 8) {
+                    drawLine(
+                        color = Color.White.copy(alpha = if (j == 4) 0.16f else 0.06f),
+                        start = Offset(0f, j * stepY),
+                        end = Offset(size.width, j * stepY),
+                        strokeWidth = if (j == 4) 1.5.dp.toPx() else 1.dp.toPx()
+                    )
+                }
+            }
+        }
+
+        // Virtual controls positioned across 100% of full screen
+        profile.controls.forEach { control ->
+            PositionedVirtualControl(
+                control = control,
+                containerWidthPx = widthPx,
+                containerHeightPx = heightPx,
+                notation = settings.controllerNotation,
+                globalOpacity = settings.globalOpacity,
+                vibrationMode = settings.vibrationMode,
+                isEditMode = !editorState.isPlayTestMode,
+                isSelected = control.id == editorState.selectedControlId,
+                isPressed = control.id in pressedIds,
+                isToggled = control.id in toggledIds,
+                onSelect = { onSelectControl(control.id) },
+                onDragDelta = { dx, dy ->
+                    onMoveControl(control.id, dx, dy, widthPx, heightPx)
+                }
+            )
+        }
+
+        // TOP-LEFT CORNER: Back + Save button (compact pill, never interrupts center/edges)
         Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 4.dp,
-            modifier = Modifier.fillMaxWidth()
+            color = Color(0xD90B0E14),
+            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(start = 10.dp, top = 10.dp)
+                .border(
+                    width = 1.dp,
+                    color = if (editorState.hasUnsavedChanges) GeForceLime else Color(0xFF314057),
+                    shape = RoundedCornerShape(24.dp)
+                )
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
             ) {
                 IconButton(
                     onClick = handleBack,
-                    modifier = Modifier.testTag("editor_back_button")
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                }
-
-                Column(
                     modifier = Modifier
-                        .weight(1f)
-                        .clickable { showMetaDialog = true }
+                        .size(44.dp)
+                        .testTag("editor_back_button")
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = profile.name,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Icon(
-                            Icons.Default.Edit,
-                            contentDescription = "Edit Profile Details",
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Text(
-                        text = if (editorState.isPlayTestMode) {
-                            latestTelemetry?.let { "TEST: ${it.codeLabel} ${it.actionName}" } ?: "PLAY-TEST MODE ACTIVE"
-                        } else {
-                            "${profile.controls.size} controls • Drag to position"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (editorState.isPlayTestMode) TacticalCyan else MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White
                     )
                 }
-
-                IconButton(
-                    onClick = onUndo,
-                    enabled = editorState.undoStack.isNotEmpty(),
-                    modifier = Modifier.testTag("editor_undo_button")
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
-                }
-
-                FilterChip(
-                    selected = editorState.isPlayTestMode,
-                    onClick = onTogglePlayTest,
-                    label = { Text(if (editorState.isPlayTestMode) "Testing" else "Test") },
-                    leadingIcon = {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                    },
-                    modifier = Modifier.testTag("editor_playtest_toggle")
-                )
 
                 Button(
                     onClick = onSave,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (editorState.hasUnsavedChanges) GeForceLime else MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = if (editorState.hasUnsavedChanges) Color(0xFF0A1400) else MaterialTheme.colorScheme.primary
+                        containerColor = if (editorState.hasUnsavedChanges) GeForceLime else Color(0xFF1A2230),
+                        contentColor = if (editorState.hasUnsavedChanges) Color(0xFF0A1400) else Color.White
                     ),
                     contentPadding = PaddingValues(horizontal = 12.dp),
                     modifier = Modifier
-                        .height(40.dp)
+                        .height(38.dp)
                         .testTag("editor_save_button")
                 ) {
                     Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Save", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (editorState.hasUnsavedChanges) "Save" else "Saved",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+            }
+        }
+
+        // TOP-RIGHT CORNER: Compact floating tools pill (collapsible)
+        Surface(
+            color = Color(0xD90B0E14),
+            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(end = 10.dp, top = 10.dp)
+                .border(1.dp, Color(0xFF314057), RoundedCornerShape(24.dp))
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                if (!hideFloatingTools) {
+                    if (!editorState.isPlayTestMode) {
+                        IconButton(
+                            onClick = { showAddControlSheet = true },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .testTag("editor_add_control_button")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Control", tint = GeForceLime)
+                        }
+                        if (editorState.undoStack.isNotEmpty()) {
+                            IconButton(
+                                onClick = onUndo,
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .testTag("editor_undo_button")
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = Color.White)
+                            }
+                        }
+                        IconButton(
+                            onClick = { showMetaDialog = true },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .testTag("editor_meta_button")
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = "Profile Name", tint = TacticalCyan)
+                        }
+                    }
+
+                    IconButton(
+                        onClick = onTogglePlayTest,
+                        modifier = Modifier
+                            .size(42.dp)
+                            .testTag("editor_playtest_toggle")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = if (editorState.isPlayTestMode) "Stop Test" else "Play-Test",
+                            tint = if (editorState.isPlayTestMode) GeForceLime else Color.White
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = { hideFloatingTools = !hideFloatingTools },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .testTag("editor_toggle_hud_button")
+                ) {
+                    Icon(
+                        imageVector = if (hideFloatingTools) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                        contentDescription = if (hideFloatingTools) "Show Editor Tools" else "Hide Editor Tools",
+                        tint = Color(0xFF9FB0C7)
+                    )
                 }
             }
         }
 
-        // Interactive Canvas Area
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .testTag("editor_canvas")
-        ) {
-            val density = LocalDensity.current
-            val widthPx = with(density) { maxWidth.toPx() }
-            val heightPx = with(density) { maxHeight.toPx() }
-
-            Image(
-                painter = painterResource(id = R.drawable.img_game_arena_bg),
-                contentDescription = "GeForce NOW Stream Canvas",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-            Box(
+        // Play-test mini telemetry pill (top center, non-blocking)
+        if (editorState.isPlayTestMode && !hideFloatingTools) {
+            Surface(
+                color = Color(0xCC0B0E14),
+                shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0x660B0E14))
-            )
-
-            // Alignment grid & safe-zone lines in Edit Mode
-            if (!editorState.isPlayTestMode && settings.gridSnapEnabled) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val stepX = size.width / 10f
-                    val stepY = size.height / 8f
-                    for (i in 1 until 10) {
-                        drawLine(
-                            color = Color.White.copy(alpha = if (i == 5) 0.16f else 0.06f),
-                            start = Offset(i * stepX, 0f),
-                            end = Offset(i * stepX, size.height),
-                            strokeWidth = if (i == 5) 1.5.dp.toPx() else 1.dp.toPx()
-                        )
-                    }
-                    for (j in 1 until 8) {
-                        drawLine(
-                            color = Color.White.copy(alpha = if (j == 4) 0.16f else 0.06f),
-                            start = Offset(0f, j * stepY),
-                            end = Offset(size.width, j * stepY),
-                            strokeWidth = if (j == 4) 1.5.dp.toPx() else 1.dp.toPx()
-                        )
-                    }
-                }
-            }
-
-            profile.controls.forEach { control ->
-                PositionedVirtualControl(
-                    control = control,
-                    containerWidthPx = widthPx,
-                    containerHeightPx = heightPx,
-                    notation = settings.controllerNotation,
-                    globalOpacity = settings.globalOpacity,
-                    hapticsEnabled = settings.hapticsEnabled,
-                    isEditMode = !editorState.isPlayTestMode,
-                    isSelected = control.id == editorState.selectedControlId,
-                    isPressed = control.id in pressedIds,
-                    isToggled = control.id in toggledIds,
-                    onSelect = { onSelectControl(control.id) },
-                    onDragDelta = { dx, dy ->
-                        onMoveControl(control.id, dx, dy, widthPx, heightPx)
-                    }
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 60.dp)
+                    .border(1.dp, TacticalCyan.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+            ) {
+                Text(
+                    text = latestTelemetry?.let { "${it.codeLabel} • ${it.actionName}" }
+                        ?: "MULTI-TOUCH TEST ACTIVE",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 11.sp,
+                    color = TacticalCyan,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                 )
             }
         }
 
-        // Bottom Studio Action & Selected Control Dock
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
+        // Auto-flipping contextual selected-control floating capsule
+        // Moves to top-center when selected control is in the lower half, or bottom-center when in upper half!
+        val selected = editorState.selectedControl
+        if (selected != null && !editorState.isPlayTestMode && !hideFloatingTools) {
+            val dockAlignment = if (selected.yPercent >= 0.52f) {
+                Alignment.TopCenter
+            } else {
+                Alignment.BottomCenter
+            }
+            val extraPaddingModifier = if (selected.yPercent >= 0.52f) {
+                Modifier.statusBarsPadding().padding(top = 62.dp, start = 12.dp, end = 12.dp)
+            } else {
+                Modifier.navigationBarsPadding().padding(bottom = 14.dp, start = 12.dp, end = 12.dp)
+            }
+
+            Surface(
+                color = Color(0xE8121721),
+                shape = RoundedCornerShape(20.dp),
+                tonalElevation = 6.dp,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .align(dockAlignment)
+                    .then(extraPaddingModifier)
+                    .border(1.dp, Color(selected.accent.hex).copy(alpha = 0.7f), RoundedCornerShape(20.dp))
             ) {
-                val selected = editorState.selectedControl
-                if (selected != null && !editorState.isPlayTestMode) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "${selected.label}  •  ${selected.binding.commandTitle}",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Color(selected.accent.hex),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "Pos ${(selected.xPercent * 100).roundToInt()}%, ${(selected.yPercent * 100).roundToInt()}%  •  ${selected.sizeDp.roundToInt()}dp  •  ${selected.behavior.displayName}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            IconButton(
-                                onClick = onDuplicateControl,
-                                modifier = Modifier.testTag("editor_duplicate_control_button")
-                            ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate Control")
-                            }
-                            IconButton(
-                                onClick = onDeleteControl,
-                                modifier = Modifier.testTag("editor_delete_control_button")
-                            ) {
-                                Icon(
-                                    Icons.Default.DeleteOutline,
-                                    contentDescription = "Delete Control",
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            }
-                        }
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Column(modifier = Modifier.padding(start = 4.dp, end = 4.dp)) {
+                        Text(
+                            text = selected.label,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Color(selected.accent.hex),
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = selected.binding.codeLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF9FB0C7)
+                        )
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    OutlinedButton(
+                        onClick = { showCommandRebindSheet = true },
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                        modifier = Modifier
+                            .height(38.dp)
+                            .testTag("editor_rebind_button")
                     ) {
-                        OutlinedButton(
-                            onClick = { showCommandRebindSheet = true },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .testTag("editor_rebind_button")
-                        ) {
-                            Text("Bind: ${selected.binding.codeLabel}", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        OutlinedButton(
-                            onClick = { showInspectorSheet = true },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .testTag("editor_customize_button")
-                        ) {
-                            Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Style & Mode")
-                        }
-                        Button(
-                            onClick = { showAddControlSheet = true },
-                            modifier = Modifier
-                                .height(48.dp)
-                                .testTag("editor_add_control_button")
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "Add Control")
-                            Spacer(Modifier.width(4.dp))
-                            Text("Add")
-                        }
+                        Text("Bind", fontSize = 12.sp)
                     }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+
+                    OutlinedButton(
+                        onClick = { showInspectorSheet = true },
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                        modifier = Modifier
+                            .height(38.dp)
+                            .testTag("editor_customize_button")
                     ) {
-                        Text(
-                            text = if (editorState.isPlayTestMode) {
-                                "Play-test live! Switch off Test to drag buttons."
-                            } else {
-                                "Tap any virtual button to customize or add new controls."
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f)
+                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Style", fontSize = 12.sp)
+                    }
+
+                    IconButton(
+                        onClick = onDuplicateControl,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .testTag("editor_duplicate_control_button")
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate", tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
+
+                    IconButton(
+                        onClick = onDeleteControl,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .testTag("editor_delete_control_button")
+                    ) {
+                        Icon(
+                            Icons.Default.DeleteOutline,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
                         )
-                        Spacer(Modifier.width(8.dp))
-                        Button(
-                            onClick = { showAddControlSheet = true },
-                            enabled = !editorState.isPlayTestMode,
-                            modifier = Modifier
-                                .height(48.dp)
-                                .testTag("editor_add_control_button")
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Add Control")
-                        }
+                    }
+
+                    IconButton(
+                        onClick = { onSelectControl(null) },
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Deselect", tint = Color(0xFF9FB0C7), modifier = Modifier.size(16.dp))
                     }
                 }
             }
         }
     }
 
-    // Add Control Modal Sheet
     if (showAddControlSheet) {
         ModalBottomSheet(
             onDismissRequest = { showAddControlSheet = false },
@@ -454,7 +497,6 @@ fun LayoutEditorScreen(
         }
     }
 
-    // Rebind Selected Control Command Sheet
     if (showCommandRebindSheet && editorState.selectedControl != null) {
         val selected = editorState.selectedControl!!
         ModalBottomSheet(
@@ -484,7 +526,6 @@ fun LayoutEditorScreen(
         }
     }
 
-    // Selected Control Style & Behavior Inspector Sheet
     if (showInspectorSheet && editorState.selectedControl != null) {
         val selected = editorState.selectedControl!!
         ModalBottomSheet(
@@ -499,7 +540,6 @@ fun LayoutEditorScreen(
         }
     }
 
-    // Profile Metadata Dialog
     if (showMetaDialog) {
         EditProfileMetaDialog(
             initialName = profile.name,
@@ -513,7 +553,6 @@ fun LayoutEditorScreen(
         )
     }
 
-    // Unsaved changes confirmation
     if (showUnsavedDialog) {
         AlertDialog(
             onDismissRequest = { showUnsavedDialog = false },

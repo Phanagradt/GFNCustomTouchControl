@@ -254,7 +254,7 @@ fun TestArenaScreen(
                     containerHeightPx = heightPx,
                     notation = settings.controllerNotation,
                     globalOpacity = settings.globalOpacity,
-                    hapticsEnabled = settings.hapticsEnabled,
+                    vibrationMode = settings.vibrationMode,
                     isEditMode = false,
                     isSelected = false,
                     isPressed = control.id in pressedIds,

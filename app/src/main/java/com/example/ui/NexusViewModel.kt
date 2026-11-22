@@ -165,7 +165,8 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Settings
-    fun setHapticsEnabled(enabled: Boolean) = viewModelScope.launch { prefsRepo.setHapticsEnabled(enabled) }
+    fun setVibrationMode(mode: com.example.data.VibrationMode) =
+        viewModelScope.launch { prefsRepo.setVibrationMode(mode) }
     fun setGlobalOpacity(opacity: Float) = viewModelScope.launch { prefsRepo.setGlobalOpacity(opacity) }
     fun setGridSnapEnabled(enabled: Boolean) = viewModelScope.launch { prefsRepo.setGridSnapEnabled(enabled) }
     fun setControllerNotation(notation: ControllerNotation) = viewModelScope.launch { prefsRepo.setControllerNotation(notation) }

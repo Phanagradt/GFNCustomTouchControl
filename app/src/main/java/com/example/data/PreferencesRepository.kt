@@ -12,20 +12,30 @@ import kotlinx.coroutines.flow.map
 
 private val Context.nexusDataStore by preferencesDataStore(name = "nexuspad_settings")
 
+enum class VibrationMode(val displayName: String, val subtitle: String) {
+    NONE("No Vibration", "Completely off — zero shake on press"),
+    LIGHT("Light Tap", "Subtle keyboard-style feedback"),
+    STRONG("Crisp Click", "Firm virtual key click")
+}
+
 data class OverlaySettings(
-    val hapticsEnabled: Boolean = true,
+    val vibrationMode: VibrationMode = VibrationMode.LIGHT,
     val globalOpacity: Float = 0.85f,
     val gridSnapEnabled: Boolean = true,
     val controllerNotation: ControllerNotation = ControllerNotation.XBOX,
     val darkTheme: Boolean = true,
     val showTelemetryOverlay: Boolean = true,
     val autoLaunchGeForceNow: Boolean = false
-)
+) {
+    val hapticsEnabled: Boolean
+        get() = vibrationMode != VibrationMode.NONE
+}
 
 class PreferencesRepository(private val context: Context) {
 
     private object Keys {
         val HAPTICS = booleanPreferencesKey("haptics_enabled")
+        val VIBRATION_MODE = stringPreferencesKey("vibration_mode")
         val GLOBAL_OPACITY = floatPreferencesKey("global_opacity")
         val GRID_SNAP = booleanPreferencesKey("grid_snap_enabled")
         val NOTATION = stringPreferencesKey("controller_notation")
@@ -38,8 +48,18 @@ class PreferencesRepository(private val context: Context) {
         val notationName = prefs[Keys.NOTATION] ?: ControllerNotation.XBOX.name
         val notation = runCatching { ControllerNotation.valueOf(notationName) }
             .getOrDefault(ControllerNotation.XBOX)
+
+        val storedVib = prefs[Keys.VIBRATION_MODE]
+        val legacyHaptics = prefs[Keys.HAPTICS]
+        val vibrationMode = when {
+            storedVib != null -> runCatching { VibrationMode.valueOf(storedVib) }
+                .getOrDefault(VibrationMode.LIGHT)
+            legacyHaptics == false -> VibrationMode.NONE
+            else -> VibrationMode.LIGHT
+        }
+
         OverlaySettings(
-            hapticsEnabled = prefs[Keys.HAPTICS] ?: true,
+            vibrationMode = vibrationMode,
             globalOpacity = prefs[Keys.GLOBAL_OPACITY] ?: 0.85f,
             gridSnapEnabled = prefs[Keys.GRID_SNAP] ?: true,
             controllerNotation = notation,
@@ -49,8 +69,11 @@ class PreferencesRepository(private val context: Context) {
         )
     }
 
-    suspend fun setHapticsEnabled(enabled: Boolean) {
-        context.nexusDataStore.edit { it[Keys.HAPTICS] = enabled }
+    suspend fun setVibrationMode(mode: VibrationMode) {
+        context.nexusDataStore.edit {
+            it[Keys.VIBRATION_MODE] = mode.name
+            it[Keys.HAPTICS] = mode != VibrationMode.NONE
+        }
     }
 
     suspend fun setGlobalOpacity(opacity: Float) {

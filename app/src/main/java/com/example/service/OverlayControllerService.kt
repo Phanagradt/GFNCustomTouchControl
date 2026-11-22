@@ -171,7 +171,9 @@ class OverlayControllerService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayWindowType(),
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_SPLIT_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
@@ -260,7 +262,9 @@ class OverlayControllerService : Service() {
                 wPx,
                 hPx,
                 overlayWindowType(),
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_SPLIT_TOUCH,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
@@ -278,7 +282,7 @@ class OverlayControllerService : Service() {
                             control = control,
                             notation = settings.controllerNotation,
                             globalOpacity = settings.globalOpacity,
-                            hapticsEnabled = settings.hapticsEnabled,
+                            vibrationMode = settings.vibrationMode,
                             isEditMode = false,
                             isSelected = false,
                             isPressed = control.id in pressedIds,

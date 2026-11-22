@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DarkMode
@@ -27,7 +26,6 @@ import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.RocketLaunch
-import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -46,6 +44,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.OverlaySettings
+import com.example.data.VibrationMode
 import com.example.model.ControllerNotation
 import com.example.ui.SystemReadiness
 import com.example.ui.theme.GeForceLime
@@ -57,7 +56,7 @@ import kotlin.math.roundToInt
 fun SetupScreen(
     settings: OverlaySettings,
     readiness: SystemReadiness,
-    onHapticsChange: (Boolean) -> Unit,
+    onVibrationModeChange: (VibrationMode) -> Unit,
     onOpacityChange: (Float) -> Unit,
     onGridSnapChange: (Boolean) -> Unit,
     onNotationChange: (ControllerNotation) -> Unit,
@@ -87,10 +86,58 @@ fun SetupScreen(
                     style = MaterialTheme.typography.headlineSmall
                 )
                 Text(
-                    text = "Configure button notation, tactile feedback, and GeForce NOW input permissions.",
+                    text = "Configure vibration, button notation, and GeForce NOW input permissions.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            item {
+                Card(
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.large)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "BUTTON VIBRATION / HAPTICS",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        VibrationMode.entries.forEach { mode ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onVibrationModeChange(mode) }
+                                    .padding(vertical = 4.dp)
+                                    .testTag("setup_vibration_${mode.name.lowercase()}"),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = settings.vibrationMode == mode,
+                                    onClick = { onVibrationModeChange(mode) }
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = mode.displayName,
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                    Text(
+                                        text = mode.subtitle,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             item {
@@ -241,14 +288,6 @@ fun SetupScreen(
                         }
 
                         PreferenceSwitchRow(
-                            icon = Icons.Default.Vibration,
-                            title = "Tactile Key Haptics",
-                            subtitle = "Vibrate lightly on virtual button & stick press",
-                            checked = settings.hapticsEnabled,
-                            onCheckedChange = onHapticsChange,
-                            testTag = "setup_haptics_switch"
-                        )
-                        PreferenceSwitchRow(
                             icon = Icons.Default.GridOn,
                             title = "Snap Controls to Grid",
                             subtitle = "Align buttons cleanly in the Layout Studio",
@@ -302,7 +341,7 @@ fun SetupScreen(
                             modifier = Modifier.size(20.dp)
                         )
                         Text(
-                            text = "Note: On non-rooted Android devices, virtual buttons dispatch real KeyEvents through the NexusPad IME bridge for keyboard and digital gamepad bindings. Analog axes and live touch-to-controller ergonomics can be calibrated and tested in the built-in Test Sandbox.",
+                            text = "Note: On non-rooted Android devices, virtual buttons dispatch real KeyEvents through the NexusPad IME bridge for keyboard and digital gamepad bindings. Multi-touch is supported simultaneously across all overlay buttons and sticks.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

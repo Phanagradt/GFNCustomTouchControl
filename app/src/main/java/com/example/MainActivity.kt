@@ -365,6 +365,8 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                                 allProfiles = profiles,
                                 readiness = readiness,
                                 isOverlayRunning = isOverlayRunning,
+                                vibrationMode = settings.vibrationMode,
+                                onVibrationModeChange = viewModel::setVibrationMode,
                                 onToggleOverlay = toggleOverlayAction,
                                 onSelectProfile = viewModel::setActiveProfile,
                                 onOpenEditor = { id ->
@@ -456,7 +458,7 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                             SetupScreen(
                                 settings = settings,
                                 readiness = readiness,
-                                onHapticsChange = viewModel::setHapticsEnabled,
+                                onVibrationModeChange = viewModel::setVibrationMode,
                                 onOpacityChange = viewModel::setGlobalOpacity,
                                 onGridSnapChange = viewModel::setGridSnapEnabled,
                                 onNotationChange = viewModel::setControllerNotation,

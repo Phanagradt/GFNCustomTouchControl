@@ -97,11 +97,17 @@ object SystemIntegrations {
         return false
     }
 
-    fun performKeyHaptic(view: View, enabled: Boolean) {
-        if (!enabled) return
-        view.performHapticFeedback(
-            HapticFeedbackConstants.VIRTUAL_KEY,
-            HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
-        )
+    fun performKeyHaptic(
+        view: View,
+        vibrationMode: com.example.data.VibrationMode,
+        controlEnabled: Boolean
+    ) {
+        if (!controlEnabled || vibrationMode == com.example.data.VibrationMode.NONE) return
+        val constant = when (vibrationMode) {
+            com.example.data.VibrationMode.NONE -> return
+            com.example.data.VibrationMode.LIGHT -> HapticFeedbackConstants.KEYBOARD_TAP
+            com.example.data.VibrationMode.STRONG -> HapticFeedbackConstants.VIRTUAL_KEY
+        }
+        view.performHapticFeedback(constant)
     }
 }

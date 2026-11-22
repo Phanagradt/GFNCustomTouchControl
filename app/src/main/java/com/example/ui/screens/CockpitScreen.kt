@@ -63,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.VibrationMode
 import com.example.model.BindingDomain
 import com.example.model.ControlType
 import com.example.model.ControllerProfile
@@ -78,6 +79,8 @@ fun CockpitScreen(
     allProfiles: List<ControllerProfile>,
     readiness: SystemReadiness,
     isOverlayRunning: Boolean,
+    vibrationMode: VibrationMode,
+    onVibrationModeChange: (VibrationMode) -> Unit,
     onToggleOverlay: () -> Unit,
     onSelectProfile: (String) -> Unit,
     onOpenEditor: (String) -> Unit,
@@ -206,6 +209,30 @@ fun CockpitScreen(
                                     selectedLeadingIconColor = MaterialTheme.colorScheme.primary
                                 ),
                                 modifier = Modifier.testTag("quick_profile_chip_${profile.id}")
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "BUTTON VIBRATION",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(VibrationMode.entries) { mode ->
+                            FilterChip(
+                                selected = vibrationMode == mode,
+                                onClick = { onVibrationModeChange(mode) },
+                                label = { Text(mode.displayName) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.primary
+                                ),
+                                modifier = Modifier.testTag("cockpit_vibration_${mode.name.lowercase()}")
                             )
                         }
                     }
