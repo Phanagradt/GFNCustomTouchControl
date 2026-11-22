@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material3.Button
@@ -66,6 +67,7 @@ fun SetupScreen(
     onRequestOverlayPermission: () -> Unit,
     onOpenImeSettings: () -> Unit,
     onShowImePicker: () -> Unit,
+    onOpenAccessibilitySettings: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -170,12 +172,22 @@ fun SetupScreen(
 
                         PermissionStepRow(
                             icon = Icons.Default.Keyboard,
-                            title = "2. Enable NexusPad IME",
-                            description = "Android InputMethodService dispatches real KeyEvents for gamepad & PC keyboard bindings.",
+                            title = "2. Enable NexusPad IME & Keyboard",
+                            description = "Dispatches real KeyEvents for gamepad/keyboard binds and provides a built-in virtual typing keyboard.",
                             granted = readiness.isImeEnabled,
                             actionLabel = if (readiness.isImeEnabled) "Enabled" else "Enable IME",
                             testTag = "setup_enable_ime_button",
                             onClick = onOpenImeSettings
+                        )
+
+                        PermissionStepRow(
+                            icon = Icons.Default.Mouse,
+                            title = "3. Mouse Click & Scroll Gestures",
+                            description = "Accessibility gesture engine for Left Click, Right Click, Middle Click, and Scroll Up/Down.",
+                            granted = readiness.isAccessibilityEnabled,
+                            actionLabel = if (readiness.isAccessibilityEnabled) "Enabled" else "Enable",
+                            testTag = "setup_accessibility_button",
+                            onClick = onOpenAccessibilitySettings
                         )
 
                         Row(

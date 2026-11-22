@@ -3,7 +3,7 @@ package com.example.model
 import java.util.UUID
 
 enum class ProfileTemplate(val title: String, val subtitle: String, val defaultGenre: GameGenre) {
-    PC_MOUSE_WASD("PC Mouse (M1–M5) + WASD", "M1–M5, MMB, WASD, Toggle Shift & Space", GameGenre.FPS),
+    PC_MOUSE_WASD("PC Mouse + WASD", "Left/Right/Middle click, Scroll, WASD & Shift", GameGenre.FPS),
     FPS_PRECISION("GeForce FPS Precision", "Dual sticks, triggers, bumpers & Tab", GameGenre.FPS),
     ACTION_RPG("Action RPG + Hotbar", "Gamepad face buttons, D-Pad & M/I/F5", GameGenre.ACTION_RPG),
     WASD_MMO("Hybrid WASD + Hotkeys", "WASD, Toggle Shift, 1–4 hotkeys & Turbo", GameGenre.MMO_MOBA),
@@ -487,7 +487,7 @@ object PresetProfiles {
     fun pcMouseWasdPreset(id: String = "preset_pc_mouse_wasd"): ControllerProfile =
         ControllerProfile(
             id = id,
-            name = "PC Mouse (M1–M5) + WASD",
+            name = "PC Mouse + WASD",
             gameTitle = "Dead by Daylight / PC Cloud",
             genre = GameGenre.FPS,
             controls = listOf(
@@ -526,19 +526,19 @@ object PresetProfiles {
                     binding = CommandCatalog.findById("key_ctrl")
                 ),
                 VirtualControl(
-                    id = "pc_m1",
-                    label = "M1",
+                    id = "pc_lmb",
+                    label = "LMB",
                     controlType = ControlType.SHOULDER_PADDLE,
                     shape = ControlShape.PADDLE,
                     xPercent = 0.87f,
                     yPercent = 0.26f,
                     sizeDp = 72f,
                     accent = ControlAccent.CORAL,
-                    binding = CommandCatalog.findById("mouse_m1")
+                    binding = CommandCatalog.findById("mouse_left")
                 ),
                 VirtualControl(
-                    id = "pc_m2",
-                    label = "M2",
+                    id = "pc_rmb",
+                    label = "RMB",
                     controlType = ControlType.SHOULDER_PADDLE,
                     shape = ControlShape.PADDLE,
                     xPercent = 0.72f,
@@ -546,7 +546,7 @@ object PresetProfiles {
                     sizeDp = 68f,
                     accent = ControlAccent.AMBER,
                     behavior = TriggerBehavior.HOLD,
-                    binding = CommandCatalog.findById("mouse_m2")
+                    binding = CommandCatalog.findById("mouse_right")
                 ),
                 VirtualControl(
                     id = "pc_mmb",
@@ -557,29 +557,29 @@ object PresetProfiles {
                     yPercent = 0.44f,
                     sizeDp = 54f,
                     accent = ControlAccent.AMBER,
-                    binding = CommandCatalog.findById("mouse_m3")
+                    binding = CommandCatalog.findById("mouse_middle")
                 ),
                 VirtualControl(
-                    id = "pc_m4",
-                    label = "M4",
+                    id = "pc_scroll_up",
+                    label = "SCR ↑",
                     controlType = ControlType.BUTTON,
                     shape = ControlShape.PILL,
                     xPercent = 0.67f,
                     yPercent = 0.60f,
                     sizeDp = 54f,
                     accent = ControlAccent.AMBER,
-                    binding = CommandCatalog.findById("mouse_m4")
+                    binding = CommandCatalog.findById("mouse_scroll_up")
                 ),
                 VirtualControl(
-                    id = "pc_m5",
-                    label = "M5",
+                    id = "pc_scroll_down",
+                    label = "SCR ↓",
                     controlType = ControlType.BUTTON,
                     shape = ControlShape.PILL,
                     xPercent = 0.67f,
                     yPercent = 0.78f,
                     sizeDp = 54f,
                     accent = ControlAccent.AMBER,
-                    binding = CommandCatalog.findById("mouse_m5")
+                    binding = CommandCatalog.findById("mouse_scroll_down")
                 ),
                 VirtualControl(
                     id = "pc_campad",

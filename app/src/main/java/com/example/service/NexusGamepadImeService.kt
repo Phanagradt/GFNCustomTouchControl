@@ -3,17 +3,19 @@ package com.example.service
 import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
-import android.view.Gravity
+import android.text.InputType
+import android.view.KeyCharacterMap
+import android.view.KeyEvent
 import android.view.View
-import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
-import android.widget.LinearLayout
-import android.widget.TextView
 import com.example.input.InputBridge
 
 class NexusGamepadImeService : InputMethodService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val keyCharMap by lazy { KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD) }
+    private var keyboardView: NexusVirtualKeyboardView? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -26,54 +28,118 @@ class NexusGamepadImeService : InputMethodService() {
                 }
             }
         }
+        InputBridge.attachKeyboardController {
+            mainHandler.post {
+                @Suppress("DEPRECATION")
+                requestShowSelf(InputMethodManager.SHOW_FORCED)
+            }
+        }
     }
 
-    override fun onEvaluateInputViewShown(): Boolean = false
+    override fun onEvaluateInputViewShown(): Boolean = super.onEvaluateInputViewShown()
 
     override fun onEvaluateFullscreenMode(): Boolean = false
 
     override fun onCreateInputView(): View {
-        val density = resources.displayMetrics.density
-        val padH = (16 * density).toInt()
-        val padV = (10 * density).toInt()
-
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(padH, padV, padH, padV)
-            setBackgroundColor(0xFF0B0E14.toInt())
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        }
-
-        val statusText = TextView(this).apply {
-            text = "NEXUSPAD IME ACTIVE  •  Dispatching Gamepad & Keyboard Events"
-            setTextColor(0xFF8CE000.toInt())
-            textSize = 12f
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-
-        val switchBtn = TextView(this).apply {
-            text = "SWITCH KEYBOARD"
-            setTextColor(0xFF00E5FF.toInt())
-            textSize = 11f
-            setPadding((10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
-            setBackgroundColor(0xFF1A2230.toInt())
-            setOnClickListener {
+        val view = NexusVirtualKeyboardView(
+            context = this,
+            onCommitText = ::handleCommitText,
+            onBackspace = ::handleBackspace,
+            onEnter = ::handleEnter,
+            onSpecialKey = ::handleSpecialKey,
+            onSwitchIme = {
                 val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
                 imm?.showInputMethodPicker()
+            },
+            onHideKeyboard = {
+                requestHideSelf(0)
+            }
+        )
+        keyboardView = view
+        syncEditorMeta(currentInputEditorInfo)
+        return view
+    }
+
+    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(info, restarting)
+        syncEditorMeta(info)
+    }
+
+    private fun syncEditorMeta(info: EditorInfo?) {
+        val imeAction = (info?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION
+        val label = when (imeAction) {
+            EditorInfo.IME_ACTION_SEARCH -> "SEARCH"
+            EditorInfo.IME_ACTION_SEND -> "SEND"
+            EditorInfo.IME_ACTION_GO -> "GO"
+            EditorInfo.IME_ACTION_NEXT -> "NEXT"
+            EditorInfo.IME_ACTION_DONE -> "DONE"
+            else -> "ENTER"
+        }
+        val inputType = info?.inputType ?: InputType.TYPE_NULL
+        val capSentences = (inputType and InputType.TYPE_TEXT_FLAG_CAP_SENTENCES) != 0 ||
+            (inputType and InputType.TYPE_TEXT_FLAG_CAP_WORDS) != 0
+        keyboardView?.updateEditorActionLabel(label, shouldCapitalizeInitially = capSentences)
+    }
+
+    private fun handleCommitText(text: String) {
+        val ic = currentInputConnection ?: return
+        val info = currentInputEditorInfo
+        val isRawTarget = info == null || info.inputType == InputType.TYPE_NULL
+        if (isRawTarget && text.length == 1) {
+            val events = keyCharMap.getEvents(text.toCharArray())
+            if (events != null && events.isNotEmpty()) {
+                events.forEach { ev ->
+                    InputBridge.dispatchRawKey(ev.keyCode, ev.action, ev.metaState)
+                }
+                return
             }
         }
+        ic.commitText(text, 1)
+    }
 
-        container.addView(statusText)
-        container.addView(switchBtn)
-        return container
+    private fun handleBackspace() {
+        val ic = currentInputConnection ?: return
+        val info = currentInputEditorInfo
+        val isRawTarget = info == null || info.inputType == InputType.TYPE_NULL
+        if (isRawTarget) {
+            InputBridge.dispatchRawKey(KeyEvent.KEYCODE_DEL, KeyEvent.ACTION_DOWN)
+            InputBridge.dispatchRawKey(KeyEvent.KEYCODE_DEL, KeyEvent.ACTION_UP)
+        } else {
+            val selected = ic.getSelectedText(0)
+            if (selected.isNullOrEmpty()) {
+                ic.deleteSurroundingText(1, 0)
+            } else {
+                ic.commitText("", 1)
+            }
+        }
+    }
+
+    private fun handleEnter() {
+        val ic = currentInputConnection ?: return
+        val info = currentInputEditorInfo
+        val actionId = (info?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION
+        val isMultiLine = ((info?.inputType ?: 0) and InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0
+        if (!isMultiLine && actionId != EditorInfo.IME_ACTION_NONE && actionId != EditorInfo.IME_ACTION_UNSPECIFIED) {
+            if (ic.performEditorAction(actionId)) return
+        }
+        val isRawTarget = info == null || info.inputType == InputType.TYPE_NULL
+        if (isRawTarget) {
+            InputBridge.dispatchRawKey(KeyEvent.KEYCODE_ENTER, KeyEvent.ACTION_DOWN)
+            InputBridge.dispatchRawKey(KeyEvent.KEYCODE_ENTER, KeyEvent.ACTION_UP)
+        } else {
+            sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
+        }
+    }
+
+    private fun handleSpecialKey(keyCode: Int) {
+        InputBridge.dispatchRawKey(keyCode, KeyEvent.ACTION_DOWN)
+        InputBridge.dispatchRawKey(keyCode, KeyEvent.ACTION_UP)
     }
 
     override fun onDestroy() {
         InputBridge.attachImeSink(null)
+        InputBridge.attachKeyboardController(null)
+        keyboardView = null
         super.onDestroy()
     }
 }

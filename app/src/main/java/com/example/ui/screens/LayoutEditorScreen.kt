@@ -503,7 +503,7 @@ fun LayoutEditorScreen(
                         AxisPair.WASD_KEYS, AxisPair.ARROW_KEYS -> ControlType.WASD_CLUSTER
                         AxisPair.NONE -> {
                             if (binding.id == "btn_lt" || binding.id == "btn_rt" ||
-                                binding.id == "mouse_m1" || binding.id == "mouse_m2"
+                                binding.id == "mouse_left" || binding.id == "mouse_right"
                             ) {
                                 ControlType.SHOULDER_PADDLE
                             } else {
@@ -708,7 +708,7 @@ private fun CommandPickerSheetContent(
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("Search M1–M5, MMB, A, RT, WASD, Shift, Ctrl...") },
+            placeholder = { Text("Search LMB, RMB, MMB, Scroll, A, RT, WASD, Shift...") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()

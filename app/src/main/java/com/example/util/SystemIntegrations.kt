@@ -11,6 +11,7 @@ import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import androidx.core.content.ContextCompat
+import com.example.service.NexusAccessibilityService
 import com.example.service.NexusGamepadImeService
 
 object SystemIntegrations {
@@ -54,6 +55,24 @@ object SystemIntegrations {
     fun showInputMethodPicker(context: Context) {
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
         imm?.showInputMethodPicker()
+    }
+
+    fun isAccessibilityEnabled(context: Context): Boolean {
+        val enabled = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        val target = ComponentName(context, NexusAccessibilityService::class.java).flattenToString()
+        val shortTarget = ComponentName(context, NexusAccessibilityService::class.java).flattenToShortString()
+        return enabled.contains(target, ignoreCase = true) ||
+            enabled.contains(shortTarget, ignoreCase = true) ||
+            enabled.contains(NexusAccessibilityService::class.java.simpleName, ignoreCase = true)
+    }
+
+    fun openAccessibilitySettings(context: Context) {
+        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { context.startActivity(intent) }
     }
 
     fun hasNotificationPermission(context: Context): Boolean {

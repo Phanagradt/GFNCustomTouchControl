@@ -16,6 +16,7 @@ import com.example.model.ControlShape
 import com.example.model.ControlType
 import com.example.model.ControllerNotation
 import com.example.model.ControllerProfile
+import com.example.model.GameFilterStyle
 import com.example.model.GameGenre
 import com.example.model.InputBinding
 import com.example.model.PresetProfiles
@@ -40,6 +41,7 @@ data class SystemReadiness(
     val canDrawOverlays: Boolean = false,
     val isImeEnabled: Boolean = false,
     val isImeSelected: Boolean = false,
+    val isAccessibilityEnabled: Boolean = false,
     val hasNotificationPermission: Boolean = true,
     val isGeForceNowInstalled: Boolean = false
 )
@@ -100,6 +102,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
             canDrawOverlays = SystemIntegrations.canDrawOverlays(ctx),
             isImeEnabled = SystemIntegrations.isImeEnabled(ctx),
             isImeSelected = SystemIntegrations.isImeSelected(ctx),
+            isAccessibilityEnabled = SystemIntegrations.isAccessibilityEnabled(ctx),
             hasNotificationPermission = SystemIntegrations.hasNotificationPermission(ctx),
             isGeForceNowInstalled = SystemIntegrations.isGeForceNowInstalled(ctx)
         )
@@ -196,6 +199,23 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     fun setDarkTheme(dark: Boolean) = viewModelScope.launch { prefsRepo.setDarkTheme(dark) }
     fun setShowTelemetryOverlay(show: Boolean) = viewModelScope.launch { prefsRepo.setShowTelemetryOverlay(show) }
     fun setAutoLaunchGeForceNow(enabled: Boolean) = viewModelScope.launch { prefsRepo.setAutoLaunchGeForceNow(enabled) }
+
+    // GeForce Experience Style Game Filters
+    fun selectFilterSlot(slot: Int) = viewModelScope.launch {
+        prefsRepo.setActiveFilterSlot(slot)
+    }
+
+    fun updateFilterStyle(style: GameFilterStyle) = viewModelScope.launch {
+        prefsRepo.updateFilterStyle(style)
+    }
+
+    fun resetActiveFilterSlot() = viewModelScope.launch {
+        val activeSlot = settings.value.gameFilter.activeSlot
+        if (activeSlot in 1..3) {
+            prefsRepo.resetFilterSlot(activeSlot)
+            _snackbarMessage.value = "Reset Style $activeSlot to 0%"
+        }
+    }
 
     // Layout Editor
     fun openEditor(profileId: String) {

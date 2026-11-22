@@ -3,11 +3,16 @@ package com.example
 import android.view.KeyEvent
 import com.example.input.InputBridge
 import com.example.model.AxisPair
+import com.example.model.ColorMatrixBuilder
 import com.example.model.CommandCatalog
 import com.example.model.ControllerNotation
 import com.example.model.ControllerProfile
+import com.example.model.FilterTintPreset
+import com.example.model.GameFilterState
+import com.example.model.GameFilterStyle
 import com.example.model.GameGenre
 import com.example.model.PresetProfiles
+import com.example.ui.components.computeOverlayDimAmount
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import org.junit.Assert.assertEquals
@@ -24,6 +29,7 @@ class ExampleUnitTest {
         InputBridge.releaseAll()
         InputBridge.clearTelemetry()
         InputBridge.attachImeSink(null)
+        InputBridge.attachPointerSink(null)
     }
 
     @Test
@@ -199,21 +205,53 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun `mouse buttons M1 through M5 map to Linux evdev BTN_LEFT through BTN_EXTRA`() {
-        assertEquals(272, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_1, com.example.model.BindingDomain.MOUSE))
-        assertEquals(273, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_2, com.example.model.BindingDomain.MOUSE))
-        assertEquals(274, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_3, com.example.model.BindingDomain.MOUSE))
-        assertEquals(275, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_4, com.example.model.BindingDomain.MOUSE))
-        assertEquals(276, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_5, com.example.model.BindingDomain.MOUSE))
+    fun `regular mouse buttons and scroll dispatch to PointerGestureSink cleanly`() {
+        val events = mutableListOf<String>()
+        InputBridge.attachPointerSink(object : InputBridge.PointerGestureSink {
+            override fun onLeftButton(isDown: Boolean) {
+                events += if (isDown) "LMB_DOWN" else "LMB_UP"
+            }
+
+            override fun onRightButton(isDown: Boolean) {
+                events += if (isDown) "RMB_DOWN" else "RMB_UP"
+            }
+
+            override fun onMiddleClick() {
+                events += "MMB_CLICK"
+            }
+
+            override fun onScroll(scrollUp: Boolean) {
+                events += if (scrollUp) "SCROLL_UP" else "SCROLL_DOWN"
+            }
+        })
+
+        val lmb = CommandCatalog.findById("mouse_left")
+        val rmb = CommandCatalog.findById("mouse_right")
+        val mmb = CommandCatalog.findById("mouse_middle")
+        val scrUp = CommandCatalog.findById("mouse_scroll_up")
+        val scrDown = CommandCatalog.findById("mouse_scroll_down")
+
+        InputBridge.pressControl("btn_lmb", "LMB", lmb)
+        InputBridge.releaseControl("btn_lmb", "LMB", lmb)
+        InputBridge.pressControl("btn_rmb", "RMB", rmb)
+        InputBridge.releaseControl("btn_rmb", "RMB", rmb)
+        InputBridge.pressControl("btn_mmb", "MMB", mmb)
+        InputBridge.pressControl("btn_scrup", "SCR ↑", scrUp)
+        InputBridge.pressControl("btn_scrdn", "SCR ↓", scrDown)
+
+        assertEquals(
+            listOf("LMB_DOWN", "LMB_UP", "RMB_DOWN", "RMB_UP", "MMB_CLICK", "SCROLL_UP", "SCROLL_DOWN"),
+            events
+        )
     }
 
     @Test
-    fun `custom combo builder creates Shift plus M1 chord and template includes all mouse buttons`() {
+    fun `custom combo builder creates Shift plus E chord and PC Mouse preset includes regular mouse binds`() {
         val shift = CommandCatalog.findById("key_shift")
-        val m1 = CommandCatalog.findById("mouse_m1")
-        val combo = CommandCatalog.createCustomComboBinding(shift, m1)
-        assertEquals("SHF+M1", combo.codeLabel)
-        assertEquals(KeyEvent.KEYCODE_BUTTON_1, combo.primaryKeyCode)
+        val keyE = CommandCatalog.findById("key_e")
+        val combo = CommandCatalog.createCustomComboBinding(shift, keyE)
+        assertEquals("SHF+E", combo.codeLabel)
+        assertEquals(KeyEvent.KEYCODE_E, combo.primaryKeyCode)
         assertEquals(KeyEvent.KEYCODE_SHIFT_LEFT, combo.secondaryKeyCode)
         assertEquals(KeyEvent.META_SHIFT_ON, combo.modifierMetaState)
 
@@ -223,12 +261,13 @@ class ExampleUnitTest {
             genre = GameGenre.FPS,
             template = com.example.model.ProfileTemplate.PC_MOUSE_WASD
         )
-        val labels = mouseProfile.controls.map { it.binding.id }.toSet()
-        assertTrue("mouse_m1" in labels)
-        assertTrue("mouse_m2" in labels)
-        assertTrue("mouse_m3" in labels)
-        assertTrue("mouse_m4" in labels)
-        assertTrue("mouse_m5" in labels)
+        val ids = mouseProfile.controls.map { it.binding.id }.toSet()
+        assertTrue("mouse_left" in ids)
+        assertTrue("mouse_right" in ids)
+        assertTrue("mouse_middle" in ids)
+        assertTrue("mouse_scroll_up" in ids)
+        assertTrue("mouse_scroll_down" in ids)
+        assertEquals("mouse_left", CommandCatalog.findById("mouse_m1").id)
     }
 
     @Test
@@ -284,5 +323,70 @@ class ExampleUnitTest {
             val scan = InputBridge.resolveLinuxScanCode(cmd.primaryKeyCode, cmd.domain)
             assertTrue("Missing Linux scanCode for ${cmd.id} (${cmd.codeLabel})", scan > 0)
         }
+    }
+
+    @Test
+    fun `game filter state serializes round-trip and resets active style cleanly`() {
+        val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        val adapter = moshi.adapter(GameFilterState::class.java)
+
+        val initial = GameFilterState.default()
+        assertEquals(0, initial.activeSlot)
+        assertEquals(3, initial.styles.size)
+        assertFalse(initial.isEnabled)
+
+        val edited = initial.copy(activeSlot = 2).withUpdatedStyle(
+            GameFilterStyle(
+                slot = 2,
+                name = "Vivid HDR",
+                brightness = 0.25f,
+                contrast = 0.30f,
+                shadows = 0.55f,
+                colorVibrance = 0.45f,
+                temperature = -0.15f,
+                tintPreset = FilterTintPreset.COOL_CYAN,
+                tintIntensity = 0.22f
+            )
+        )
+        assertTrue(edited.isEnabled)
+
+        val decoded = adapter.fromJson(adapter.toJson(edited))
+        assertNotNull(decoded)
+        assertEquals(2, decoded?.activeSlot)
+        assertEquals(0.55f, decoded?.activeStyle?.shadows ?: 0f, 0.001f)
+        assertEquals(FilterTintPreset.COOL_CYAN, decoded?.activeStyle?.tintPreset)
+
+        val reset = decoded!!.withResetSlot(2)
+        assertEquals(0f, reset.styleForSlot(2).brightness, 0.001f)
+        assertEquals(0f, reset.styleForSlot(2).shadows, 0.001f)
+        assertEquals(FilterTintPreset.NEUTRAL, reset.styleForSlot(2).tintPreset)
+    }
+
+    @Test
+    fun `color matrix builder produces identity for flat style and lifts shadows or dims cleanly`() {
+        val neutral = GameFilterStyle(slot = 1, name = "Flat")
+        val idMatrix = ColorMatrixBuilder.buildColorMatrixValues(neutral)
+        assertEquals(20, idMatrix.size)
+        assertEquals(1f, idMatrix[0], 0.001f)
+        assertEquals(0f, idMatrix[4], 0.001f)
+        assertEquals(1f, idMatrix[6], 0.001f)
+        assertEquals(1f, idMatrix[12], 0.001f)
+
+        val liftedShadows = neutral.copy(shadows = 0.60f, brightness = 0.20f)
+        val liftedMatrix = ColorMatrixBuilder.buildColorMatrixValues(liftedShadows)
+        assertTrue(liftedMatrix[4] > 40f)
+        assertTrue(liftedMatrix[9] > 40f)
+        assertTrue(liftedMatrix[14] > 40f)
+
+        val warmTint = neutral.copy(
+            temperature = 0.40f,
+            tintPreset = FilterTintPreset.WARM_AMBER,
+            tintIntensity = 0.30f
+        )
+        val warmMatrix = ColorMatrixBuilder.buildColorMatrixValues(warmTint)
+        assertTrue(warmMatrix[4] > warmMatrix[14])
+
+        assertEquals(0f, computeOverlayDimAmount(liftedShadows), 0.001f)
+        assertTrue(computeOverlayDimAmount(neutral.copy(brightness = -0.35f)) > 0.2f)
     }
 }

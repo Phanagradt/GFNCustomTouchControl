@@ -21,13 +21,29 @@ object InputBridge {
         fun onDispatchKeyEvent(event: KeyEvent)
     }
 
+    interface PointerGestureSink {
+        fun onLeftButton(isDown: Boolean)
+        fun onRightButton(isDown: Boolean)
+        fun onMiddleClick()
+        fun onScroll(scrollUp: Boolean)
+    }
+
+    fun interface KeyboardController {
+        fun onShowKeyboard()
+    }
+
     private var activeSink: KeyEventSink? = null
+    private var pointerSink: PointerGestureSink? = null
+    private var keyboardController: KeyboardController? = null
     private val eventIdGen = AtomicLong(1L)
     private val activeDownTimes = ConcurrentHashMap<Int, Long>()
     private val activeModifiers = ConcurrentHashMap<Int, Int>()
 
     private val _isImeConnected = MutableStateFlow(false)
     val isImeConnected: StateFlow<Boolean> = _isImeConnected.asStateFlow()
+
+    private val _isAccessibilityConnected = MutableStateFlow(false)
+    val isAccessibilityConnected: StateFlow<Boolean> = _isAccessibilityConnected.asStateFlow()
 
     private val _isOverlayRunning = MutableStateFlow(false)
     val isOverlayRunning: StateFlow<Boolean> = _isOverlayRunning.asStateFlow()
@@ -52,6 +68,21 @@ object InputBridge {
     fun attachImeSink(sink: KeyEventSink?) {
         activeSink = sink
         _isImeConnected.value = sink != null
+    }
+
+    fun attachPointerSink(sink: PointerGestureSink?) {
+        pointerSink = sink
+        _isAccessibilityConnected.value = sink != null
+    }
+
+    fun attachKeyboardController(controller: KeyboardController?) {
+        keyboardController = controller
+    }
+
+    fun requestShowKeyboard(): Boolean {
+        val controller = keyboardController ?: return false
+        controller.onShowKeyboard()
+        return true
     }
 
     fun setOverlayRunning(running: Boolean) {
@@ -84,7 +115,15 @@ object InputBridge {
 
     fun pulseTurbo(sourceLabel: String, binding: InputBinding) {
         dispatchBindingAction(sourceLabel, binding, isDown = true, actionOverride = "TURBO_HIT")
-        sendKeyToSink(binding.primaryKeyCode, KeyEvent.ACTION_UP, 0, binding.domain)
+        if (binding.domain == BindingDomain.MOUSE) {
+            if (binding.id == "mouse_left" || binding.id == "mouse_m1") {
+                pointerSink?.onLeftButton(false)
+            } else if (binding.id == "mouse_right" || binding.id == "mouse_m2") {
+                pointerSink?.onRightButton(false)
+            }
+        } else {
+            sendKeyToSink(binding.primaryKeyCode, KeyEvent.ACTION_UP, 0, binding.domain)
+        }
     }
 
     fun updateAnalogStick(
@@ -246,6 +285,8 @@ object InputBridge {
     }
 
     fun releaseAll() {
+        pointerSink?.onLeftButton(false)
+        pointerSink?.onRightButton(false)
         val heldKeys = activeDownTimes.keys.toList()
         val nonModifierKeys = heldKeys.filter { modifierBitsForKeyCode(it) == 0 }
         val modifierKeys = (heldKeys.filter { modifierBitsForKeyCode(it) != 0 } + activeModifiers.keys).distinct()
@@ -264,12 +305,21 @@ object InputBridge {
         _rightStick.value = StickState()
     }
 
+    fun dispatchRawKey(keyCode: Int, action: Int, metaState: Int = 0) {
+        sendKeyToSink(keyCode, action, metaState, BindingDomain.KEYBOARD)
+    }
+
     private fun dispatchBindingAction(
         sourceLabel: String,
         binding: InputBinding,
         isDown: Boolean,
         actionOverride: String? = null
     ) {
+        if (binding.domain == BindingDomain.MOUSE) {
+            dispatchMouseBinding(sourceLabel, binding, isDown, actionOverride)
+            return
+        }
+
         val action = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
         if (binding.secondaryKeyCode != KeyEvent.KEYCODE_UNKNOWN) {
             val secDomain = effectiveDomainForKey(binding.secondaryKeyCode, binding.domain)
@@ -298,6 +348,55 @@ object InputBridge {
             actionName = actionOverride ?: if (isDown) "KEY_DOWN" else "KEY_UP",
             detail = keyDesc,
             domain = binding.domain
+        )
+    }
+
+    private fun dispatchMouseBinding(
+        sourceLabel: String,
+        binding: InputBinding,
+        isDown: Boolean,
+        actionOverride: String?
+    ) {
+        val sink = pointerSink
+        val detail = when (binding.id) {
+            "mouse_left", "mouse_m1" -> {
+                sink?.onLeftButton(isDown)
+                if (sink != null) "Left Click Gesture" else "Enable Accessibility for Click"
+            }
+            "mouse_right", "mouse_m2" -> {
+                sink?.onRightButton(isDown)
+                if (sink != null) "Right Click (2-Finger)" else "Enable Accessibility for Click"
+            }
+            "mouse_middle", "mouse_m3" -> {
+                if (isDown) sink?.onMiddleClick()
+                if (sink != null) "Middle Click (3-Finger)" else "Enable Accessibility for Click"
+            }
+            "mouse_scroll_up", "mouse_m5" -> {
+                if (isDown) sink?.onScroll(scrollUp = true)
+                if (sink != null) "Scroll Wheel Up" else "Enable Accessibility for Scroll"
+            }
+            "mouse_scroll_down", "mouse_m4" -> {
+                if (isDown) sink?.onScroll(scrollUp = false)
+                if (sink != null) "Scroll Wheel Down" else "Enable Accessibility for Scroll"
+            }
+            else -> {
+                sink?.onLeftButton(isDown)
+                if (sink != null) "Left Click Gesture" else "Enable Accessibility for Click"
+            }
+        }
+
+        val actionName = actionOverride ?: when (binding.id) {
+            "mouse_scroll_up", "mouse_scroll_down", "mouse_m4", "mouse_m5" ->
+                if (isDown) "SCROLL" else "SCROLL_END"
+            else -> if (isDown) "MOUSE_DOWN" else "MOUSE_UP"
+        }
+
+        recordTelemetry(
+            sourceLabel = sourceLabel,
+            codeLabel = binding.codeLabel,
+            actionName = actionName,
+            detail = detail,
+            domain = BindingDomain.MOUSE
         )
     }
 
@@ -359,11 +458,11 @@ object InputBridge {
                     KeyEvent.KEYCODE_DPAD_DOWN -> "DPAD_DOWN"
                     KeyEvent.KEYCODE_DPAD_LEFT -> "DPAD_LEFT"
                     KeyEvent.KEYCODE_DPAD_RIGHT -> "DPAD_RIGHT"
-                    KeyEvent.KEYCODE_BUTTON_1 -> "M1"
-                    KeyEvent.KEYCODE_BUTTON_2 -> "M2"
-                    KeyEvent.KEYCODE_BUTTON_3 -> "M3"
-                    KeyEvent.KEYCODE_BUTTON_4 -> "M4"
-                    KeyEvent.KEYCODE_BUTTON_5 -> "M5"
+                    KeyEvent.KEYCODE_BUTTON_1 -> "LMB"
+                    KeyEvent.KEYCODE_BUTTON_2 -> "RMB"
+                    KeyEvent.KEYCODE_BUTTON_3 -> "MMB"
+                    KeyEvent.KEYCODE_PAGE_UP -> "SCR_UP"
+                    KeyEvent.KEYCODE_PAGE_DOWN -> "SCR_DN"
                     KeyEvent.KEYCODE_BUTTON_L2 -> "BUTTON_L2"
                     KeyEvent.KEYCODE_BUTTON_R2 -> "BUTTON_R2"
                     else -> "KEY_$keyCode"
@@ -520,11 +619,11 @@ object InputBridge {
         KeyEvent.KEYCODE_BUTTON_MODE -> 316
         KeyEvent.KEYCODE_BUTTON_THUMBL -> 317
         KeyEvent.KEYCODE_BUTTON_THUMBR -> 318
-        KeyEvent.KEYCODE_BUTTON_1 -> 272 // BTN_LEFT (M1)
-        KeyEvent.KEYCODE_BUTTON_2 -> 273 // BTN_RIGHT (M2)
-        KeyEvent.KEYCODE_BUTTON_3 -> 274 // BTN_MIDDLE (M3 / MMB)
-        KeyEvent.KEYCODE_BUTTON_4 -> 275 // BTN_SIDE (M4)
-        KeyEvent.KEYCODE_BUTTON_5 -> 276 // BTN_EXTRA (M5)
+        KeyEvent.KEYCODE_PAGE_UP -> 104
+        KeyEvent.KEYCODE_PAGE_DOWN -> 109
+        KeyEvent.KEYCODE_BUTTON_1 -> 272 // BTN_LEFT
+        KeyEvent.KEYCODE_BUTTON_2 -> 273 // BTN_RIGHT
+        KeyEvent.KEYCODE_BUTTON_3 -> 274 // BTN_MIDDLE
         else -> 0
     }
 

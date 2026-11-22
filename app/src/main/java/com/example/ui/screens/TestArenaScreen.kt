@@ -39,11 +39,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -56,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.OverlaySettings
 import com.example.model.BindingDomain
+import com.example.model.ColorMatrixBuilder
 import com.example.model.ControllerProfile
 import com.example.model.StickState
 import com.example.model.TelemetryEvent
@@ -173,10 +176,18 @@ fun TestArenaScreen(
             val widthPx = with(density) { maxWidth.toPx() }
             val heightPx = with(density) { maxHeight.toPx() }
 
+            val activeFilterStyle = settings.gameFilter.activeStyle
+            val viewportColorFilter = remember(activeFilterStyle) {
+                activeFilterStyle?.let {
+                    ColorFilter.colorMatrix(ColorMatrixBuilder.toComposeColorMatrix(it))
+                }
+            }
+
             Image(
                 painter = painterResource(id = R.drawable.img_game_arena_bg),
                 contentDescription = "Simulated GeForce NOW Game Stream",
                 contentScale = ContentScale.Crop,
+                colorFilter = viewportColorFilter,
                 modifier = Modifier.fillMaxSize()
             )
             Box(
@@ -229,6 +240,22 @@ fun TestArenaScreen(
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 11.sp,
                         color = GeForceLime,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+                Surface(
+                    color = Color(0xCC0B0E14),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = if (activeFilterStyle != null) {
+                            "FILTER S${activeFilterStyle.slot}"
+                        } else {
+                            "FILTER OFF"
+                        },
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 10.sp,
+                        color = if (activeFilterStyle != null) GeForceLime else Color(0xFF9FB0C7),
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }

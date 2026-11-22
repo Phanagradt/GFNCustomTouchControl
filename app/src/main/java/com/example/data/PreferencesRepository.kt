@@ -7,7 +7,12 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.model.ControllerNotation
+import com.example.model.GameFilterState
+import com.example.model.GameFilterStyle
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.nexusDataStore by preferencesDataStore(name = "nexuspad_settings")
@@ -25,13 +30,20 @@ data class OverlaySettings(
     val controllerNotation: ControllerNotation = ControllerNotation.XBOX,
     val darkTheme: Boolean = true,
     val showTelemetryOverlay: Boolean = true,
-    val autoLaunchGeForceNow: Boolean = false
+    val autoLaunchGeForceNow: Boolean = false,
+    val gameFilter: GameFilterState = GameFilterState.default()
 ) {
     val hapticsEnabled: Boolean
         get() = vibrationMode != VibrationMode.NONE
 }
 
 class PreferencesRepository(private val context: Context) {
+
+    private val moshi: Moshi = Moshi.Builder()
+        .addLast(KotlinJsonAdapterFactory())
+        .build()
+
+    private val filterAdapter = moshi.adapter(GameFilterState::class.java)
 
     private object Keys {
         val HAPTICS = booleanPreferencesKey("haptics_enabled")
@@ -42,6 +54,7 @@ class PreferencesRepository(private val context: Context) {
         val DARK_THEME = booleanPreferencesKey("dark_theme")
         val SHOW_TELEMETRY = booleanPreferencesKey("show_telemetry_overlay")
         val AUTO_LAUNCH_GFN = booleanPreferencesKey("auto_launch_gfn")
+        val GAME_FILTER_JSON = stringPreferencesKey("game_filter_json")
     }
 
     val settingsFlow: Flow<OverlaySettings> = context.nexusDataStore.data.map { prefs ->
@@ -58,6 +71,8 @@ class PreferencesRepository(private val context: Context) {
             else -> VibrationMode.LIGHT
         }
 
+        val gameFilter = decodeFilterState(prefs[Keys.GAME_FILTER_JSON])
+
         OverlaySettings(
             vibrationMode = vibrationMode,
             globalOpacity = prefs[Keys.GLOBAL_OPACITY] ?: 0.85f,
@@ -65,7 +80,19 @@ class PreferencesRepository(private val context: Context) {
             controllerNotation = notation,
             darkTheme = prefs[Keys.DARK_THEME] ?: true,
             showTelemetryOverlay = prefs[Keys.SHOW_TELEMETRY] ?: true,
-            autoLaunchGeForceNow = prefs[Keys.AUTO_LAUNCH_GFN] ?: false
+            autoLaunchGeForceNow = prefs[Keys.AUTO_LAUNCH_GFN] ?: false,
+            gameFilter = gameFilter
+        )
+    }
+
+    private fun decodeFilterState(raw: String?): GameFilterState {
+        if (raw.isNullOrBlank()) return GameFilterState.default()
+        val parsed = runCatching { filterAdapter.fromJson(raw) }.getOrNull()
+        if (parsed == null || parsed.styles.isEmpty()) return GameFilterState.default()
+        val normalizedStyles = (1..3).map { parsed.styleForSlot(it) }
+        return parsed.copy(
+            activeSlot = parsed.activeSlot.coerceIn(0, 3),
+            styles = normalizedStyles
         )
     }
 
@@ -98,5 +125,29 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun setAutoLaunchGeForceNow(enabled: Boolean) {
         context.nexusDataStore.edit { it[Keys.AUTO_LAUNCH_GFN] = enabled }
+    }
+
+    suspend fun setActiveFilterSlot(slot: Int) {
+        context.nexusDataStore.edit { prefs ->
+            val current = decodeFilterState(prefs[Keys.GAME_FILTER_JSON])
+            val updated = current.copy(activeSlot = slot.coerceIn(0, 3))
+            prefs[Keys.GAME_FILTER_JSON] = filterAdapter.toJson(updated)
+        }
+    }
+
+    suspend fun updateFilterStyle(style: GameFilterStyle) {
+        context.nexusDataStore.edit { prefs ->
+            val current = decodeFilterState(prefs[Keys.GAME_FILTER_JSON])
+            val next = current.withUpdatedStyle(style).copy(activeSlot = style.slot.coerceIn(1, 3))
+            prefs[Keys.GAME_FILTER_JSON] = filterAdapter.toJson(next)
+        }
+    }
+
+    suspend fun resetFilterSlot(slot: Int) {
+        context.nexusDataStore.edit { prefs ->
+            val current = decodeFilterState(prefs[Keys.GAME_FILTER_JSON])
+            val next = current.withResetSlot(slot)
+            prefs[Keys.GAME_FILTER_JSON] = filterAdapter.toJson(next)
+        }
     }
 }

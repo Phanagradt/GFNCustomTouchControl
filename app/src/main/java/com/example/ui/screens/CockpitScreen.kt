@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Stop
@@ -88,6 +89,7 @@ fun CockpitScreen(
     onOpenSandbox: () -> Unit,
     onRequestOverlayPermission: () -> Unit,
     onOpenImeSettings: () -> Unit,
+    onOpenAccessibilitySettings: () -> Unit,
     onLaunchGeForceNow: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -134,11 +136,11 @@ fun CockpitScreen(
                     )
                     ReadinessRowCard(
                         icon = Icons.Default.Keyboard,
-                        title = "Gamepad & Keyboard IME",
+                        title = "Gamepad & Built-In Keyboard IME",
                         subtitle = when {
-                            readiness.isImeSelected -> "NexusPad IME active for key & button dispatch"
+                            readiness.isImeSelected -> "Active for key dispatch & built-in typing keyboard"
                             readiness.isImeEnabled -> "Enabled — tap to select as active input method"
-                            else -> "Enable NexusPad IME to send keyboard & gamepad events"
+                            else -> "Enable NexusPad IME for game keys & built-in keyboard"
                         },
                         statusText = when {
                             readiness.isImeSelected -> "ACTIVE"
@@ -148,6 +150,19 @@ fun CockpitScreen(
                         isReady = readiness.isImeSelected,
                         testTag = "readiness_ime_card",
                         onClick = onOpenImeSettings
+                    )
+                    ReadinessRowCard(
+                        icon = Icons.Default.Mouse,
+                        title = "Mouse Click & Scroll Gestures",
+                        subtitle = if (readiness.isAccessibilityEnabled) {
+                            "Enabled — Left, Right, Middle click & Scroll active"
+                        } else {
+                            "Enable NexusPad Mouse Gestures for LMB, RMB, MMB & Scroll"
+                        },
+                        statusText = if (readiness.isAccessibilityEnabled) "READY" else "ENABLE",
+                        isReady = readiness.isAccessibilityEnabled,
+                        testTag = "readiness_accessibility_card",
+                        onClick = onOpenAccessibilitySettings
                     )
                     ReadinessRowCard(
                         icon = Icons.Default.RocketLaunch,

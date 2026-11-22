@@ -25,11 +25,11 @@ object CommandCatalog {
     )
 
     val mouseCommands: List<InputBinding> = listOf(
-        InputBinding("mouse_m1", BindingDomain.MOUSE, KeyEvent.KEYCODE_BUTTON_1, codeLabel = "M1", commandTitle = "Left Mouse Button (M1 / Primary Click)"),
-        InputBinding("mouse_m2", BindingDomain.MOUSE, KeyEvent.KEYCODE_BUTTON_2, codeLabel = "M2", commandTitle = "Right Mouse Button (M2 / Aim)"),
-        InputBinding("mouse_m3", BindingDomain.MOUSE, KeyEvent.KEYCODE_BUTTON_3, codeLabel = "MMB", commandTitle = "Middle Mouse Button (M3 / Wheel Click)"),
-        InputBinding("mouse_m4", BindingDomain.MOUSE, KeyEvent.KEYCODE_BUTTON_4, codeLabel = "M4", commandTitle = "Mouse Side 1 (M4 / Thumb Back)"),
-        InputBinding("mouse_m5", BindingDomain.MOUSE, KeyEvent.KEYCODE_BUTTON_5, codeLabel = "M5", commandTitle = "Mouse Side 2 (M5 / Thumb Forward)")
+        InputBinding("mouse_left", BindingDomain.MOUSE, KeyEvent.KEYCODE_BUTTON_1, codeLabel = "LMB", commandTitle = "Left Mouse Button (Click / Primary)"),
+        InputBinding("mouse_right", BindingDomain.MOUSE, KeyEvent.KEYCODE_BUTTON_2, codeLabel = "RMB", commandTitle = "Right Mouse Button (Aim / Context)"),
+        InputBinding("mouse_middle", BindingDomain.MOUSE, KeyEvent.KEYCODE_BUTTON_3, codeLabel = "MMB", commandTitle = "Middle Mouse Button (Wheel Click)"),
+        InputBinding("mouse_scroll_up", BindingDomain.MOUSE, KeyEvent.KEYCODE_PAGE_UP, codeLabel = "SCR ↑", commandTitle = "Mouse Scroll Up (Wheel Up)"),
+        InputBinding("mouse_scroll_down", BindingDomain.MOUSE, KeyEvent.KEYCODE_PAGE_DOWN, codeLabel = "SCR ↓", commandTitle = "Mouse Scroll Down (Wheel Down)")
     )
 
     val analogCommands: List<InputBinding> = listOf(
@@ -100,8 +100,7 @@ object CommandCatalog {
         InputBinding("combo_steam", BindingDomain.COMBO, KeyEvent.KEYCODE_TAB, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.META_SHIFT_ON, "SHF+TAB", "Steam Overlay (Shift+Tab)"),
         InputBinding("combo_ult", BindingDomain.COMBO, KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1, 0, "LB+RB", "Ultimate Ability (LB + RB)"),
         InputBinding("combo_sprint_jump", BindingDomain.COMBO, KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.META_SHIFT_ON, "SHF+SPC", "Sprint Jump Chord"),
-        InputBinding("combo_shift_m1", BindingDomain.COMBO, KeyEvent.KEYCODE_BUTTON_1, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.META_SHIFT_ON, "SHF+M1", "Sprint Attack (Shift + M1)"),
-        InputBinding("combo_ctrl_m1", BindingDomain.COMBO, KeyEvent.KEYCODE_BUTTON_1, KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.META_CTRL_ON, "CTRL+M1", "Alt Click / Split (Ctrl + M1)"),
+        InputBinding("combo_sprint_use", BindingDomain.COMBO, KeyEvent.KEYCODE_E, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.META_SHIFT_ON, "SHF+E", "Sprint Interact (Shift + E)"),
         InputBinding("combo_ctrl_r", BindingDomain.COMBO, KeyEvent.KEYCODE_R, KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.META_CTRL_ON, "CTRL+R", "Tactical Reset (Ctrl+R)")
     )
 
@@ -109,10 +108,19 @@ object CommandCatalog {
         controllerCommands + mouseCommands + analogCommands + keyboardCommands + comboCommands
 
     val singleButtonCommands: List<InputBinding> =
-        controllerCommands + mouseCommands + keyboardCommands
+        controllerCommands + keyboardCommands
 
-    fun findById(id: String): InputBinding =
-        allCommands.firstOrNull { it.id == id } ?: controllerCommands.first()
+    fun findById(id: String): InputBinding {
+        val normalizedId = when (id) {
+            "mouse_m1" -> "mouse_left"
+            "mouse_m2" -> "mouse_right"
+            "mouse_m3" -> "mouse_middle"
+            "mouse_m4" -> "mouse_scroll_down"
+            "mouse_m5" -> "mouse_scroll_up"
+            else -> id
+        }
+        return allCommands.firstOrNull { it.id == normalizedId } ?: controllerCommands.first()
+    }
 
     fun createCustomComboBinding(secondary: InputBinding, primary: InputBinding): InputBinding {
         val secShort = when (secondary.codeLabel) {

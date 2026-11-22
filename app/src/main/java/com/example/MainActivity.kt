@@ -28,10 +28,12 @@ import androidx.compose.material.icons.filled.FolderCopy
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.FolderCopy
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.TouchApp
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -79,6 +81,7 @@ import com.example.model.ControllerProfile
 import com.example.service.OverlayControllerService
 import com.example.ui.NexusViewModel
 import com.example.ui.screens.CockpitScreen
+import com.example.ui.screens.GameFilterScreen
 import com.example.ui.screens.LayoutEditorScreen
 import com.example.ui.screens.ProfilesScreen
 import com.example.ui.screens.SetupScreen
@@ -90,6 +93,7 @@ import com.example.util.SystemIntegrations
 object NexusRoutes {
     const val COCKPIT = "cockpit"
     const val PROFILES = "profiles"
+    const val FILTERS = "filters"
     const val SANDBOX = "sandbox"
     const val SETUP = "setup"
     const val EDITOR = "editor/{profileId}"
@@ -108,6 +112,7 @@ private data class NavTab(
 private val PrimaryTabs = listOf(
     NavTab(NexusRoutes.COCKPIT, "Cockpit", Icons.Filled.Dashboard, Icons.Outlined.Dashboard, "nav_cockpit"),
     NavTab(NexusRoutes.PROFILES, "Profiles", Icons.Filled.FolderCopy, Icons.Outlined.FolderCopy, "nav_profiles"),
+    NavTab(NexusRoutes.FILTERS, "Filters", Icons.Filled.Tune, Icons.Outlined.Tune, "nav_filters"),
     NavTab(NexusRoutes.SANDBOX, "Sandbox", Icons.Filled.TouchApp, Icons.Outlined.TouchApp, "nav_sandbox"),
     NavTab(NexusRoutes.SETUP, "Setup", Icons.Filled.Settings, Icons.Outlined.Settings, "nav_setup")
 )
@@ -392,6 +397,9 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                                         SystemIntegrations.openInputMethodSettings(context)
                                     }
                                 },
+                                onOpenAccessibilitySettings = {
+                                    SystemIntegrations.openAccessibilitySettings(context)
+                                },
                                 onLaunchGeForceNow = {
                                     val launched = SystemIntegrations.launchGeForceNowOrStore(context)
                                     if (!launched) {
@@ -430,6 +438,17 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                                         .ifEmpty { "nexuspad_profile" }
                                     exportLauncher.launch("$safeFileName.json")
                                 }
+                            )
+                        }
+
+                        composable(NexusRoutes.FILTERS) {
+                            GameFilterScreen(
+                                filterState = settings.gameFilter,
+                                isOverlayRunning = isOverlayRunning,
+                                onSelectSlot = viewModel::selectFilterSlot,
+                                onUpdateStyle = viewModel::updateFilterStyle,
+                                onResetSlot = viewModel::resetActiveFilterSlot,
+                                onToggleOverlay = toggleOverlayAction
                             )
                         }
 
@@ -473,6 +492,9 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                                 },
                                 onShowImePicker = {
                                     SystemIntegrations.showInputMethodPicker(context)
+                                },
+                                onOpenAccessibilitySettings = {
+                                    SystemIntegrations.openAccessibilitySettings(context)
                                 },
                                 onRequestNotificationPermission = {
                                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
