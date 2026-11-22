@@ -1,0 +1,117 @@
+package com.example
+
+import android.view.KeyEvent
+import com.example.input.InputBridge
+import com.example.model.AxisPair
+import com.example.model.CommandCatalog
+import com.example.model.ControllerNotation
+import com.example.model.ControllerProfile
+import com.example.model.GameGenre
+import com.example.model.PresetProfiles
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+
+class ExampleUnitTest {
+
+    @Before
+    fun setup() {
+        InputBridge.clearTelemetry()
+        InputBridge.attachImeSink(null)
+    }
+
+    @Test
+    fun `starter presets contain all four GeForce NOW layouts`() {
+        val presets = PresetProfiles.createStarterProfiles()
+        assertEquals(4, presets.size)
+        assertTrue(presets.first().isActive)
+        assertTrue(presets.all { it.controls.isNotEmpty() })
+    }
+
+    @Test
+    fun `command catalog formats Xbox and PlayStation notations accurately`() {
+        val btnA = CommandCatalog.findById("btn_a")
+        val btnY = CommandCatalog.findById("btn_y")
+        assertEquals("A", CommandCatalog.formatFaceLabel(btnA, ControllerNotation.XBOX))
+        assertEquals("✕", CommandCatalog.formatFaceLabel(btnA, ControllerNotation.PLAYSTATION))
+        assertEquals("△", CommandCatalog.formatFaceLabel(btnY, ControllerNotation.PLAYSTATION))
+    }
+
+    @Test
+    fun `moshi serializes and deserializes controller profile round-trip`() {
+        val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        val adapter = moshi.adapter(ControllerProfile::class.java)
+        val original = PresetProfiles.createBlankProfile("Test FPS", "Apex Legends", GameGenre.FPS)
+
+        val json = adapter.toJson(original)
+        val decoded = adapter.fromJson(json)
+        assertNotNull(decoded)
+        assertEquals(original.name, decoded?.name)
+        assertEquals(original.controls.size, decoded?.controls?.size)
+        assertEquals(original.genre, decoded?.genre)
+    }
+
+    @Test
+    fun `analog stick deadzone filters drift and toggle latches cleanly`() {
+        InputBridge.updateAnalogStick(
+            axisPair = AxisPair.LEFT_STICK,
+            sourceLabel = "Move",
+            rawX = 0.04f,
+            rawY = -0.04f,
+            deadzone = 0.12f,
+            sensitivity = 1.0f,
+            active = true
+        )
+        assertEquals(0f, InputBridge.leftStick.value.x, 0.001f)
+        assertEquals(0f, InputBridge.leftStick.value.y, 0.001f)
+
+        InputBridge.updateAnalogStick(
+            axisPair = AxisPair.RIGHT_STICK,
+            sourceLabel = "Aim",
+            rawX = 0.80f,
+            rawY = 0.0f,
+            deadzone = 0.10f,
+            sensitivity = 1.2f,
+            active = true
+        )
+        assertTrue(InputBridge.rightStick.value.x > 0.85f)
+
+        val lt = CommandCatalog.findById("btn_lt")
+        assertTrue(InputBridge.toggleControl("toggle_lt", "AIM", lt))
+        assertTrue("toggle_lt" in InputBridge.toggledControlIds.value)
+        assertFalse(InputBridge.toggleControl("toggle_lt", "AIM", lt))
+        assertFalse("toggle_lt" in InputBridge.toggledControlIds.value)
+    }
+
+    @Test
+    fun `wasd cluster records directional press and release telemetry`() {
+        InputBridge.updateDirectionalCluster(
+            controlId = "wasd_1",
+            sourceLabel = "WASD",
+            axisPair = AxisPair.WASD_KEYS,
+            x = 0.7f,
+            y = -0.8f,
+            active = true
+        )
+        val downEvents = InputBridge.telemetry.value.map { it.codeLabel }
+        assertTrue(downEvents.contains("W"))
+        assertTrue(downEvents.contains("D"))
+
+        InputBridge.updateDirectionalCluster(
+            controlId = "wasd_1",
+            sourceLabel = "WASD",
+            axisPair = AxisPair.WASD_KEYS,
+            x = 0f,
+            y = 0f,
+            active = false
+        )
+        val upEvents = InputBridge.telemetry.value.filter { it.actionName == "KEY_UP" }.map { it.codeLabel }
+        assertTrue(upEvents.contains("W"))
+        assertTrue(upEvents.contains("D"))
+    }
+}

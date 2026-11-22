@@ -1,0 +1,6 @@
+{
+  "name": "NexusPad",
+  "description": "Customizable virtual controller and keyboard overlay mapper for GeForce NOW cloud gaming.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
