@@ -9,5 +9,4 @@ Customizable virtual controller and keyboard overlay mapper for **GeForce NOW** 
 - **Profile Library & JSON Import/Export**: Preloaded with GeForce NOW starter presets (*FPS Precision*, *Action RPG + Hotbar*, *Hybrid WASD + Hotkeys*, *Racing Telemetry Pad*) and full JSON backup/sharing.
 - **Floating Overlay & Test Sandbox**: Live `SYSTEM_ALERT_WINDOW` touch-passthrough overlay + `InputMethodService` key dispatch + built-in Stream Test Sandbox with real-time `KeyEvent`/axis telemetry.
 
-## Downloading the APK from GitHub Releases
-Every push to `main`/`master` or tagged release (`v*`) automatically triggers the **Build & Release NexusPad APK** GitHub Action (`.github/workflows/build-release-apk.yml`), which builds the APK and publishes it under the **Releases** tab on GitHub.
+## In very early access state, a Glitches and Bugs might be found during your usage.
