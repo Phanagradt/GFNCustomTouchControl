@@ -1,17 +1,13 @@
 package com.example.ui
 
-import android.content.Context
+import android.app.Application
 import android.net.Uri
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.CloudProfileRepository
 import com.example.data.NexusDatabase
 import com.example.data.OverlaySettings
 import com.example.data.PreferencesRepository
 import com.example.data.ProfileRepository
-import com.example.data.RedeemedSharedLayout
-import com.example.data.SharedCodeTicket
 import com.example.data.VibrationMode
 import com.example.input.InputBridge
 import com.example.model.BindingDomain
@@ -30,15 +26,10 @@ import com.example.model.TriggerBehavior
 import com.example.model.VirtualControl
 import com.example.util.ButtonImageCodec
 import com.example.util.SystemIntegrations
-import com.google.firebase.firestore.FirebaseFirestoreException
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -53,31 +44,6 @@ data class SystemReadiness(
     val isGeForceNowInstalled: Boolean = false
 )
 
-data class AccountUiState(
-    val uid: String = "",
-    val displayName: String = "",
-    val email: String? = null,
-    val photoUrl: String? = null,
-    val isSyncing: Boolean = false,
-    val syncedLayoutCount: Int = 0,
-    val lastSyncTimeMs: Long? = null,
-    val syncError: String? = null
-)
-
-sealed interface ShareCodeUiState {
-    data object Idle : ShareCodeUiState
-    data class Generating(val profileName: String) : ShareCodeUiState
-    data class Ready(val ticket: SharedCodeTicket) : ShareCodeUiState
-    data class Error(val message: String) : ShareCodeUiState
-}
-
-sealed interface ImportCodeUiState {
-    data object Idle : ImportCodeUiState
-    data class Loading(val code: String) : ImportCodeUiState
-    data class Success(val redeemed: RedeemedSharedLayout) : ImportCodeUiState
-    data class Error(val message: String) : ImportCodeUiState
-}
-
 data class EditorUiState(
     val profile: ControllerProfile? = null,
     val selectedControlId: String? = null,
@@ -89,16 +55,11 @@ data class EditorUiState(
         get() = profile?.controls?.firstOrNull { it.id == selectedControlId }
 }
 
-class NexusViewModel(
-    private val appContext: Context,
-    private val profileRepo: ProfileRepository,
-    private val prefsRepo: PreferencesRepository,
-    private val cloudRepo: CloudProfileRepository,
-    private val currentUserId: String,
-    userDisplayName: String,
-    userEmail: String?,
-    userPhotoUrl: String?
-) : ViewModel() {
+class NexusViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val database = NexusDatabase.getInstance(application)
+    private val profileRepo = ProfileRepository(database.profileDao())
+    private val prefsRepo = PreferencesRepository(application)
 
     val profiles: StateFlow<List<ControllerProfile>> = profileRepo.profiles
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -120,128 +81,27 @@ class NexusViewModel(
     private val _readiness = MutableStateFlow(SystemReadiness())
     val readiness: StateFlow<SystemReadiness> = _readiness.asStateFlow()
 
-    private val _accountState = MutableStateFlow(
-        AccountUiState(
-            uid = currentUserId,
-            displayName = userDisplayName.ifBlank { "NexusPad Player" },
-            email = userEmail,
-            photoUrl = userPhotoUrl,
-            isSyncing = true
-        )
-    )
-    val accountState: StateFlow<AccountUiState> = _accountState.asStateFlow()
-
-    private val _shareCodeState = MutableStateFlow<ShareCodeUiState>(ShareCodeUiState.Idle)
-    val shareCodeState: StateFlow<ShareCodeUiState> = _shareCodeState.asStateFlow()
-
-    private val _importCodeState = MutableStateFlow<ImportCodeUiState>(ImportCodeUiState.Idle)
-    val importCodeState: StateFlow<ImportCodeUiState> = _importCodeState.asStateFlow()
-
     private val _editorState = MutableStateFlow(EditorUiState())
     val editorState: StateFlow<EditorUiState> = _editorState.asStateFlow()
 
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     val snackbarMessage: StateFlow<String?> = _snackbarMessage.asStateFlow()
 
-    private var cloudSyncJob: Job? = null
-    private var initialCloudUploadDone = false
-
     init {
-        refreshSystemStatus()
-        startCloudAccountAndSync(userDisplayName, userPhotoUrl)
-    }
-
-    private fun startCloudAccountAndSync(displayName: String, photoUrl: String?) {
-        cloudSyncJob?.cancel()
-        cloudSyncJob = viewModelScope.launch {
-            profileRepo.ensureSeeded()
-            cloudRepo.ensureUserAccount(displayName = displayName, photoUrl = photoUrl)
-                .onFailure { err ->
-                    _accountState.update {
-                        it.copy(syncError = err.localizedMessage ?: "Account sync failed")
-                    }
-                }
-
-            cloudRepo.observeCloudLayouts(currentUserId)
-                .catch { error ->
-                    val firestoreError = generateSequence(error) { it.cause }
-                        .filterIsInstance<FirebaseFirestoreException>()
-                        .firstOrNull()
-                    if (firestoreError == null && error is CancellationException) throw error
-                    val root = firestoreError ?: error
-                    _accountState.update {
-                        it.copy(
-                            isSyncing = false,
-                            syncError = root.localizedMessage ?: "Cloud sync paused"
-                        )
-                    }
-                }
-                .collect { cloudLayouts ->
-                    profileRepo.upsertFromCloud(cloudLayouts)
-
-                    if (!initialCloudUploadDone) {
-                        initialCloudUploadDone = true
-                        val cloudById = cloudLayouts.associateBy { it.id }
-                        val localList = profileRepo.getAllProfilesOnce()
-                        for (local in localList) {
-                            val remote = cloudById[local.id]
-                            val shouldUpload = remote == null ||
-                                (local.updatedAt > ProfileRepository.STARTER_BASELINE_MS && local.updatedAt > remote.updatedAt)
-                            if (shouldUpload) {
-                                cloudRepo.upsertCloudLayout(local)
-                            }
-                        }
-                    }
-
-                    _accountState.update {
-                        it.copy(
-                            isSyncing = false,
-                            syncedLayoutCount = cloudLayouts.size,
-                            lastSyncTimeMs = System.currentTimeMillis(),
-                            syncError = null
-                        )
-                    }
-                }
-        }
-    }
-
-    fun prepareForSignOut() {
-        cloudSyncJob?.cancel()
-        cloudSyncJob = null
-    }
-
-    fun syncNow() {
         viewModelScope.launch {
-            _accountState.update { it.copy(isSyncing = true, syncError = null) }
-            val localProfiles = profileRepo.getAllProfilesOnce()
-            var anyError: String? = null
-            for (profile in localProfiles) {
-                cloudRepo.upsertCloudLayout(profile).onFailure { err ->
-                    anyError = err.localizedMessage ?: "Sync error"
-                }
-            }
-            _accountState.update {
-                it.copy(
-                    isSyncing = false,
-                    lastSyncTimeMs = System.currentTimeMillis(),
-                    syncError = anyError
-                )
-            }
-            _snackbarMessage.value = if (anyError == null) {
-                "All ${localProfiles.size} layouts synced to NexusPad Cloud"
-            } else {
-                "Cloud sync warning: $anyError"
-            }
+            profileRepo.ensureSeeded()
         }
+        refreshSystemStatus()
     }
 
     fun refreshSystemStatus() {
+        val ctx = getApplication<Application>()
         _readiness.value = SystemReadiness(
-            canDrawOverlays = SystemIntegrations.canDrawOverlays(appContext),
-            isImeEnabled = SystemIntegrations.isImeEnabled(appContext),
-            isImeSelected = SystemIntegrations.isImeSelected(appContext),
-            hasNotificationPermission = SystemIntegrations.hasNotificationPermission(appContext),
-            isGeForceNowInstalled = SystemIntegrations.isGeForceNowInstalled(appContext)
+            canDrawOverlays = SystemIntegrations.canDrawOverlays(ctx),
+            isImeEnabled = SystemIntegrations.isImeEnabled(ctx),
+            isImeSelected = SystemIntegrations.isImeSelected(ctx),
+            hasNotificationPermission = SystemIntegrations.hasNotificationPermission(ctx),
+            isGeForceNowInstalled = SystemIntegrations.isGeForceNowInstalled(ctx)
         )
     }
 
@@ -256,10 +116,6 @@ class NexusViewModel(
     fun setActiveProfile(id: String) {
         viewModelScope.launch {
             profileRepo.setActiveProfile(id)
-            val all = profileRepo.getAllProfilesOnce()
-            all.filter { it.id == id || it.isActive }.forEach { profile ->
-                cloudRepo.upsertCloudLayout(profile.copy(isActive = profile.id == id))
-            }
             _snackbarMessage.value = "Active overlay profile updated"
         }
     }
@@ -278,17 +134,15 @@ class NexusViewModel(
                 genre = genre,
                 template = template
             )
-            val saved = profileRepo.saveProfile(created)
-            profileRepo.setActiveProfile(saved.id)
-            cloudRepo.upsertCloudLayout(saved.copy(isActive = true))
-            onCreated(saved.id)
+            profileRepo.saveProfile(created)
+            profileRepo.setActiveProfile(created.id)
+            onCreated(created.id)
         }
     }
 
     fun duplicateProfile(source: ControllerProfile) {
         viewModelScope.launch {
             val copy = profileRepo.duplicateProfile(source)
-            cloudRepo.upsertCloudLayout(copy)
             _snackbarMessage.value = "Duplicated \"${copy.name}\""
         }
     }
@@ -296,7 +150,6 @@ class NexusViewModel(
     fun deleteProfile(id: String) {
         viewModelScope.launch {
             profileRepo.deleteProfile(id)
-            cloudRepo.deleteCloudLayout(id)
             _snackbarMessage.value = "Profile removed"
         }
     }
@@ -308,7 +161,6 @@ class NexusViewModel(
         viewModelScope.launch {
             val result = profileRepo.importProfileJson(json)
             result.onSuccess { imported ->
-                cloudRepo.upsertCloudLayout(imported)
                 _snackbarMessage.value = "Imported \"${imported.name}\" (${imported.controls.size} controls)"
             }.onFailure {
                 _snackbarMessage.value = "Could not import JSON: ${it.localizedMessage ?: "Invalid format"}"
@@ -316,58 +168,9 @@ class NexusViewModel(
         }
     }
 
-    // 5-Minute Expiring Share Code Flow
-    fun generateShareCode(profile: ControllerProfile) {
-        viewModelScope.launch {
-            _shareCodeState.value = ShareCodeUiState.Generating(profile.name)
-            val author = _accountState.value.displayName
-            cloudRepo.createShareCode(profile, author)
-                .onSuccess { ticket ->
-                    _shareCodeState.value = ShareCodeUiState.Ready(ticket)
-                }
-                .onFailure { err ->
-                    _shareCodeState.value = ShareCodeUiState.Error(
-                        err.localizedMessage ?: "Failed to generate share code"
-                    )
-                }
-        }
-    }
-
-    fun resetShareCodeState() {
-        _shareCodeState.value = ShareCodeUiState.Idle
-    }
-
-    fun redeemShareCode(rawCode: String) {
-        val trimmed = rawCode.trim()
-        if (trimmed.isBlank()) {
-            _importCodeState.value = ImportCodeUiState.Error("Please enter a share code")
-            return
-        }
-        viewModelScope.launch {
-            _importCodeState.value = ImportCodeUiState.Loading(trimmed.uppercase())
-            cloudRepo.redeemShareCode(trimmed)
-                .onSuccess { redeemed ->
-                    val saved = profileRepo.saveProfile(redeemed.profile)
-                    cloudRepo.upsertCloudLayout(saved)
-                    _importCodeState.value = ImportCodeUiState.Success(redeemed.copy(profile = saved))
-                    _snackbarMessage.value = "Saved \"${saved.name}\" permanently from ${redeemed.authorName}!"
-                }
-                .onFailure { err ->
-                    _importCodeState.value = ImportCodeUiState.Error(
-                        err.localizedMessage ?: "Could not import share code"
-                    )
-                }
-        }
-    }
-
-    fun resetImportCodeState() {
-        _importCodeState.value = ImportCodeUiState.Idle
-    }
-
-    // Custom Button Image Upload
     fun applyCustomButtonImage(controlId: String, imageUri: Uri) {
         viewModelScope.launch {
-            ButtonImageCodec.encodeUriToBase64(appContext, imageUri)
+            ButtonImageCodec.encodeUriToBase64(getApplication(), imageUri)
                 .onSuccess { encoded ->
                     mutateEditorProfile(selectId = controlId) { current ->
                         current.copy(
@@ -376,7 +179,7 @@ class NexusViewModel(
                             }
                         )
                     }
-                    _snackbarMessage.value = "Custom button image applied — tap Save to sync"
+                    _snackbarMessage.value = "Custom button image applied — tap Save to keep"
                 }
                 .onFailure { err ->
                     _snackbarMessage.value = "Failed to load image: ${err.localizedMessage ?: "Invalid file"}"
@@ -397,7 +200,7 @@ class NexusViewModel(
     // Layout Editor
     fun openEditor(profileId: String) {
         viewModelScope.launch {
-            val loaded = profileRepo.getProfile(profileId) ?: activeProfile.first()
+            val loaded = profileRepo.getProfile(profileId) ?: activeProfile.value
             _editorState.value = EditorUiState(
                 profile = loaded,
                 selectedControlId = loaded?.controls?.firstOrNull()?.id,
@@ -550,15 +353,9 @@ class NexusViewModel(
     fun saveEditorProfile(onSaved: () -> Unit = {}) {
         val current = _editorState.value.profile ?: return
         viewModelScope.launch {
-            val saved = profileRepo.saveProfile(current)
-            _editorState.update { it.copy(profile = saved, hasUnsavedChanges = false) }
-            cloudRepo.upsertCloudLayout(saved)
-                .onSuccess {
-                    _snackbarMessage.value = "Saved & backed up \"${saved.name}\""
-                }
-                .onFailure {
-                    _snackbarMessage.value = "Saved locally (cloud sync retry later)"
-                }
+            profileRepo.saveProfile(current)
+            _editorState.update { it.copy(hasUnsavedChanges = false) }
+            _snackbarMessage.value = "Saved \"${current.name}\""
             onSaved()
         }
     }
@@ -591,35 +388,5 @@ class NexusViewModel(
 
     fun clearTelemetry() {
         InputBridge.clearTelemetry()
-    }
-
-    override fun onCleared() {
-        cloudSyncJob?.cancel()
-        super.onCleared()
-    }
-
-    class Factory(
-        private val context: Context,
-        private val cloudRepo: CloudProfileRepository,
-        private val uid: String,
-        private val displayName: String,
-        private val email: String?,
-        private val photoUrl: String?
-    ) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            val appCtx = context.applicationContext
-            val db = NexusDatabase.getInstance(appCtx)
-            return NexusViewModel(
-                appContext = appCtx,
-                profileRepo = ProfileRepository(db.profileDao()),
-                prefsRepo = PreferencesRepository(appCtx),
-                cloudRepo = cloudRepo,
-                currentUserId = uid,
-                userDisplayName = displayName,
-                userEmail = email,
-                userPhotoUrl = photoUrl
-            ) as T
-        }
     }
 }

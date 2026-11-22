@@ -245,22 +245,26 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun `share code sanitizer and cloud layout mapper preserve custom button images`() {
-        assertEquals("K7M9PQ", com.example.data.CloudLayoutMapper.sanitizeShareCode("  k7m-9pq! "))
-        assertTrue(com.example.data.CloudLayoutMapper.isValidShareCodeFormat("K7M9PQ"))
-        assertFalse(com.example.data.CloudLayoutMapper.isValidShareCodeFormat("ABC12"))
-
+    fun `moshi preserves custom button image base64 across profile serialization`() {
+        val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        val adapter = moshi.adapter(ControllerProfile::class.java)
         val baseProfile = PresetProfiles.createBlankProfile("Art Pad", "Fortnite", GameGenre.FPS)
-        val firstWithImage = baseProfile.controls.first().copy(customImageBase64 = "UklGRg==")
-        val mapped = com.example.data.CloudLayoutMapper.controlToMap(firstWithImage)
-        val restored = com.example.data.CloudLayoutMapper.mapToControl(mapped)
+        val updatedControls = baseProfile.controls.mapIndexed { index, ctrl ->
+            if (index == 0) ctrl.copy(customImageBase64 = "UklGRg==") else ctrl
+        }
+        val profile = baseProfile.copy(controls = updatedControls)
+
+        val json = adapter.toJson(profile)
+        val restored = adapter.fromJson(json)
         assertNotNull(restored)
-        assertEquals("UklGRg==", restored?.customImageBase64)
-        assertEquals(firstWithImage.binding.codeLabel, restored?.binding?.codeLabel)
+        assertEquals("UklGRg==", restored?.controls?.firstOrNull()?.customImageBase64)
     }
 
     @Test
     fun `dispatching key A omits FLAG_SOFT_KEYBOARD so scanCode 30 reaches cloud client`() {
+        assertEquals(0, InputBridge.effectiveDispatchFlags() and KeyEvent.FLAG_SOFT_KEYBOARD)
+        assertEquals(KeyEvent.FLAG_KEEP_TOUCH_MODE, InputBridge.effectiveDispatchFlags())
+
         val dispatched = mutableListOf<KeyEvent>()
         InputBridge.attachImeSink { ev -> dispatched += ev }
 
@@ -268,11 +272,17 @@ class ExampleUnitTest {
         InputBridge.pressControl("test_a", "A", keyA)
         InputBridge.releaseControl("test_a", "A", keyA)
 
-        // Note: On JVM unit test KeyEvent constructor may be a stub returning 0s unless Robolectric is used,
-        // so verify either Robolectric-like populated values or non-crashing sink delivery + telemetry.
         assertEquals(2, dispatched.size)
         val telemetry = InputBridge.telemetry.value.firstOrNull()
         assertNotNull(telemetry)
         assertTrue(telemetry!!.detail.contains("scan=30"))
+    }
+
+    @Test
+    fun `every single button command maps to a non-zero linux evdev scan code`() {
+        CommandCatalog.singleButtonCommands.forEach { cmd ->
+            val scan = InputBridge.resolveLinuxScanCode(cmd.primaryKeyCode, cmd.domain)
+            assertTrue("Missing Linux scanCode for ${cmd.id} (${cmd.codeLabel})", scan > 0)
+        }
     }
 }

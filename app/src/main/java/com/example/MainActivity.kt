@@ -52,10 +52,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -63,7 +61,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.credentials.CredentialManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -76,16 +73,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.example.auth.AuthManager
-import com.example.data.CloudProfileRepository
-import com.example.data.OverlaySettings
-import com.example.data.PreferencesRepository
 import com.example.input.InputBridge
 import com.example.model.BindingDomain
 import com.example.model.ControllerProfile
 import com.example.service.OverlayControllerService
 import com.example.ui.NexusViewModel
-import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.CockpitScreen
 import com.example.ui.screens.LayoutEditorScreen
 import com.example.ui.screens.ProfilesScreen
@@ -94,8 +86,6 @@ import com.example.ui.screens.TestArenaScreen
 import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.NexusPadTheme
 import com.example.util.SystemIntegrations
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
 
 object NexusRoutes {
     const val COCKPIT = "cockpit"
@@ -128,37 +118,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val context = LocalContext.current
-            val prefsRepo = remember(context) { PreferencesRepository(context.applicationContext) }
-            val settings by prefsRepo.settingsFlow.collectAsStateWithLifecycle(initialValue = OverlaySettings())
-            val currentUser by AuthManager.authStateFlow().collectAsStateWithLifecycle(
-                initialValue = Firebase.auth.currentUser
-            )
+            val viewModel: NexusViewModel = viewModel()
+            val settings by viewModel.settings.collectAsStateWithLifecycle()
 
             NexusPadTheme(darkTheme = settings.darkTheme) {
-                val signedInUser = currentUser
-                if (signedInUser == null) {
-                    AuthScreen(onAuthSuccess = {})
-                } else {
-                    val uid = signedInUser.uid
-                    key(uid) {
-                        val cloudRepo = remember(uid) {
-                            CloudProfileRepository(context.applicationContext)
-                        }
-                        val vmFactory = remember(uid) {
-                            NexusViewModel.Factory(
-                                context = context.applicationContext,
-                                cloudRepo = cloudRepo,
-                                uid = uid,
-                                displayName = signedInUser.displayName ?: "NexusPad Player",
-                                email = signedInUser.email,
-                                photoUrl = signedInUser.photoUrl?.toString()
-                            )
-                        }
-                        val viewModel: NexusViewModel = viewModel(key = uid, factory = vmFactory)
-                        NexusPadAppShell(viewModel = viewModel)
-                    }
-                }
+                NexusPadAppShell(viewModel = viewModel)
             }
         }
     }
@@ -188,16 +152,11 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
-    val coroutineScope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
 
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val readiness by viewModel.readiness.collectAsStateWithLifecycle()
-    val accountState by viewModel.accountState.collectAsStateWithLifecycle()
-    val shareCodeState by viewModel.shareCodeState.collectAsStateWithLifecycle()
-    val importCodeState by viewModel.importCodeState.collectAsStateWithLifecycle()
     val isOverlayRunning by viewModel.isOverlayRunning.collectAsStateWithLifecycle()
     val pressedIds by viewModel.pressedControlIds.collectAsStateWithLifecycle()
     val toggledIds by viewModel.toggledControlIds.collectAsStateWithLifecycle()
@@ -446,8 +405,6 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                             ProfilesScreen(
                                 profiles = profiles,
                                 activeProfileId = activeProfile?.id,
-                                shareCodeState = shareCodeState,
-                                importCodeState = importCodeState,
                                 onSetActive = viewModel::setActiveProfile,
                                 onEditProfile = { id ->
                                     viewModel.openEditor(id)
@@ -464,7 +421,7 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                                 onImportJsonClick = {
                                     importLauncher.launch(arrayOf("application/json", "text/plain"))
                                 },
-                                onExportJsonClick = { profile ->
+                                onExportProfileClick = { profile ->
                                     pendingExportProfile = profile
                                     val safeFileName = profile.name
                                         .lowercase()
@@ -472,12 +429,7 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                                         .trim('_')
                                         .ifEmpty { "nexuspad_profile" }
                                     exportLauncher.launch("$safeFileName.json")
-                                },
-                                onGenerateShareCode = viewModel::generateShareCode,
-                                onResetShareCode = viewModel::resetShareCodeState,
-                                onRedeemShareCode = viewModel::redeemShareCode,
-                                onResetImportCode = viewModel::resetImportCodeState,
-                                onShowMessage = viewModel::showMessage
+                                }
                             )
                         }
 
@@ -506,18 +458,6 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                             SetupScreen(
                                 settings = settings,
                                 readiness = readiness,
-                                accountState = accountState,
-                                onSyncNow = viewModel::syncNow,
-                                onSignOut = {
-                                    if (isOverlayRunning) {
-                                        OverlayControllerService.stop(context)
-                                    }
-                                    AuthManager.signOut(
-                                        credentialManager = credentialManager,
-                                        scope = coroutineScope,
-                                        onBeforeSignOut = { viewModel.prepareForSignOut() }
-                                    )
-                                },
                                 onVibrationModeChange = viewModel::setVibrationMode,
                                 onOpacityChange = viewModel::setGlobalOpacity,
                                 onGridSnapChange = viewModel::setGridSnapEnabled,

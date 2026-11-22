@@ -889,7 +889,7 @@ private fun ControlInspectorSheetContent(
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Custom Button Image", style = MaterialTheme.typography.titleSmall)
                             Text(
-                                text = if (customBitmap != null) "Custom icon active & synced" else "Upload your own icon or art",
+                                text = if (customBitmap != null) "Custom icon active (saved with layout)" else "Upload your own icon or art",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

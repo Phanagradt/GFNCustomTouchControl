@@ -401,12 +401,12 @@ object InputBridge {
         val scanCode = resolveLinuxScanCode(keyCode, domain)
         val source = when (domain) {
             BindingDomain.CONTROLLER -> InputDevice.SOURCE_GAMEPAD
-            BindingDomain.MOUSE -> InputDevice.SOURCE_MOUSE
+            BindingDomain.MOUSE -> InputDevice.SOURCE_MOUSE or InputDevice.SOURCE_KEYBOARD
             else -> InputDevice.SOURCE_KEYBOARD
         }
         // Keep touch mode intact without setting FLAG_SOFT_KEYBOARD, which causes cloud streaming
         // clients (like GeForce NOW) to ignore hardware scanCode and treat KEYCODE_A(29) as CTRL(29).
-        val flags = KeyEvent.FLAG_KEEP_TOUCH_MODE
+        val flags = effectiveDispatchFlags()
         val event = KeyEvent(
             downTime,
             now,
@@ -421,6 +421,8 @@ object InputBridge {
         )
         sink.onDispatchKeyEvent(event)
     }
+
+    fun effectiveDispatchFlags(): Int = KeyEvent.FLAG_KEEP_TOUCH_MODE
 
     /**
      * Maps Android KeyEvent keycodes to exact Linux evdev scan codes (uapi/linux/input-event-codes.h)
