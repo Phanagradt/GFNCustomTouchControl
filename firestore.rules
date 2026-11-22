@@ -1,0 +1,158 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidShareCode(code) {
+      return code is string && code.size() >= 6 && code.size() <= 16 && code.matches('^[A-Z0-9]+$');
+    }
+
+    function isValidUserAccount(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+             (!('photoUrl' in data) || data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 500));
+    }
+
+    function isValidUserLayout(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+             data.gameTitle is string && data.gameTitle.size() >= 1 && data.gameTitle.size() <= 100 &&
+             data.genre is string && data.genre.size() >= 1 && data.genre.size() <= 32 &&
+             data.globalOpacity is number && data.globalOpacity >= 0.2 && data.globalOpacity <= 1.0 &&
+             data.gridSnap is bool &&
+             data.active is bool &&
+             data.clientUpdatedAt is int && data.clientUpdatedAt >= 0 &&
+             data.controls is list && data.controls.size() <= 40 &&
+             (data.controls.size() == 0 || data.controls[0] is map);
+    }
+
+    function isValidSharedLayout(data) {
+      return data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+             data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+             data.gameTitle is string && data.gameTitle.size() >= 1 && data.gameTitle.size() <= 100 &&
+             data.genre is string && data.genre.size() >= 1 && data.genre.size() <= 32 &&
+             data.globalOpacity is number && data.globalOpacity >= 0.2 && data.globalOpacity <= 1.0 &&
+             data.gridSnap is bool &&
+             data.controls is list && data.controls.size() <= 40 &&
+             (data.controls.size() == 0 || data.controls[0] is map);
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'displayName', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'displayName', 'photoUrl', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidUserAccount(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       isValidUserAccount(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoUrl', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+
+      match /layouts/{layoutId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(layoutId) && request.auth.uid == userId;
+        allow list: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(layoutId) &&
+                         request.auth.uid == userId &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll([
+                           'userId', 'name', 'gameTitle', 'genre',
+                           'globalOpacity', 'gridSnap', 'active',
+                           'controls', 'clientUpdatedAt', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'name', 'gameTitle', 'genre',
+                           'globalOpacity', 'gridSnap', 'active',
+                           'controls', 'clientUpdatedAt', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         isValidUserLayout(incoming());
+
+        allow update: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(layoutId) &&
+                         request.auth.uid == userId &&
+                         isValidUserLayout(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'name', 'gameTitle', 'genre', 'globalOpacity',
+                           'gridSnap', 'active', 'controls', 'clientUpdatedAt', 'updatedAt'
+                         ]);
+
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(layoutId) && request.auth.uid == userId;
+      }
+    }
+
+    match /shared_layouts/{shareCode} {
+      // Allow lookup of non-existent codes (to show clean "code not found" message) or non-expired codes (or owner).
+      // Existing expired codes are strictly blocked at the rules layer.
+      allow get: if isSignedIn() &&
+                    isValidShareCode(shareCode) &&
+                    (resource == null || existing().ownerId == request.auth.uid || existing().expiresAt > request.time);
+
+      // Only owners can list their own created share codes; blocks scraping other users' share codes.
+      allow list: if isSignedIn() && existing().ownerId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidShareCode(shareCode) &&
+                       incoming().ownerId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'ownerId', 'authorName', 'name', 'gameTitle', 'genre',
+                         'globalOpacity', 'gridSnap', 'controls', 'createdAt', 'expiresAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'ownerId', 'authorName', 'name', 'gameTitle', 'genre',
+                         'globalOpacity', 'gridSnap', 'controls', 'createdAt', 'expiresAt'
+                       ]) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().expiresAt is timestamp &&
+                       incoming().expiresAt > request.time &&
+                       incoming().expiresAt <= request.time + duration.value(6, 'm') &&
+                       isValidSharedLayout(incoming());
+
+      allow update: if false;
+
+      allow delete: if isSignedIn() && isValidShareCode(shareCode) && existing().ownerId == request.auth.uid;
+    }
+  }
+}

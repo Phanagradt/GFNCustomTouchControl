@@ -1,0 +1,186 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Authenticated NexusPad cloud user profile.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the account owner."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name shown in account settings and shared layout attribution."
+        },
+        "photoUrl": {
+          "type": "string",
+          "description": "Optional Google profile avatar URL."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserLayout": {
+      "title": "UserLayout",
+      "description": "Cloud-synced controller and keyboard layout belonging to a specific user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "name": {
+          "type": "string",
+          "description": "Layout profile name."
+        },
+        "gameTitle": {
+          "type": "string",
+          "description": "Target GeForce NOW game title."
+        },
+        "genre": {
+          "type": "string",
+          "description": "GameGenre enum name."
+        },
+        "globalOpacity": {
+          "type": "number",
+          "description": "Default global opacity between 0.2 and 1.0."
+        },
+        "gridSnap": {
+          "type": "boolean",
+          "description": "Whether grid snapping is enabled."
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Whether this layout is currently armed."
+        },
+        "controls": {
+          "type": "array",
+          "description": "Native list of virtual control maps including bindings and optional compact custom button images."
+        },
+        "clientUpdatedAt": {
+          "type": "integer",
+          "description": "Client modification epoch milliseconds."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp written via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp written via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "gameTitle",
+        "genre",
+        "globalOpacity",
+        "gridSnap",
+        "active",
+        "controls",
+        "clientUpdatedAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SharedLayout": {
+      "title": "SharedLayout",
+      "description": "Temporary 5-minute share code snapshot allowing friends to import a copy of a layout.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Creator Firebase Auth UID."
+        },
+        "authorName": {
+          "type": "string",
+          "description": "Creator display name."
+        },
+        "name": {
+          "type": "string",
+          "description": "Shared profile name."
+        },
+        "gameTitle": {
+          "type": "string",
+          "description": "Target game title."
+        },
+        "genre": {
+          "type": "string",
+          "description": "GameGenre enum name."
+        },
+        "globalOpacity": {
+          "type": "number",
+          "description": "Profile opacity."
+        },
+        "gridSnap": {
+          "type": "boolean",
+          "description": "Grid snap preference."
+        },
+        "controls": {
+          "type": "array",
+          "description": "Native list of virtual control maps."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp written via FieldValue.serverTimestamp()."
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Expiration timestamp 5 minutes after creation."
+        }
+      },
+      "required": [
+        "ownerId",
+        "authorName",
+        "name",
+        "gameTitle",
+        "genre",
+        "globalOpacity",
+        "gridSnap",
+        "controls",
+        "createdAt",
+        "expiresAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserAccount"
+      },
+      "description": "Private user account profile."
+    },
+    "/users/{userId}/layouts/{layoutId}": {
+      "schema": {
+        "$ref": "#/entities/UserLayout"
+      },
+      "description": "User-owned cloud-backed layouts synced across app updates."
+    },
+    "/shared_layouts/{shareCode}": {
+      "schema": {
+        "$ref": "#/entities/SharedLayout"
+      },
+      "description": "5-minute expiring share codes for friend-to-friend layout sharing."
+    }
+  }
+}

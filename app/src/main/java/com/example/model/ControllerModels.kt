@@ -103,6 +103,7 @@ data class VirtualControl(
     val sensitivity: Float = 1.0f,
     val hapticOnPress: Boolean = true,
     val invertY: Boolean = false,
+    val customImageBase64: String? = null,
     val binding: InputBinding
 )
 

@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,8 +35,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -55,6 +59,7 @@ import com.example.model.TriggerBehavior
 import com.example.model.VirtualControl
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.SpaceGroteskFontFamily
+import com.example.util.ButtonImageCodec
 import com.example.util.SystemIntegrations
 import kotlinx.coroutines.delay
 import kotlin.math.PI
@@ -268,23 +273,51 @@ private fun ActionButtonSurface(
         Modifier
     }
 
+    val customBitmap = remember(control.customImageBase64) {
+        ButtonImageCodec.decodeBase64ToImageBitmap(control.customImageBase64)
+    }
+    val clipShape = remember(control.shape) { shapeForControl(control.shape) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .then(touchModifier),
         contentAlignment = Alignment.Center
     ) {
+        if (customBitmap != null) {
+            Image(
+                bitmap = customBitmap,
+                contentDescription = "${control.label} custom icon",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(2.dp)
+                    .clip(clipShape)
+            )
+            if (active) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(2.dp)
+                        .clip(clipShape)
+                        .background(accentColor.copy(alpha = 0.28f))
+                )
+            }
+        }
+
         Canvas(modifier = Modifier.fillMaxSize()) {
             val strokePx = if (active) 3.dp.toPx() else 1.8.dp.toPx()
+            val surfaceBaseAlpha = if (customBitmap != null) 0.14f else 0.76f
+            val accentOverlayAlpha = if (customBitmap != null) (if (active) 0.28f else 0.04f) else fillAlpha
             when (control.shape) {
                 ControlShape.CIRCLE, ControlShape.RING -> {
                     val radius = (size.minDimension / 2f) - strokePx
                     drawCircle(
-                        color = Color(0xFF0E141E).copy(alpha = 0.72f),
+                        color = Color(0xFF0E141E).copy(alpha = surfaceBaseAlpha),
                         radius = radius
                     )
                     drawCircle(
-                        color = accentColor.copy(alpha = fillAlpha),
+                        color = accentColor.copy(alpha = accentOverlayAlpha),
                         radius = radius
                     )
                     drawCircle(
@@ -295,20 +328,20 @@ private fun ActionButtonSurface(
                 }
                 ControlShape.HEX -> {
                     val path = buildHexagonPath(size.width, size.height, strokePx)
-                    drawPath(path, Color(0xFF0E141E).copy(alpha = 0.76f))
-                    drawPath(path, accentColor.copy(alpha = fillAlpha))
+                    drawPath(path, Color(0xFF0E141E).copy(alpha = surfaceBaseAlpha))
+                    drawPath(path, accentColor.copy(alpha = accentOverlayAlpha))
                     drawPath(path, borderColor, style = Stroke(width = strokePx))
                 }
                 ControlShape.PADDLE -> {
                     val corner = CornerRadius(14.dp.toPx(), 14.dp.toPx())
                     drawRoundRect(
-                        color = Color(0xFF0E141E).copy(alpha = 0.78f),
+                        color = Color(0xFF0E141E).copy(alpha = surfaceBaseAlpha),
                         topLeft = Offset(strokePx, strokePx),
                         size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
                         cornerRadius = corner
                     )
                     drawRoundRect(
-                        color = accentColor.copy(alpha = fillAlpha),
+                        color = accentColor.copy(alpha = accentOverlayAlpha),
                         topLeft = Offset(strokePx, strokePx),
                         size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
                         cornerRadius = corner
@@ -325,27 +358,29 @@ private fun ActionButtonSurface(
                     val corner = CornerRadius(11.dp.toPx(), 11.dp.toPx())
                     val inset = strokePx + 3.dp.toPx()
                     drawRoundRect(
-                        color = Color(0xFF0A0F18).copy(alpha = 0.86f),
+                        color = Color(0xFF0A0F18).copy(alpha = surfaceBaseAlpha),
                         topLeft = Offset(strokePx, strokePx),
                         size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
                         cornerRadius = corner
                     )
                     drawRoundRect(
-                        color = accentColor.copy(alpha = fillAlpha),
+                        color = accentColor.copy(alpha = accentOverlayAlpha),
                         topLeft = Offset(strokePx, strokePx),
                         size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
                         cornerRadius = corner
                     )
-                    drawRoundRect(
-                        color = borderColor.copy(alpha = 0.32f),
-                        topLeft = Offset(inset, inset),
-                        size = Size(
-                            (size.width - inset * 2).coerceAtLeast(4f),
-                            (size.height - inset * 2.3f).coerceAtLeast(4f)
-                        ),
-                        cornerRadius = CornerRadius(7.dp.toPx(), 7.dp.toPx()),
-                        style = Stroke(width = 1.dp.toPx())
-                    )
+                    if (customBitmap == null) {
+                        drawRoundRect(
+                            color = borderColor.copy(alpha = 0.32f),
+                            topLeft = Offset(inset, inset),
+                            size = Size(
+                                (size.width - inset * 2).coerceAtLeast(4f),
+                                (size.height - inset * 2.3f).coerceAtLeast(4f)
+                            ),
+                            cornerRadius = CornerRadius(7.dp.toPx(), 7.dp.toPx()),
+                            style = Stroke(width = 1.dp.toPx())
+                        )
+                    }
                     drawRoundRect(
                         color = borderColor,
                         topLeft = Offset(strokePx, strokePx),
@@ -357,13 +392,13 @@ private fun ActionButtonSurface(
                 else -> {
                     val corner = CornerRadius(size.height / 2f, size.height / 2f)
                     drawRoundRect(
-                        color = Color(0xFF0E141E).copy(alpha = 0.76f),
+                        color = Color(0xFF0E141E).copy(alpha = surfaceBaseAlpha),
                         topLeft = Offset(strokePx, strokePx),
                         size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
                         cornerRadius = corner
                     )
                     drawRoundRect(
-                        color = accentColor.copy(alpha = fillAlpha),
+                        color = accentColor.copy(alpha = accentOverlayAlpha),
                         topLeft = Offset(strokePx, strokePx),
                         size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
                         cornerRadius = corner
@@ -379,41 +414,57 @@ private fun ActionButtonSurface(
             }
         }
 
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 4.dp)
-        ) {
-            Text(
-                text = control.label,
-                color = if (active) Color.White else Color(0xFFF0F4FA),
-                fontFamily = SpaceGroteskFontFamily,
-                fontWeight = FontWeight.Bold,
-                fontSize = if (control.label.length > 4) 11.sp else 14.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
-            if (control.label != displayCode || control.behavior != TriggerBehavior.HOLD) {
-                val badge = buildString {
-                    if (control.label != displayCode) append(displayCode)
-                    if (control.behavior == TriggerBehavior.TOGGLE) {
-                        if (isNotEmpty()) append(" • ")
-                        append(if (isToggled) "ON" else "TGL")
-                    } else if (control.behavior == TriggerBehavior.TURBO) {
-                        if (isNotEmpty()) append(" • ")
-                        append("${control.turboRateHz}Hz")
-                    }
-                }
-                if (badge.isNotEmpty()) {
-                    Text(
-                        text = badge,
-                        color = accentColor,
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 9.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+        val hasBadge = control.label != displayCode || control.behavior != TriggerBehavior.HOLD
+        if (control.label.isNotBlank() || hasBadge) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .then(
+                        if (customBitmap != null) {
+                            Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xA6080C12))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        } else {
+                            Modifier
+                        }
                     )
+            ) {
+                if (control.label.isNotBlank()) {
+                    Text(
+                        text = control.label,
+                        color = if (active) Color.White else Color(0xFFF0F4FA),
+                        fontFamily = SpaceGroteskFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = if (control.label.length > 4) 11.sp else 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                if (hasBadge) {
+                    val badge = buildString {
+                        if (control.label.isNotBlank() && control.label != displayCode) append(displayCode)
+                        if (control.behavior == TriggerBehavior.TOGGLE) {
+                            if (isNotEmpty()) append(" • ")
+                            append(if (isToggled) "ON" else "TGL")
+                        } else if (control.behavior == TriggerBehavior.TURBO) {
+                            if (isNotEmpty()) append(" • ")
+                            append("${control.turboRateHz}Hz")
+                        }
+                    }
+                    if (badge.isNotEmpty()) {
+                        Text(
+                            text = badge,
+                            color = accentColor,
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 9.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
@@ -979,6 +1030,17 @@ private fun TouchpadSurface(
             )
         }
     }
+}
+
+private fun shapeForControl(shape: ControlShape): Shape = when (shape) {
+    ControlShape.CIRCLE, ControlShape.RING -> CircleShape
+    ControlShape.HEX -> GenericShape { size, _ ->
+        addPath(buildHexagonPath(size.width, size.height, 0f))
+    }
+    ControlShape.PADDLE -> RoundedCornerShape(14.dp)
+    ControlShape.KEYCAP -> RoundedCornerShape(11.dp)
+    ControlShape.TOUCHPAD_RECT -> RoundedCornerShape(18.dp)
+    ControlShape.PILL, ControlShape.CROSS -> RoundedCornerShape(50)
 }
 
 private fun buildHexagonPath(width: Float, height: Float, inset: Float): Path {

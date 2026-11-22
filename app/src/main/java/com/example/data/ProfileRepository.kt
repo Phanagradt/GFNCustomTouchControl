@@ -8,6 +8,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.util.UUID
 
@@ -30,16 +31,48 @@ class ProfileRepository(private val profileDao: ProfileDao) {
 
     suspend fun ensureSeeded() {
         if (profileDao.countProfiles() == 0) {
-            val starters = PresetProfiles.createStarterProfiles().map { it.toEntity() }
+            val starters = PresetProfiles.createStarterProfiles()
+                .map { it.copy(updatedAt = STARTER_BASELINE_MS).toEntity() }
             profileDao.insertAll(starters)
         }
     }
 
+    suspend fun getAllProfilesOnce(): List<ControllerProfile> =
+        profiles.first()
+
     suspend fun getProfile(id: String): ControllerProfile? =
         profileDao.getProfileById(id)?.toDomain()
 
-    suspend fun saveProfile(profile: ControllerProfile) {
-        profileDao.insertProfile(profile.copy(updatedAt = System.currentTimeMillis()).toEntity())
+    suspend fun saveProfile(profile: ControllerProfile, preserveTimestamp: Boolean = false): ControllerProfile {
+        val updated = if (preserveTimestamp) profile else profile.copy(updatedAt = System.currentTimeMillis())
+        profileDao.insertProfile(updated.toEntity())
+        return updated
+    }
+
+    suspend fun upsertFromCloud(cloudProfiles: List<ControllerProfile>) {
+        if (cloudProfiles.isEmpty()) return
+        val localById = getAllProfilesOnce().associateBy { it.id }
+        val toInsert = mutableListOf<ProfileEntity>()
+        var cloudActiveId: String? = null
+
+        for (cloud in cloudProfiles) {
+            val local = localById[cloud.id]
+            val shouldApply = local == null ||
+                local.updatedAt <= STARTER_BASELINE_MS ||
+                cloud.updatedAt > local.updatedAt
+            if (shouldApply) {
+                toInsert += cloud.toEntity()
+                if (cloud.isActive) {
+                    cloudActiveId = cloud.id
+                }
+            }
+        }
+        if (toInsert.isNotEmpty()) {
+            profileDao.insertAll(toInsert)
+        }
+        if (cloudActiveId != null) {
+            profileDao.setActiveProfile(cloudActiveId)
+        }
     }
 
     suspend fun setActiveProfile(id: String) {
@@ -65,6 +98,11 @@ class ProfileRepository(private val profileDao: ProfileDao) {
             val count = profileDao.countProfiles()
             if (count == 0) {
                 ensureSeeded()
+            } else {
+                val firstRemaining = getAllProfilesOnce().firstOrNull()
+                if (firstRemaining != null) {
+                    profileDao.setActiveProfile(firstRemaining.id)
+                }
             }
         }
     }
@@ -114,5 +152,9 @@ class ProfileRepository(private val profileDao: ProfileDao) {
             isActive = isActive,
             updatedAt = updatedAt
         )
+    }
+
+    companion object {
+        const val STARTER_BASELINE_MS = 1_000_000L
     }
 }

@@ -1,6 +1,10 @@
 package com.example.ui.screens
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -39,6 +43,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flip
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
@@ -101,6 +106,7 @@ import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TurboAmber
+import com.example.util.ButtonImageCodec
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -114,6 +120,7 @@ fun LayoutEditorScreen(
     onSelectControl: (String?) -> Unit,
     onMoveControl: (controlId: String, dxPx: Float, dyPx: Float, widthPx: Float, heightPx: Float) -> Unit,
     onUpdateControl: (VirtualControl) -> Unit,
+    onPickCustomImage: (controlId: String, uri: Uri) -> Unit,
     onAddControl: (ControlType, InputBinding) -> Unit,
     onDuplicateControl: () -> Unit,
     onMirrorControl: () -> Unit,
@@ -560,6 +567,7 @@ fun LayoutEditorScreen(
             ControlInspectorSheetContent(
                 control = selected,
                 onChange = onUpdateControl,
+                onPickCustomImage = { uri -> onPickCustomImage(selected.id, uri) },
                 onNudge = onNudgeControl,
                 onMirror = {
                     onMirrorControl()
@@ -794,10 +802,22 @@ private fun CommandPickerSheetContent(
 private fun ControlInspectorSheetContent(
     control: VirtualControl,
     onChange: (VirtualControl) -> Unit,
+    onPickCustomImage: (Uri) -> Unit,
     onNudge: (dxPercent: Float, dyPercent: Float) -> Unit,
     onMirror: () -> Unit,
     onClose: () -> Unit
 ) {
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            onPickCustomImage(uri)
+        }
+    }
+    val customBitmap = remember(control.customImageBase64) {
+        ButtonImageCodec.decodeBase64ToImageBitmap(control.customImageBase64)
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxWidth()
@@ -820,12 +840,93 @@ private fun ControlInspectorSheetContent(
             OutlinedTextField(
                 value = control.label,
                 onValueChange = { onChange(control.copy(label = it.take(12))) },
-                label = { Text("Button Label") },
+                label = { Text("Button Label (optional if custom image set)") },
                 singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("inspector_label_input")
             )
+        }
+
+        if (control.controlType == ControlType.BUTTON || control.controlType == ControlType.SHOULDER_PADDLE) {
+            item {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF0A0F18))
+                                .border(1.dp, Color(control.accent.hex).copy(alpha = 0.6f), RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (customBitmap != null) {
+                                Image(
+                                    bitmap = customBitmap,
+                                    contentDescription = "Custom button artwork preview",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Image,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Custom Button Image", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                text = if (customBitmap != null) "Custom icon active & synced" else "Upload your own icon or art",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    photoPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp),
+                                modifier = Modifier
+                                    .height(42.dp)
+                                    .testTag("inspector_upload_image_button")
+                            ) {
+                                Text(if (customBitmap != null) "Change" else "Upload", fontSize = 12.sp)
+                            }
+                            if (customBitmap != null) {
+                                IconButton(
+                                    onClick = { onChange(control.copy(customImageBase64 = null)) },
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .testTag("inspector_remove_image_button")
+                                ) {
+                                    Icon(
+                                        Icons.Default.DeleteOutline,
+                                        contentDescription = "Remove Custom Image",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         item {

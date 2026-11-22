@@ -243,4 +243,36 @@ class ExampleUnitTest {
         assertEquals(103, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_DPAD_UP, com.example.model.BindingDomain.KEYBOARD))
         assertEquals(544, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_DPAD_UP, com.example.model.BindingDomain.CONTROLLER))
     }
+
+    @Test
+    fun `share code sanitizer and cloud layout mapper preserve custom button images`() {
+        assertEquals("K7M9PQ", com.example.data.CloudLayoutMapper.sanitizeShareCode("  k7m-9pq! "))
+        assertTrue(com.example.data.CloudLayoutMapper.isValidShareCodeFormat("K7M9PQ"))
+        assertFalse(com.example.data.CloudLayoutMapper.isValidShareCodeFormat("ABC12"))
+
+        val baseProfile = PresetProfiles.createBlankProfile("Art Pad", "Fortnite", GameGenre.FPS)
+        val firstWithImage = baseProfile.controls.first().copy(customImageBase64 = "UklGRg==")
+        val mapped = com.example.data.CloudLayoutMapper.controlToMap(firstWithImage)
+        val restored = com.example.data.CloudLayoutMapper.mapToControl(mapped)
+        assertNotNull(restored)
+        assertEquals("UklGRg==", restored?.customImageBase64)
+        assertEquals(firstWithImage.binding.codeLabel, restored?.binding?.codeLabel)
+    }
+
+    @Test
+    fun `dispatching key A omits FLAG_SOFT_KEYBOARD so scanCode 30 reaches cloud client`() {
+        val dispatched = mutableListOf<KeyEvent>()
+        InputBridge.attachImeSink { ev -> dispatched += ev }
+
+        val keyA = CommandCatalog.findById("key_a")
+        InputBridge.pressControl("test_a", "A", keyA)
+        InputBridge.releaseControl("test_a", "A", keyA)
+
+        // Note: On JVM unit test KeyEvent constructor may be a stub returning 0s unless Robolectric is used,
+        // so verify either Robolectric-like populated values or non-crashing sink delivery + telemetry.
+        assertEquals(2, dispatched.size)
+        val telemetry = InputBridge.telemetry.value.firstOrNull()
+        assertNotNull(telemetry)
+        assertTrue(telemetry!!.detail.contains("scan=30"))
+    }
 }

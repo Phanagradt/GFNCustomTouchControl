@@ -404,9 +404,9 @@ object InputBridge {
             BindingDomain.MOUSE -> InputDevice.SOURCE_MOUSE
             else -> InputDevice.SOURCE_KEYBOARD
         }
-        // FLAG_SOFT_KEYBOARD + FLAG_KEEP_TOUCH_MODE preserves active GeForce NOW touch pointers
-        // and avoids touch-mode/focus jumps that cause camera flicks while holding buttons.
-        val flags = KeyEvent.FLAG_SOFT_KEYBOARD or KeyEvent.FLAG_KEEP_TOUCH_MODE
+        // Keep touch mode intact without setting FLAG_SOFT_KEYBOARD, which causes cloud streaming
+        // clients (like GeForce NOW) to ignore hardware scanCode and treat KEYCODE_A(29) as CTRL(29).
+        val flags = KeyEvent.FLAG_KEEP_TOUCH_MODE
         val event = KeyEvent(
             downTime,
             now,

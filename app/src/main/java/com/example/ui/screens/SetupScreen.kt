@@ -17,7 +17,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.GridOn
@@ -26,6 +29,7 @@ import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.RocketLaunch
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -46,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import com.example.data.OverlaySettings
 import com.example.data.VibrationMode
 import com.example.model.ControllerNotation
+import com.example.ui.AccountUiState
 import com.example.ui.SystemReadiness
 import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.TacticalCyan
@@ -56,6 +61,9 @@ import kotlin.math.roundToInt
 fun SetupScreen(
     settings: OverlaySettings,
     readiness: SystemReadiness,
+    accountState: AccountUiState,
+    onSyncNow: () -> Unit,
+    onSignOut: () -> Unit,
     onVibrationModeChange: (VibrationMode) -> Unit,
     onOpacityChange: (Float) -> Unit,
     onGridSnapChange: (Boolean) -> Unit,
@@ -82,14 +90,119 @@ fun SetupScreen(
         ) {
             item {
                 Text(
-                    text = "Overlay & System Setup",
+                    text = "Overlay & Account Setup",
                     style = MaterialTheme.typography.headlineSmall
                 )
                 Text(
-                    text = "Configure vibration, button notation, and GeForce NOW input permissions.",
+                    text = "Manage cloud backup across updates, vibration, notation, and permissions.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            item {
+                Card(
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, GeForceLime.copy(alpha = 0.45f), MaterialTheme.shapes.large)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = null,
+                                tint = GeForceLime,
+                                modifier = Modifier.size(38.dp)
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = accountState.displayName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = accountState.email ?: "Signed in with Google",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Surface(
+                                color = GeForceLime.copy(alpha = 0.16f),
+                                shape = MaterialTheme.shapes.small
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudDone,
+                                        contentDescription = null,
+                                        tint = GeForceLime,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = if (accountState.isSyncing) "Syncing..." else "${accountState.syncedLayoutCount} Cloud",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = GeForceLime
+                                    )
+                                }
+                            }
+                        }
+
+                        if (accountState.syncError != null) {
+                            Text(
+                                text = "Sync note: ${accountState.syncError}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        } else {
+                            Text(
+                                text = "Layouts & custom button artwork stay backed up under this account whenever you update or reinstall NexusPad.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = onSyncNow,
+                                enabled = !accountState.isSyncing,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .testTag("setup_sync_now_button")
+                            ) {
+                                Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Sync Layouts")
+                            }
+                            OutlinedButton(
+                                onClick = onSignOut,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .testTag("setup_sign_out_button")
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Sign Out")
+                            }
+                        }
+                    }
+                }
             }
 
             item {
