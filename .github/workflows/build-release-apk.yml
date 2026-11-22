@@ -27,8 +27,13 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK licenses
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1)
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          fi
 
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
@@ -45,7 +50,7 @@ jobs:
         run: gradle :app:testDebugUnitTest --tests com.example.ExampleUnitTest
 
       - name: Build NexusPad APK
-        run: gradle :app:assembleDebug
+        run: gradle :app:assembleDebug --stacktrace
 
       - name: Prepare release APK & version tag
         id: meta
