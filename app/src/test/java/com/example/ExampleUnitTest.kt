@@ -27,10 +27,11 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun `starter presets contain all four GeForce NOW layouts`() {
+    fun `starter presets contain all five GeForce NOW layouts including PC Mouse`() {
         val presets = PresetProfiles.createStarterProfiles()
-        assertEquals(4, presets.size)
+        assertEquals(5, presets.size)
         assertTrue(presets.first().isActive)
+        assertTrue(presets.any { it.id == "preset_pc_mouse_wasd" })
         assertTrue(presets.all { it.controls.isNotEmpty() })
     }
 
@@ -155,6 +156,79 @@ class ExampleUnitTest {
         InputBridge.releaseAll()
         assertEquals(0, InputBridge.currentEffectiveMetaState())
         assertTrue(InputBridge.toggledControlIds.value.isEmpty())
+    }
+
+    @Test
+    fun `touchpad camera look dispatches Q and E turn keys and respects invertY`() {
+        InputBridge.clearTelemetry()
+        InputBridge.updateTouchpadLook(
+            controlId = "campad_1",
+            sourceLabel = "LOOK PAD",
+            axisPair = AxisPair.TOUCHPAD_QE,
+            normX = 0.85f,
+            normY = -0.80f,
+            deadzone = 0.10f,
+            invertY = false,
+            active = true
+        )
+        val codes = InputBridge.telemetry.value.filter { it.actionName == "KEY_DOWN" }.map { it.codeLabel }
+        assertTrue("E" in codes)
+
+        InputBridge.clearTelemetry()
+        InputBridge.updateTouchpadLook(
+            controlId = "campad_1",
+            sourceLabel = "LOOK PAD",
+            axisPair = AxisPair.TOUCHPAD_QE,
+            normX = 0f,
+            normY = -0.80f,
+            deadzone = 0.10f,
+            invertY = true,
+            active = true
+        )
+        assertTrue(InputBridge.rightStick.value.y > 0.7f)
+        InputBridge.updateTouchpadLook(
+            controlId = "campad_1",
+            sourceLabel = "LOOK PAD",
+            axisPair = AxisPair.TOUCHPAD_QE,
+            normX = 0f,
+            normY = 0f,
+            deadzone = 0.10f,
+            invertY = true,
+            active = false
+        )
+    }
+
+    @Test
+    fun `mouse buttons M1 through M5 map to Linux evdev BTN_LEFT through BTN_EXTRA`() {
+        assertEquals(272, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_1, com.example.model.BindingDomain.MOUSE))
+        assertEquals(273, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_2, com.example.model.BindingDomain.MOUSE))
+        assertEquals(274, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_3, com.example.model.BindingDomain.MOUSE))
+        assertEquals(275, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_4, com.example.model.BindingDomain.MOUSE))
+        assertEquals(276, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_5, com.example.model.BindingDomain.MOUSE))
+    }
+
+    @Test
+    fun `custom combo builder creates Shift plus M1 chord and template includes all mouse buttons`() {
+        val shift = CommandCatalog.findById("key_shift")
+        val m1 = CommandCatalog.findById("mouse_m1")
+        val combo = CommandCatalog.createCustomComboBinding(shift, m1)
+        assertEquals("SHF+M1", combo.codeLabel)
+        assertEquals(KeyEvent.KEYCODE_BUTTON_1, combo.primaryKeyCode)
+        assertEquals(KeyEvent.KEYCODE_SHIFT_LEFT, combo.secondaryKeyCode)
+        assertEquals(KeyEvent.META_SHIFT_ON, combo.modifierMetaState)
+
+        val mouseProfile = PresetProfiles.createProfileFromTemplate(
+            name = "DBD Mouse",
+            gameTitle = "Dead by Daylight",
+            genre = GameGenre.FPS,
+            template = com.example.model.ProfileTemplate.PC_MOUSE_WASD
+        )
+        val labels = mouseProfile.controls.map { it.binding.id }.toSet()
+        assertTrue("mouse_m1" in labels)
+        assertTrue("mouse_m2" in labels)
+        assertTrue("mouse_m3" in labels)
+        assertTrue("mouse_m4" in labels)
+        assertTrue("mouse_m5" in labels)
     }
 
     @Test

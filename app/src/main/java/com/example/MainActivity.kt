@@ -412,8 +412,8 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                                 },
                                 onDuplicateProfile = viewModel::duplicateProfile,
                                 onDeleteProfile = viewModel::deleteProfile,
-                                onCreateProfile = { name, game, genre ->
-                                    viewModel.createProfile(name, game, genre) { newId ->
+                                onCreateProfile = { name, game, genre, template ->
+                                    viewModel.createProfile(name, game, genre, template) { newId ->
                                         viewModel.openEditor(newId)
                                         navController.navigate(NexusRoutes.editor(newId))
                                     }
@@ -512,6 +512,8 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                                 onUpdateControl = viewModel::updateControl,
                                 onAddControl = viewModel::addControl,
                                 onDuplicateControl = viewModel::duplicateSelectedControl,
+                                onMirrorControl = viewModel::mirrorDuplicateSelectedControl,
+                                onNudgeControl = viewModel::nudgeSelectedControl,
                                 onDeleteControl = viewModel::deleteSelectedControl,
                                 onTogglePlayTest = viewModel::togglePlayTestMode,
                                 onUndo = viewModel::undoEditorChange,

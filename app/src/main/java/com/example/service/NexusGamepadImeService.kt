@@ -28,6 +28,10 @@ class NexusGamepadImeService : InputMethodService() {
         }
     }
 
+    override fun onEvaluateInputViewShown(): Boolean = false
+
+    override fun onEvaluateFullscreenMode(): Boolean = false
+
     override fun onCreateInputView(): View {
         val density = resources.displayMetrics.density
         val padH = (16 * density).toInt()

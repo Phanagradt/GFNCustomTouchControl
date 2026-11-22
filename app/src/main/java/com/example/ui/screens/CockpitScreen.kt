@@ -70,6 +70,7 @@ import com.example.model.ControllerProfile
 import com.example.ui.SystemReadiness
 import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.MacroCoral
+import com.example.ui.theme.MacroViolet
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TurboAmber
 
@@ -512,6 +513,7 @@ private fun ActiveLayoutSchematicCard(
     val gamepadCount = profile.controls.count {
         it.binding.domain == BindingDomain.CONTROLLER || it.binding.domain == BindingDomain.ANALOG_AXIS
     }
+    val mouseCount = profile.controls.count { it.binding.domain == BindingDomain.MOUSE }
     val keyboardCount = profile.controls.count { it.binding.domain == BindingDomain.KEYBOARD }
     val comboCount = profile.controls.count { it.binding.domain == BindingDomain.COMBO }
 
@@ -528,7 +530,7 @@ private fun ActiveLayoutSchematicCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "ACTIVE BINDING TOPOLOGY",
                         style = MaterialTheme.typography.labelMedium,
@@ -541,11 +543,10 @@ private fun ActiveLayoutSchematicCard(
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    StatBadge("${gamepadCount} PAD", GeForceLime)
-                    StatBadge("${keyboardCount} KEY", TacticalCyan)
-                    if (comboCount > 0) {
-                        StatBadge("${comboCount} MACRO", TurboAmber)
-                    }
+                    if (gamepadCount > 0) StatBadge("${gamepadCount} PAD", GeForceLime)
+                    if (mouseCount > 0) StatBadge("${mouseCount} MSE", TurboAmber)
+                    if (keyboardCount > 0) StatBadge("${keyboardCount} KEY", TacticalCyan)
+                    if (comboCount > 0) StatBadge("${comboCount} MACRO", MacroViolet)
                 }
             }
 
@@ -654,6 +655,7 @@ fun ProfileMiniMapCanvas(
             val cy = control.yPercent * size.height
             val color = Color(control.accent.hex)
             val r = when (control.controlType) {
+                ControlType.TOUCHPAD -> 18.dp.toPx()
                 ControlType.ANALOG_STICK, ControlType.DPAD_CLUSTER, ControlType.WASD_CLUSTER -> 14.dp.toPx()
                 ControlType.SHOULDER_PADDLE -> 10.dp.toPx()
                 ControlType.BUTTON -> 7.5.dp.toPx()

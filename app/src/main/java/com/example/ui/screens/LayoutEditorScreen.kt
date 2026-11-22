@@ -29,6 +29,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -36,6 +38,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Flip
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
@@ -111,6 +116,8 @@ fun LayoutEditorScreen(
     onUpdateControl: (VirtualControl) -> Unit,
     onAddControl: (ControlType, InputBinding) -> Unit,
     onDuplicateControl: () -> Unit,
+    onMirrorControl: () -> Unit,
+    onNudgeControl: (dxPercent: Float, dyPercent: Float) -> Unit,
     onDeleteControl: () -> Unit,
     onTogglePlayTest: () -> Unit,
     onUndo: () -> Unit,
@@ -480,10 +487,17 @@ fun LayoutEditorScreen(
                 onPick = { binding ->
                     val type = when (binding.axisPair) {
                         AxisPair.LEFT_STICK, AxisPair.RIGHT_STICK -> ControlType.ANALOG_STICK
+                        AxisPair.TOUCHPAD_ARROWS,
+                        AxisPair.TOUCHPAD_QE,
+                        AxisPair.TOUCHPAD_IJKL,
+                        AxisPair.TOUCHPAD_DPAD,
+                        AxisPair.TOUCHPAD_DIRECT_PASS -> ControlType.TOUCHPAD
                         AxisPair.DPAD_4WAY -> ControlType.DPAD_CLUSTER
                         AxisPair.WASD_KEYS, AxisPair.ARROW_KEYS -> ControlType.WASD_CLUSTER
                         AxisPair.NONE -> {
-                            if (binding.id == "btn_lt" || binding.id == "btn_rt") {
+                            if (binding.id == "btn_lt" || binding.id == "btn_rt" ||
+                                binding.id == "mouse_m1" || binding.id == "mouse_m2"
+                            ) {
                                 ControlType.SHOULDER_PADDLE
                             } else {
                                 ControlType.BUTTON
@@ -509,14 +523,25 @@ fun LayoutEditorScreen(
                 onPick = { binding ->
                     val newType = when (binding.axisPair) {
                         AxisPair.LEFT_STICK, AxisPair.RIGHT_STICK -> ControlType.ANALOG_STICK
+                        AxisPair.TOUCHPAD_ARROWS,
+                        AxisPair.TOUCHPAD_QE,
+                        AxisPair.TOUCHPAD_IJKL,
+                        AxisPair.TOUCHPAD_DPAD,
+                        AxisPair.TOUCHPAD_DIRECT_PASS -> ControlType.TOUCHPAD
                         AxisPair.DPAD_4WAY -> ControlType.DPAD_CLUSTER
                         AxisPair.WASD_KEYS, AxisPair.ARROW_KEYS -> ControlType.WASD_CLUSTER
                         AxisPair.NONE -> selected.controlType
+                    }
+                    val newShape = if (newType == ControlType.TOUCHPAD) {
+                        ControlShape.TOUCHPAD_RECT
+                    } else {
+                        selected.shape
                     }
                     onUpdateControl(
                         selected.copy(
                             binding = binding,
                             controlType = newType,
+                            shape = newShape,
                             label = if (selected.label == selected.binding.codeLabel) binding.codeLabel else selected.label
                         )
                     )
@@ -535,6 +560,11 @@ fun LayoutEditorScreen(
             ControlInspectorSheetContent(
                 control = selected,
                 onChange = onUpdateControl,
+                onNudge = onNudgeControl,
+                onMirror = {
+                    onMirrorControl()
+                    showInspectorSheet = false
+                },
                 onClose = { showInspectorSheet = false }
             )
         }
@@ -587,12 +617,17 @@ private fun CommandPickerSheetContent(
 ) {
     var query by remember { mutableStateOf("") }
     var selectedDomain by remember { mutableStateOf<BindingDomain?>(null) }
+    var customComboMode by remember { mutableStateOf(false) }
+    var comboStepFirst by remember { mutableStateOf<InputBinding?>(null) }
 
-    val commands = remember(query, selectedDomain, includeClusters) {
-        val base = if (includeClusters) {
-            CommandCatalog.allCommands
-        } else {
-            CommandCatalog.controllerCommands + CommandCatalog.keyboardCommands + CommandCatalog.comboCommands
+    val commands = remember(query, selectedDomain, includeClusters, customComboMode) {
+        val base = when {
+            customComboMode -> CommandCatalog.singleButtonCommands
+            includeClusters -> CommandCatalog.allCommands
+            else -> CommandCatalog.controllerCommands +
+                CommandCatalog.mouseCommands +
+                CommandCatalog.keyboardCommands +
+                CommandCatalog.comboCommands
         }
         base.filter { cmd ->
             val matchesDomain = selectedDomain == null || cmd.domain == selectedDomain
@@ -610,11 +645,62 @@ private fun CommandPickerSheetContent(
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text(text = title, style = MaterialTheme.typography.titleLarge)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (customComboMode) {
+                    if (comboStepFirst == null) "Combo Builder • Pick Key 1" else "Pick Key 2 (${comboStepFirst!!.codeLabel} + ?)"
+                } else {
+                    title
+                },
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedButton(
+                onClick = {
+                    customComboMode = !customComboMode
+                    comboStepFirst = null
+                },
+                contentPadding = PaddingValues(horizontal = 10.dp),
+                modifier = Modifier
+                    .height(36.dp)
+                    .testTag("picker_custom_combo_toggle")
+            ) {
+                Text(if (customComboMode) "Standard" else "+ Custom Combo", fontSize = 12.sp)
+            }
+        }
+
+        if (customComboMode && comboStepFirst != null) {
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "First key: ${comboStepFirst!!.codeLabel} — now tap second key or mouse button",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { comboStepFirst = null }) {
+                        Text("Reset")
+                    }
+                }
+            }
+        }
+
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("Search A, RT, WASD, Space, Tab, Ctrl...") },
+            placeholder = { Text("Search M1–M5, MMB, A, RT, WASD, Shift, Ctrl...") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
@@ -628,7 +714,12 @@ private fun CommandPickerSheetContent(
                 )
             }
             items(BindingDomain.entries) { domain ->
-                if (includeClusters || domain != BindingDomain.ANALOG_AXIS) {
+                val showDomain = when {
+                    customComboMode -> domain != BindingDomain.ANALOG_AXIS && domain != BindingDomain.COMBO
+                    includeClusters -> true
+                    else -> domain != BindingDomain.ANALOG_AXIS
+                }
+                if (showDomain) {
                     FilterChip(
                         selected = selectedDomain == domain,
                         onClick = { selectedDomain = if (selectedDomain == domain) null else domain },
@@ -638,14 +729,15 @@ private fun CommandPickerSheetContent(
             }
         }
         LazyColumn(
-            modifier = Modifier.height(340.dp),
+            modifier = Modifier.height(320.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             items(commands, key = { it.id }) { cmd ->
                 val accent = when (cmd.domain) {
                     BindingDomain.CONTROLLER, BindingDomain.ANALOG_AXIS -> GeForceLime
+                    BindingDomain.MOUSE -> TurboAmber
                     BindingDomain.KEYBOARD -> TacticalCyan
-                    BindingDomain.COMBO -> TurboAmber
+                    BindingDomain.COMBO -> Color(0xFFB388FF)
                 }
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceContainer,
@@ -653,7 +745,15 @@ private fun CommandPickerSheetContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(MaterialTheme.shapes.small)
-                        .clickable { onPick(cmd) }
+                        .clickable {
+                            if (!customComboMode) {
+                                onPick(cmd)
+                            } else if (comboStepFirst == null) {
+                                comboStepFirst = cmd
+                            } else {
+                                onPick(CommandCatalog.createCustomComboBinding(comboStepFirst!!, cmd))
+                            }
+                        }
                         .testTag("pick_command_${cmd.id}")
                 ) {
                     Row(
@@ -694,6 +794,8 @@ private fun CommandPickerSheetContent(
 private fun ControlInspectorSheetContent(
     control: VirtualControl,
     onChange: (VirtualControl) -> Unit,
+    onNudge: (dxPercent: Float, dyPercent: Float) -> Unit,
+    onMirror: () -> Unit,
     onClose: () -> Unit
 ) {
     LazyColumn(
@@ -727,6 +829,68 @@ private fun ControlInspectorSheetContent(
         }
 
         item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Precision Position (1% Nudge)", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        text = "X ${(control.xPercent * 100).roundToInt()}% • Y ${(control.yPercent * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TacticalCyan
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = { onNudge(-0.01f, 0f) },
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.size(44.dp).testTag("inspector_nudge_left")
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Nudge Left")
+                    }
+                    OutlinedButton(
+                        onClick = { onNudge(0f, -0.01f) },
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.size(44.dp).testTag("inspector_nudge_up")
+                    ) {
+                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Nudge Up")
+                    }
+                    OutlinedButton(
+                        onClick = { onNudge(0f, 0.01f) },
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.size(44.dp).testTag("inspector_nudge_down")
+                    ) {
+                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Nudge Down")
+                    }
+                    OutlinedButton(
+                        onClick = { onNudge(0.01f, 0f) },
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.size(44.dp).testTag("inspector_nudge_right")
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Nudge Right")
+                    }
+                    Spacer(Modifier.weight(1f))
+                    OutlinedButton(
+                        onClick = onMirror,
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier.height(44.dp).testTag("inspector_mirror_button")
+                    ) {
+                        Icon(Icons.Default.Flip, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Mirror", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        item {
+            val maxSize = if (control.controlType == ControlType.TOUCHPAD) 240f else 160f
             Column {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -736,9 +900,9 @@ private fun ControlInspectorSheetContent(
                     Text("${control.sizeDp.roundToInt()} dp", style = MaterialTheme.typography.labelMedium)
                 }
                 Slider(
-                    value = control.sizeDp,
+                    value = control.sizeDp.coerceIn(48f, maxSize),
                     onValueChange = { onChange(control.copy(sizeDp = it)) },
-                    valueRange = 48f..160f
+                    valueRange = 48f..maxSize
                 )
             }
         }
@@ -767,6 +931,7 @@ private fun ControlInspectorSheetContent(
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val shapes = listOf(
                         ControlShape.CIRCLE,
+                        ControlShape.KEYCAP,
                         ControlShape.PILL,
                         ControlShape.HEX,
                         ControlShape.PADDLE
@@ -806,20 +971,23 @@ private fun ControlInspectorSheetContent(
                     Slider(
                         value = control.turboRateHz.toFloat(),
                         onValueChange = { onChange(control.copy(turboRateHz = it.roundToInt())) },
-                        valueRange = 4f..20f
+                        valueRange = 2f..25f
                     )
                 }
             }
         }
 
-        if (control.controlType == ControlType.ANALOG_STICK) {
+        if (control.controlType == ControlType.ANALOG_STICK || control.controlType == ControlType.TOUCHPAD) {
             item {
-                Column {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Analog Deadzone", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (control.controlType == ControlType.TOUCHPAD) "Swipe Deadzone" else "Analog Deadzone",
+                            style = MaterialTheme.typography.titleSmall
+                        )
                         Text("${(control.deadzone * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
                     }
                     Slider(
@@ -831,7 +999,10 @@ private fun ControlInspectorSheetContent(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Sensitivity Curve", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (control.controlType == ControlType.TOUCHPAD) "Touchpad Sensitivity" else "Sensitivity Curve",
+                            style = MaterialTheme.typography.titleSmall
+                        )
                         Text("%.2fx".format(control.sensitivity), style = MaterialTheme.typography.labelMedium)
                     }
                     Slider(
@@ -839,6 +1010,19 @@ private fun ControlInspectorSheetContent(
                         onValueChange = { onChange(control.copy(sensitivity = it)) },
                         valueRange = 0.5f..2.2f
                     )
+                    if (control.controlType == ControlType.TOUCHPAD) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Invert Look Y-Axis", style = MaterialTheme.typography.titleSmall)
+                            Switch(
+                                checked = control.invertY,
+                                onCheckedChange = { onChange(control.copy(invertY = it)) }
+                            )
+                        }
+                    }
                 }
             }
         }

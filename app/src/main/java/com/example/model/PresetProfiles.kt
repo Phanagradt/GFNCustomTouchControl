@@ -2,10 +2,20 @@ package com.example.model
 
 import java.util.UUID
 
+enum class ProfileTemplate(val title: String, val subtitle: String, val defaultGenre: GameGenre) {
+    PC_MOUSE_WASD("PC Mouse (M1–M5) + WASD", "M1–M5, MMB, WASD, Toggle Shift & Space", GameGenre.FPS),
+    FPS_PRECISION("GeForce FPS Precision", "Dual sticks, triggers, bumpers & Tab", GameGenre.FPS),
+    ACTION_RPG("Action RPG + Hotbar", "Gamepad face buttons, D-Pad & M/I/F5", GameGenre.ACTION_RPG),
+    WASD_MMO("Hybrid WASD + Hotkeys", "WASD, Toggle Shift, 1–4 hotkeys & Turbo", GameGenre.MMO_MOBA),
+    RACING_SIM("Racing Telemetry Pad", "Steer stick, Gas/Brake paddles & Gear shift", GameGenre.RACING),
+    BLANK("Blank Starter Canvas", "Minimal Move stick + A button", GameGenre.CUSTOM)
+}
+
 object PresetProfiles {
 
     fun createStarterProfiles(): List<ControllerProfile> = listOf(
         fpsPrecisionPreset(isActive = true),
+        pcMouseWasdPreset(),
         actionRpgPreset(),
         hybridWasdMmoPreset(),
         racingTelemetryPreset()
@@ -473,6 +483,178 @@ object PresetProfiles {
                 )
             )
         )
+
+    fun pcMouseWasdPreset(id: String = "preset_pc_mouse_wasd"): ControllerProfile =
+        ControllerProfile(
+            id = id,
+            name = "PC Mouse (M1–M5) + WASD",
+            gameTitle = "Dead by Daylight / PC Cloud",
+            genre = GameGenre.FPS,
+            controls = listOf(
+                VirtualControl(
+                    id = "pc_wasd",
+                    label = "WASD",
+                    controlType = ControlType.WASD_CLUSTER,
+                    shape = ControlShape.CROSS,
+                    xPercent = 0.16f,
+                    yPercent = 0.68f,
+                    sizeDp = 128f,
+                    accent = ControlAccent.CYAN,
+                    binding = CommandCatalog.findById("cluster_wasd")
+                ),
+                VirtualControl(
+                    id = "pc_shift",
+                    label = "SHIFT",
+                    controlType = ControlType.BUTTON,
+                    shape = ControlShape.KEYCAP,
+                    xPercent = 0.11f,
+                    yPercent = 0.30f,
+                    sizeDp = 58f,
+                    accent = ControlAccent.AMBER,
+                    behavior = TriggerBehavior.TOGGLE,
+                    binding = CommandCatalog.findById("key_shift")
+                ),
+                VirtualControl(
+                    id = "pc_ctrl",
+                    label = "CTRL",
+                    controlType = ControlType.BUTTON,
+                    shape = ControlShape.KEYCAP,
+                    xPercent = 0.24f,
+                    yPercent = 0.30f,
+                    sizeDp = 56f,
+                    accent = ControlAccent.SLATE,
+                    binding = CommandCatalog.findById("key_ctrl")
+                ),
+                VirtualControl(
+                    id = "pc_m1",
+                    label = "M1",
+                    controlType = ControlType.SHOULDER_PADDLE,
+                    shape = ControlShape.PADDLE,
+                    xPercent = 0.87f,
+                    yPercent = 0.26f,
+                    sizeDp = 72f,
+                    accent = ControlAccent.CORAL,
+                    binding = CommandCatalog.findById("mouse_m1")
+                ),
+                VirtualControl(
+                    id = "pc_m2",
+                    label = "M2",
+                    controlType = ControlType.SHOULDER_PADDLE,
+                    shape = ControlShape.PADDLE,
+                    xPercent = 0.72f,
+                    yPercent = 0.26f,
+                    sizeDp = 68f,
+                    accent = ControlAccent.AMBER,
+                    behavior = TriggerBehavior.HOLD,
+                    binding = CommandCatalog.findById("mouse_m2")
+                ),
+                VirtualControl(
+                    id = "pc_mmb",
+                    label = "MMB",
+                    controlType = ControlType.BUTTON,
+                    shape = ControlShape.KEYCAP,
+                    xPercent = 0.79f,
+                    yPercent = 0.44f,
+                    sizeDp = 54f,
+                    accent = ControlAccent.AMBER,
+                    binding = CommandCatalog.findById("mouse_m3")
+                ),
+                VirtualControl(
+                    id = "pc_m4",
+                    label = "M4",
+                    controlType = ControlType.BUTTON,
+                    shape = ControlShape.PILL,
+                    xPercent = 0.67f,
+                    yPercent = 0.60f,
+                    sizeDp = 54f,
+                    accent = ControlAccent.AMBER,
+                    binding = CommandCatalog.findById("mouse_m4")
+                ),
+                VirtualControl(
+                    id = "pc_m5",
+                    label = "M5",
+                    controlType = ControlType.BUTTON,
+                    shape = ControlShape.PILL,
+                    xPercent = 0.67f,
+                    yPercent = 0.78f,
+                    sizeDp = 54f,
+                    accent = ControlAccent.AMBER,
+                    binding = CommandCatalog.findById("mouse_m5")
+                ),
+                VirtualControl(
+                    id = "pc_campad",
+                    label = "LOOK PAD",
+                    controlType = ControlType.TOUCHPAD,
+                    shape = ControlShape.TOUCHPAD_RECT,
+                    xPercent = 0.56f,
+                    yPercent = 0.50f,
+                    sizeDp = 136f,
+                    opacity = 0.65f,
+                    accent = ControlAccent.CYAN,
+                    deadzone = 0.10f,
+                    sensitivity = 1.25f,
+                    binding = CommandCatalog.findById("touchpad_arrows")
+                ),
+                VirtualControl(
+                    id = "pc_space",
+                    label = "SPACE",
+                    controlType = ControlType.BUTTON,
+                    shape = ControlShape.PILL,
+                    xPercent = 0.86f,
+                    yPercent = 0.78f,
+                    sizeDp = 66f,
+                    accent = ControlAccent.LIME,
+                    binding = CommandCatalog.findById("key_space")
+                ),
+                VirtualControl(
+                    id = "pc_e",
+                    label = "E",
+                    controlType = ControlType.BUTTON,
+                    shape = ControlShape.KEYCAP,
+                    xPercent = 0.90f,
+                    yPercent = 0.56f,
+                    sizeDp = 56f,
+                    accent = ControlAccent.CYAN,
+                    binding = CommandCatalog.findById("key_e")
+                ),
+                VirtualControl(
+                    id = "pc_tab",
+                    label = "TAB",
+                    controlType = ControlType.BUTTON,
+                    shape = ControlShape.KEYCAP,
+                    xPercent = 0.46f,
+                    yPercent = 0.16f,
+                    sizeDp = 52f,
+                    accent = ControlAccent.SLATE,
+                    binding = CommandCatalog.findById("key_tab")
+                )
+            )
+        )
+
+    fun createProfileFromTemplate(
+        name: String,
+        gameTitle: String,
+        genre: GameGenre,
+        template: ProfileTemplate
+    ): ControllerProfile {
+        val base = when (template) {
+            ProfileTemplate.PC_MOUSE_WASD -> pcMouseWasdPreset(id = UUID.randomUUID().toString())
+            ProfileTemplate.FPS_PRECISION -> fpsPrecisionPreset(id = UUID.randomUUID().toString())
+            ProfileTemplate.ACTION_RPG -> actionRpgPreset(id = UUID.randomUUID().toString())
+            ProfileTemplate.WASD_MMO -> hybridWasdMmoPreset(id = UUID.randomUUID().toString())
+            ProfileTemplate.RACING_SIM -> racingTelemetryPreset(id = UUID.randomUUID().toString())
+            ProfileTemplate.BLANK -> createBlankProfile(name, gameTitle, genre)
+        }
+        return base.copy(
+            id = UUID.randomUUID().toString(),
+            name = name,
+            gameTitle = gameTitle,
+            genre = genre,
+            isActive = false,
+            updatedAt = System.currentTimeMillis(),
+            controls = base.controls.map { it.copy(id = UUID.randomUUID().toString()) }
+        )
+    }
 
     fun createBlankProfile(name: String, gameTitle: String, genre: GameGenre): ControllerProfile =
         ControllerProfile(

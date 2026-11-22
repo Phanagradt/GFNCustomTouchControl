@@ -133,10 +133,10 @@ object InputBridge {
         y: Float,
         active: Boolean
     ) {
+        val threshold = 0.35f
         val keySet = if (!active) {
             emptySet()
         } else {
-            val threshold = 0.35f
             val codes = mutableSetOf<Int>()
             when (axisPair) {
                 AxisPair.WASD_KEYS -> {
@@ -145,6 +145,19 @@ object InputBridge {
                     if (x < -threshold) codes += KeyEvent.KEYCODE_A
                     if (x > threshold) codes += KeyEvent.KEYCODE_D
                 }
+                AxisPair.TOUCHPAD_QE -> {
+                    if (x < -threshold) codes += KeyEvent.KEYCODE_Q
+                    if (x > threshold) codes += KeyEvent.KEYCODE_E
+                    if (y < -threshold) codes += KeyEvent.KEYCODE_DPAD_UP
+                    if (y > threshold) codes += KeyEvent.KEYCODE_DPAD_DOWN
+                }
+                AxisPair.TOUCHPAD_IJKL -> {
+                    if (y < -threshold) codes += KeyEvent.KEYCODE_I
+                    if (y > threshold) codes += KeyEvent.KEYCODE_K
+                    if (x < -threshold) codes += KeyEvent.KEYCODE_J
+                    if (x > threshold) codes += KeyEvent.KEYCODE_L
+                }
+                AxisPair.TOUCHPAD_DIRECT_PASS -> Unit
                 else -> {
                     if (y < -threshold) codes += KeyEvent.KEYCODE_DPAD_UP
                     if (y > threshold) codes += KeyEvent.KEYCODE_DPAD_DOWN
@@ -159,10 +172,9 @@ object InputBridge {
         val released = previous - keySet
         val pressed = keySet - previous
 
-        val domain = if (axisPair == AxisPair.WASD_KEYS || axisPair == AxisPair.ARROW_KEYS) {
-            BindingDomain.KEYBOARD
-        } else {
-            BindingDomain.CONTROLLER
+        val domain = when (axisPair) {
+            AxisPair.DPAD_4WAY, AxisPair.TOUCHPAD_DPAD -> BindingDomain.CONTROLLER
+            else -> BindingDomain.KEYBOARD
         }
 
         pressed.forEach { code ->
@@ -189,6 +201,42 @@ object InputBridge {
         _activeClusterDirections.update { it + (controlId to keySet) }
     }
 
+    fun updateTouchpadLook(
+        controlId: String,
+        sourceLabel: String,
+        axisPair: AxisPair,
+        normX: Float,
+        normY: Float,
+        deadzone: Float,
+        invertY: Boolean,
+        active: Boolean
+    ) {
+        val effY = if (invertY) -normY else normY
+        val thresh = (deadzone * 2.2f).coerceIn(0.14f, 0.45f)
+        val filteredX = if (!active || kotlin.math.abs(normX) < thresh) 0f else normX
+        val filteredY = if (!active || kotlin.math.abs(effY) < thresh) 0f else effY
+
+        _rightStick.value = StickState(
+            x = filteredX.coerceIn(-1f, 1f),
+            y = filteredY.coerceIn(-1f, 1f),
+            active = active
+        )
+
+        if (axisPair != AxisPair.TOUCHPAD_DIRECT_PASS) {
+            // Map continuous swipe vector cleanly to held directional look keys with threshold 0.35
+            val scaledX = if (filteredX == 0f) 0f else kotlin.math.sign(filteredX) * 0.8f
+            val scaledY = if (filteredY == 0f) 0f else kotlin.math.sign(filteredY) * 0.8f
+            updateDirectionalCluster(
+                controlId = controlId,
+                sourceLabel = sourceLabel,
+                axisPair = axisPair,
+                x = scaledX,
+                y = scaledY,
+                active = active
+            )
+        }
+    }
+
     fun recordPhysicalInput(keyCode: Int, actionName: String, detail: String, domain: BindingDomain) {
         recordTelemetry("Hardware", safeKeyCodeName(keyCode), actionName, detail, domain)
     }
@@ -202,10 +250,10 @@ object InputBridge {
         val nonModifierKeys = heldKeys.filter { modifierBitsForKeyCode(it) == 0 }
         val modifierKeys = (heldKeys.filter { modifierBitsForKeyCode(it) != 0 } + activeModifiers.keys).distinct()
         nonModifierKeys.forEach { code ->
-            sendKeyToSink(code, KeyEvent.ACTION_UP, 0, BindingDomain.KEYBOARD)
+            sendKeyToSink(code, KeyEvent.ACTION_UP, 0, effectiveDomainForKey(code, BindingDomain.KEYBOARD))
         }
         modifierKeys.forEach { code ->
-            sendKeyToSink(code, KeyEvent.ACTION_UP, 0, BindingDomain.KEYBOARD)
+            sendKeyToSink(code, KeyEvent.ACTION_UP, 0, effectiveDomainForKey(code, BindingDomain.KEYBOARD))
         }
         activeModifiers.clear()
         activeDownTimes.clear()
@@ -224,16 +272,18 @@ object InputBridge {
     ) {
         val action = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
         if (binding.secondaryKeyCode != KeyEvent.KEYCODE_UNKNOWN) {
+            val secDomain = effectiveDomainForKey(binding.secondaryKeyCode, binding.domain)
+            val priDomain = effectiveDomainForKey(binding.primaryKeyCode, binding.domain)
             if (isDown) {
-                sendKeyToSink(binding.secondaryKeyCode, KeyEvent.ACTION_DOWN, binding.modifierMetaState, binding.domain)
-                sendKeyToSink(binding.primaryKeyCode, KeyEvent.ACTION_DOWN, binding.modifierMetaState, binding.domain)
+                sendKeyToSink(binding.secondaryKeyCode, KeyEvent.ACTION_DOWN, binding.modifierMetaState, secDomain)
+                sendKeyToSink(binding.primaryKeyCode, KeyEvent.ACTION_DOWN, binding.modifierMetaState, priDomain)
             } else {
-                sendKeyToSink(binding.primaryKeyCode, KeyEvent.ACTION_UP, 0, binding.domain)
-                sendKeyToSink(binding.secondaryKeyCode, KeyEvent.ACTION_UP, 0, binding.domain)
+                sendKeyToSink(binding.primaryKeyCode, KeyEvent.ACTION_UP, 0, priDomain)
+                sendKeyToSink(binding.secondaryKeyCode, KeyEvent.ACTION_UP, 0, secDomain)
             }
         } else if (binding.primaryKeyCode != KeyEvent.KEYCODE_UNKNOWN) {
             val extraMeta = if (isDown) binding.modifierMetaState else 0
-            sendKeyToSink(binding.primaryKeyCode, action, extraMeta, binding.domain)
+            sendKeyToSink(binding.primaryKeyCode, action, extraMeta, effectiveDomainForKey(binding.primaryKeyCode, binding.domain))
         }
 
         val keyDesc = if (binding.secondaryKeyCode != KeyEvent.KEYCODE_UNKNOWN) {
@@ -267,6 +317,30 @@ object InputBridge {
     fun currentEffectiveMetaState(extraMeta: Int = 0): Int =
         currentModifierMetaState() or extraMeta
 
+    private fun effectiveDomainForKey(keyCode: Int, fallback: BindingDomain): BindingDomain = when (keyCode) {
+        KeyEvent.KEYCODE_BUTTON_1,
+        KeyEvent.KEYCODE_BUTTON_2,
+        KeyEvent.KEYCODE_BUTTON_3,
+        KeyEvent.KEYCODE_BUTTON_4,
+        KeyEvent.KEYCODE_BUTTON_5 -> BindingDomain.MOUSE
+        KeyEvent.KEYCODE_BUTTON_A,
+        KeyEvent.KEYCODE_BUTTON_B,
+        KeyEvent.KEYCODE_BUTTON_C,
+        KeyEvent.KEYCODE_BUTTON_X,
+        KeyEvent.KEYCODE_BUTTON_Y,
+        KeyEvent.KEYCODE_BUTTON_Z,
+        KeyEvent.KEYCODE_BUTTON_L1,
+        KeyEvent.KEYCODE_BUTTON_R1,
+        KeyEvent.KEYCODE_BUTTON_L2,
+        KeyEvent.KEYCODE_BUTTON_R2,
+        KeyEvent.KEYCODE_BUTTON_SELECT,
+        KeyEvent.KEYCODE_BUTTON_START,
+        KeyEvent.KEYCODE_BUTTON_MODE,
+        KeyEvent.KEYCODE_BUTTON_THUMBL,
+        KeyEvent.KEYCODE_BUTTON_THUMBR -> BindingDomain.CONTROLLER
+        else -> if (fallback == BindingDomain.COMBO) BindingDomain.KEYBOARD else fallback
+    }
+
     private fun safeKeyCodeName(keyCode: Int): String =
         runCatching { KeyEvent.keyCodeToString(keyCode).removePrefix("KEYCODE_") }
             .getOrElse {
@@ -275,6 +349,21 @@ object InputBridge {
                     KeyEvent.KEYCODE_A -> "A"
                     KeyEvent.KEYCODE_S -> "S"
                     KeyEvent.KEYCODE_D -> "D"
+                    KeyEvent.KEYCODE_Q -> "Q"
+                    KeyEvent.KEYCODE_E -> "E"
+                    KeyEvent.KEYCODE_I -> "I"
+                    KeyEvent.KEYCODE_J -> "J"
+                    KeyEvent.KEYCODE_K -> "K"
+                    KeyEvent.KEYCODE_L -> "L"
+                    KeyEvent.KEYCODE_DPAD_UP -> "DPAD_UP"
+                    KeyEvent.KEYCODE_DPAD_DOWN -> "DPAD_DOWN"
+                    KeyEvent.KEYCODE_DPAD_LEFT -> "DPAD_LEFT"
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> "DPAD_RIGHT"
+                    KeyEvent.KEYCODE_BUTTON_1 -> "M1"
+                    KeyEvent.KEYCODE_BUTTON_2 -> "M2"
+                    KeyEvent.KEYCODE_BUTTON_3 -> "M3"
+                    KeyEvent.KEYCODE_BUTTON_4 -> "M4"
+                    KeyEvent.KEYCODE_BUTTON_5 -> "M5"
                     KeyEvent.KEYCODE_BUTTON_L2 -> "BUTTON_L2"
                     KeyEvent.KEYCODE_BUTTON_R2 -> "BUTTON_R2"
                     else -> "KEY_$keyCode"
@@ -310,12 +399,14 @@ object InputBridge {
             activeDownTimes.remove(keyCode) ?: now
         }
         val scanCode = resolveLinuxScanCode(keyCode, domain)
-        val source = if (domain == BindingDomain.CONTROLLER) {
-            InputDevice.SOURCE_GAMEPAD
-        } else {
-            InputDevice.SOURCE_KEYBOARD
+        val source = when (domain) {
+            BindingDomain.CONTROLLER -> InputDevice.SOURCE_GAMEPAD
+            BindingDomain.MOUSE -> InputDevice.SOURCE_MOUSE
+            else -> InputDevice.SOURCE_KEYBOARD
         }
-        val flags = KeyEvent.FLAG_KEEP_TOUCH_MODE
+        // FLAG_SOFT_KEYBOARD + FLAG_KEEP_TOUCH_MODE preserves active GeForce NOW touch pointers
+        // and avoids touch-mode/focus jumps that cause camera flicks while holding buttons.
+        val flags = KeyEvent.FLAG_SOFT_KEYBOARD or KeyEvent.FLAG_KEEP_TOUCH_MODE
         val event = KeyEvent(
             downTime,
             now,
@@ -427,6 +518,11 @@ object InputBridge {
         KeyEvent.KEYCODE_BUTTON_MODE -> 316
         KeyEvent.KEYCODE_BUTTON_THUMBL -> 317
         KeyEvent.KEYCODE_BUTTON_THUMBR -> 318
+        KeyEvent.KEYCODE_BUTTON_1 -> 272 // BTN_LEFT (M1)
+        KeyEvent.KEYCODE_BUTTON_2 -> 273 // BTN_RIGHT (M2)
+        KeyEvent.KEYCODE_BUTTON_3 -> 274 // BTN_MIDDLE (M3 / MMB)
+        KeyEvent.KEYCODE_BUTTON_4 -> 275 // BTN_SIDE (M4)
+        KeyEvent.KEYCODE_BUTTON_5 -> 276 // BTN_EXTRA (M5)
         else -> 0
     }
 

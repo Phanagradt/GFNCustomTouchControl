@@ -104,11 +104,15 @@ fun VirtualControlCanvasItem(
     val widthDp = when (control.shape) {
         ControlShape.PILL -> sizeDp * 1.45f
         ControlShape.PADDLE -> sizeDp * 1.35f
+        ControlShape.KEYCAP -> sizeDp * 1.08f
+        ControlShape.TOUCHPAD_RECT -> sizeDp * 1.45f
         else -> sizeDp
     }
     val heightDp = when (control.shape) {
         ControlShape.PILL -> sizeDp * 0.78f
         ControlShape.PADDLE -> sizeDp * 0.84f
+        ControlShape.KEYCAP -> sizeDp * 0.94f
+        ControlShape.TOUCHPAD_RECT -> sizeDp
         else -> sizeDp
     }
 
@@ -146,6 +150,14 @@ fun VirtualControlCanvasItem(
                     isEditMode = isEditMode,
                     isSelected = isSelected,
                     vibrationMode = currentVibration
+                )
+            }
+            ControlType.TOUCHPAD -> {
+                TouchpadSurface(
+                    control = control,
+                    accentColor = accentColor,
+                    isEditMode = isEditMode,
+                    isSelected = isSelected
                 )
             }
             ControlType.DPAD_CLUSTER, ControlType.WASD_CLUSTER -> {
@@ -309,6 +321,39 @@ private fun ActionButtonSurface(
                         style = Stroke(width = strokePx)
                     )
                 }
+                ControlShape.KEYCAP -> {
+                    val corner = CornerRadius(11.dp.toPx(), 11.dp.toPx())
+                    val inset = strokePx + 3.dp.toPx()
+                    drawRoundRect(
+                        color = Color(0xFF0A0F18).copy(alpha = 0.86f),
+                        topLeft = Offset(strokePx, strokePx),
+                        size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
+                        cornerRadius = corner
+                    )
+                    drawRoundRect(
+                        color = accentColor.copy(alpha = fillAlpha),
+                        topLeft = Offset(strokePx, strokePx),
+                        size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
+                        cornerRadius = corner
+                    )
+                    drawRoundRect(
+                        color = borderColor.copy(alpha = 0.32f),
+                        topLeft = Offset(inset, inset),
+                        size = Size(
+                            (size.width - inset * 2).coerceAtLeast(4f),
+                            (size.height - inset * 2.3f).coerceAtLeast(4f)
+                        ),
+                        cornerRadius = CornerRadius(7.dp.toPx(), 7.dp.toPx()),
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                    drawRoundRect(
+                        color = borderColor,
+                        topLeft = Offset(strokePx, strokePx),
+                        size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
+                        cornerRadius = corner,
+                        style = Stroke(width = strokePx)
+                    )
+                }
                 else -> {
                     val corner = CornerRadius(size.height / 2f, size.height / 2f)
                     drawRoundRect(
@@ -373,7 +418,16 @@ private fun ActionButtonSurface(
             }
         }
 
-        if (isEditMode && isSelected) {
+        if (isToggled && !isEditMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF8CE000))
+            )
+        } else if (isEditMode && isSelected) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -736,6 +790,197 @@ private fun DirectionalPadSurface(
     }
 }
 
+@Composable
+private fun TouchpadSurface(
+    control: VirtualControl,
+    accentColor: Color,
+    isEditMode: Boolean,
+    isSelected: Boolean
+) {
+    val density = LocalDensity.current
+    val isPassThrough = control.binding.axisPair == AxisPair.TOUCHPAD_DIRECT_PASS
+    var isSwiping by remember(control.id) { mutableStateOf(false) }
+    var fingerPos by remember(control.id) { mutableStateOf(Offset.Zero) }
+    var anchorPos by remember(control.id) { mutableStateOf(Offset.Zero) }
+    var normX by remember(control.id) { mutableFloatStateOf(0f) }
+    var normY by remember(control.id) { mutableFloatStateOf(0f) }
+
+    val maxOffsetPx = with(density) { (36.dp / control.sensitivity.coerceIn(0.5f, 2.2f)).toPx() }
+        .coerceAtLeast(14f)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .then(
+                if (!isEditMode && !isPassThrough) {
+                    Modifier.pointerInput(
+                        control.id,
+                        control.binding.axisPair,
+                        control.deadzone,
+                        control.sensitivity,
+                        control.invertY
+                    ) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val pointerId = down.id
+                            down.consume()
+                            isSwiping = true
+                            anchorPos = down.position
+                            fingerPos = down.position
+
+                            fun updateFromDrag(pos: Offset) {
+                                fingerPos = pos
+                                var dx = pos.x - anchorPos.x
+                                var dy = pos.y - anchorPos.y
+                                if (kotlin.math.abs(dx) > maxOffsetPx) {
+                                    anchorPos = anchorPos.copy(x = pos.x - kotlin.math.sign(dx) * maxOffsetPx)
+                                    dx = pos.x - anchorPos.x
+                                }
+                                if (kotlin.math.abs(dy) > maxOffsetPx) {
+                                    anchorPos = anchorPos.copy(y = pos.y - kotlin.math.sign(dy) * maxOffsetPx)
+                                    dy = pos.y - anchorPos.y
+                                }
+                                val nx = (dx / maxOffsetPx).coerceIn(-1f, 1f)
+                                val ny = (dy / maxOffsetPx).coerceIn(-1f, 1f)
+                                normX = nx
+                                normY = ny
+                                InputBridge.updateTouchpadLook(
+                                    controlId = control.id,
+                                    sourceLabel = control.label,
+                                    axisPair = control.binding.axisPair,
+                                    normX = nx,
+                                    normY = ny,
+                                    deadzone = control.deadzone,
+                                    invertY = control.invertY,
+                                    active = true
+                                )
+                            }
+
+                            updateFromDrag(down.position)
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val pointer = event.changes.firstOrNull { it.id == pointerId }
+                                    if (pointer == null || !pointer.pressed) {
+                                        break
+                                    }
+                                    pointer.consume()
+                                    updateFromDrag(pointer.position)
+                                }
+                            } finally {
+                                isSwiping = false
+                                normX = 0f
+                                normY = 0f
+                                InputBridge.updateTouchpadLook(
+                                    controlId = control.id,
+                                    sourceLabel = control.label,
+                                    axisPair = control.binding.axisPair,
+                                    normX = 0f,
+                                    normY = 0f,
+                                    deadzone = control.deadzone,
+                                    invertY = control.invertY,
+                                    active = false
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Modifier
+                }
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val corner = CornerRadius(18.dp.toPx(), 18.dp.toPx())
+            val strokePx = if (isSwiping || isSelected) 2.2.dp.toPx() else 1.2.dp.toPx()
+            val bgAlpha = when {
+                isPassThrough && !isEditMode -> 0.14f
+                isSwiping -> 0.42f
+                else -> 0.28f
+            }
+
+            drawRoundRect(
+                color = Color(0xFF0A1019).copy(alpha = bgAlpha),
+                topLeft = Offset(strokePx, strokePx),
+                size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
+                cornerRadius = corner
+            )
+            drawRoundRect(
+                color = accentColor.copy(alpha = if (isSwiping || isSelected) 0.78f else 0.42f),
+                topLeft = Offset(strokePx, strokePx),
+                size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
+                cornerRadius = corner,
+                style = Stroke(width = strokePx)
+            )
+
+            // Subtle trackpad crosshair
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            drawLine(
+                color = accentColor.copy(alpha = 0.15f),
+                start = Offset(cx - 16.dp.toPx(), cy),
+                end = Offset(cx + 16.dp.toPx(), cy),
+                strokeWidth = 1.dp.toPx()
+            )
+            drawLine(
+                color = accentColor.copy(alpha = 0.15f),
+                start = Offset(cx, cy - 16.dp.toPx()),
+                end = Offset(cx, cy + 16.dp.toPx()),
+                strokeWidth = 1.dp.toPx()
+            )
+
+            if (isSwiping && !isPassThrough) {
+                drawLine(
+                    color = accentColor.copy(alpha = 0.65f),
+                    start = anchorPos,
+                    end = fingerPos,
+                    strokeWidth = 2.dp.toPx()
+                )
+                drawCircle(
+                    color = accentColor.copy(alpha = 0.3f),
+                    radius = 22.dp.toPx(),
+                    center = fingerPos
+                )
+                drawCircle(
+                    color = accentColor,
+                    radius = 12.dp.toPx(),
+                    center = fingerPos,
+                    style = Stroke(width = 2.dp.toPx())
+                )
+            }
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 8.dp)
+        ) {
+            Text(
+                text = if (isSwiping) {
+                    val dirH = when {
+                        normX > 0.25f -> "▶"
+                        normX < -0.25f -> "◀"
+                        else -> ""
+                    }
+                    val dirV = when {
+                        normY > 0.25f -> "▼"
+                        normY < -0.25f -> "▲"
+                        else -> ""
+                    }
+                    "${control.label} $dirH$dirV".trim()
+                } else {
+                    control.label
+                },
+                color = Color(0xFFF0F4FA).copy(alpha = if (isEditMode || isSwiping) 0.9f else 0.55f),
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
 private fun buildHexagonPath(width: Float, height: Float, inset: Float): Path {
     val cx = width / 2f
     val cy = height / 2f
@@ -771,11 +1016,15 @@ fun PositionedVirtualControl(
     val widthDp = when (control.shape) {
         ControlShape.PILL -> control.sizeDp * 1.45f
         ControlShape.PADDLE -> control.sizeDp * 1.35f
+        ControlShape.KEYCAP -> control.sizeDp * 1.08f
+        ControlShape.TOUCHPAD_RECT -> control.sizeDp * 1.45f
         else -> control.sizeDp
     }
     val heightDp = when (control.shape) {
         ControlShape.PILL -> control.sizeDp * 0.78f
         ControlShape.PADDLE -> control.sizeDp * 0.84f
+        ControlShape.KEYCAP -> control.sizeDp * 0.94f
+        ControlShape.TOUCHPAD_RECT -> control.sizeDp
         else -> control.sizeDp
     }
     val wPx = with(density) { widthDp.dp.toPx() }

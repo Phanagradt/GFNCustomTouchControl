@@ -60,7 +60,9 @@ import androidx.compose.ui.unit.dp
 import com.example.model.BindingDomain
 import com.example.model.ControllerProfile
 import com.example.model.GameGenre
+import com.example.model.ProfileTemplate
 import com.example.ui.theme.GeForceLime
+import com.example.ui.theme.MacroViolet
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TurboAmber
 
@@ -72,7 +74,7 @@ fun ProfilesScreen(
     onEditProfile: (String) -> Unit,
     onDuplicateProfile: (ControllerProfile) -> Unit,
     onDeleteProfile: (String) -> Unit,
-    onCreateProfile: (name: String, gameTitle: String, genre: GameGenre) -> Unit,
+    onCreateProfile: (name: String, gameTitle: String, genre: GameGenre, template: ProfileTemplate) -> Unit,
     onImportJsonClick: () -> Unit,
     onExportProfileClick: (ControllerProfile) -> Unit,
     modifier: Modifier = Modifier
@@ -230,9 +232,9 @@ fun ProfilesScreen(
     if (showCreateDialog) {
         CreateProfileDialog(
             onDismiss = { showCreateDialog = false },
-            onConfirm = { name, game, genre ->
+            onConfirm = { name, game, genre, template ->
                 showCreateDialog = false
-                onCreateProfile(name, game, genre)
+                onCreateProfile(name, game, genre, template)
             }
         )
     }
@@ -252,6 +254,7 @@ private fun ProfileCard(
     val gamepadCount = profile.controls.count {
         it.binding.domain == BindingDomain.CONTROLLER || it.binding.domain == BindingDomain.ANALOG_AXIS
     }
+    val mouseCount = profile.controls.count { it.binding.domain == BindingDomain.MOUSE }
     val keyCount = profile.controls.count { it.binding.domain == BindingDomain.KEYBOARD }
     val comboCount = profile.controls.count { it.binding.domain == BindingDomain.COMBO }
 
@@ -361,10 +364,11 @@ private fun ProfileCard(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        StatBadge("$gamepadCount PAD", GeForceLime)
-                        StatBadge("$keyCount KEY", TacticalCyan)
-                        if (comboCount > 0) StatBadge("$comboCount MACRO", TurboAmber)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (gamepadCount > 0) item { StatBadge("$gamepadCount PAD", GeForceLime) }
+                        if (mouseCount > 0) item { StatBadge("$mouseCount MSE", TurboAmber) }
+                        if (keyCount > 0) item { StatBadge("$keyCount KEY", TacticalCyan) }
+                        if (comboCount > 0) item { StatBadge("$comboCount MACRO", MacroViolet) }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (!isActive) {
@@ -405,22 +409,41 @@ private fun ProfileCard(
 @Composable
 private fun CreateProfileDialog(
     onDismiss: () -> Unit,
-    onConfirm: (name: String, gameTitle: String, genre: GameGenre) -> Unit
+    onConfirm: (name: String, gameTitle: String, genre: GameGenre, template: ProfileTemplate) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
     var gameTitle by remember { mutableStateOf("") }
-    var genre by remember { mutableStateOf(GameGenre.FPS) }
+    var template by remember { mutableStateOf(ProfileTemplate.PC_MOUSE_WASD) }
+    var genre by remember { mutableStateOf(template.defaultGenre) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("New GeForce NOW Layout") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Starter Template", style = MaterialTheme.typography.labelMedium)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(ProfileTemplate.entries) { entry ->
+                        FilterChip(
+                            selected = template == entry,
+                            onClick = {
+                                template = entry
+                                genre = entry.defaultGenre
+                            },
+                            label = { Text(entry.title) }
+                        )
+                    }
+                }
+                Text(
+                    text = template.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Profile Name") },
-                    placeholder = { Text("e.g., Cyberpunk Stealth") },
+                    placeholder = { Text(template.title) },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -430,13 +453,13 @@ private fun CreateProfileDialog(
                     value = gameTitle,
                     onValueChange = { gameTitle = it },
                     label = { Text("Target Game") },
-                    placeholder = { Text("e.g., Cyberpunk 2077") },
+                    placeholder = { Text("e.g., Dead by Daylight / Apex") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("new_profile_game_input")
                 )
-                Text("Genre Template", style = MaterialTheme.typography.labelMedium)
+                Text("Genre Tag", style = MaterialTheme.typography.labelMedium)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(GameGenre.entries) { entry ->
                         FilterChip(
@@ -450,7 +473,7 @@ private fun CreateProfileDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(name, gameTitle, genre) },
+                onClick = { onConfirm(name, gameTitle, genre, template) },
                 modifier = Modifier.testTag("confirm_create_profile_button")
             ) {
                 Text("Create & Edit")

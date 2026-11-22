@@ -335,6 +335,7 @@ fun TestArenaScreen(
                             items(telemetry, key = { it.id }) { event ->
                                 val tagColor = when (event.domain) {
                                     BindingDomain.CONTROLLER, BindingDomain.ANALOG_AXIS -> GeForceLime
+                                    BindingDomain.MOUSE -> TurboAmber
                                     BindingDomain.KEYBOARD -> TacticalCyan
                                     BindingDomain.COMBO -> MacroViolet
                                 }

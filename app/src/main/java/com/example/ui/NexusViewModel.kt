@@ -19,6 +19,7 @@ import com.example.model.ControllerProfile
 import com.example.model.GameGenre
 import com.example.model.InputBinding
 import com.example.model.PresetProfiles
+import com.example.model.ProfileTemplate
 import com.example.model.StickState
 import com.example.model.TelemetryEvent
 import com.example.model.TriggerBehavior
@@ -122,13 +123,15 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         name: String,
         gameTitle: String,
         genre: GameGenre,
+        template: ProfileTemplate = ProfileTemplate.BLANK,
         onCreated: (String) -> Unit
     ) {
         viewModelScope.launch {
-            val created = PresetProfiles.createBlankProfile(
-                name = name.ifBlank { "Custom GeForce Layout" },
+            val created = PresetProfiles.createProfileFromTemplate(
+                name = name.ifBlank { template.title },
                 gameTitle = gameTitle.ifBlank { "GeForce NOW Stream" },
-                genre = genre
+                genre = genre,
+                template = template
             )
             profileRepo.saveProfile(created)
             profileRepo.setActiveProfile(created.id)
@@ -236,20 +239,27 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     fun addControl(controlType: ControlType, binding: InputBinding) {
         val defaultShape = when (controlType) {
             ControlType.ANALOG_STICK -> ControlShape.RING
+            ControlType.TOUCHPAD -> ControlShape.TOUCHPAD_RECT
             ControlType.DPAD_CLUSTER, ControlType.WASD_CLUSTER -> ControlShape.CROSS
             ControlType.SHOULDER_PADDLE -> ControlShape.PADDLE
-            ControlType.BUTTON -> if (binding.domain == BindingDomain.KEYBOARD) ControlShape.HEX else ControlShape.CIRCLE
+            ControlType.BUTTON -> when (binding.domain) {
+                BindingDomain.KEYBOARD -> ControlShape.KEYCAP
+                BindingDomain.MOUSE -> ControlShape.KEYCAP
+                else -> ControlShape.CIRCLE
+            }
         }
         val defaultSize = when (controlType) {
+            ControlType.TOUCHPAD -> 148f
             ControlType.ANALOG_STICK, ControlType.DPAD_CLUSTER, ControlType.WASD_CLUSTER -> 118f
             ControlType.SHOULDER_PADDLE -> 72f
             ControlType.BUTTON -> 60f
         }
         val defaultAccent = when (binding.domain) {
             BindingDomain.CONTROLLER -> ControlAccent.LIME
+            BindingDomain.MOUSE -> ControlAccent.AMBER
             BindingDomain.KEYBOARD -> ControlAccent.CYAN
             BindingDomain.COMBO -> ControlAccent.VIOLET
-            BindingDomain.ANALOG_AXIS -> ControlAccent.LIME
+            BindingDomain.ANALOG_AXIS -> ControlAccent.CYAN
         }
         val newControl = VirtualControl(
             id = UUID.randomUUID().toString(),
@@ -279,6 +289,27 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         mutateEditorProfile(selectId = clone.id) { current ->
             current.copy(controls = current.controls + clone)
         }
+    }
+
+    fun mirrorDuplicateSelectedControl() {
+        val selected = _editorState.value.selectedControl ?: return
+        val mirroredX = (1f - selected.xPercent).coerceIn(0.05f, 0.95f)
+        val clone = selected.copy(
+            id = UUID.randomUUID().toString(),
+            xPercent = mirroredX
+        )
+        mutateEditorProfile(selectId = clone.id) { current ->
+            current.copy(controls = current.controls + clone)
+        }
+    }
+
+    fun nudgeSelectedControl(dxPercent: Float, dyPercent: Float) {
+        val selected = _editorState.value.selectedControl ?: return
+        val updated = selected.copy(
+            xPercent = (selected.xPercent + dxPercent).coerceIn(0.05f, 0.95f),
+            yPercent = (selected.yPercent + dyPercent).coerceIn(0.08f, 0.92f)
+        )
+        updateControl(updated)
     }
 
     fun deleteSelectedControl() {

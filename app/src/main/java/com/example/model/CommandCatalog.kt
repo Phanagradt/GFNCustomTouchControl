@@ -24,9 +24,22 @@ object CommandCatalog {
         InputBinding("dpad_right", BindingDomain.CONTROLLER, KeyEvent.KEYCODE_DPAD_RIGHT, codeLabel = "RT", commandTitle = "D-Pad Right")
     )
 
+    val mouseCommands: List<InputBinding> = listOf(
+        InputBinding("mouse_m1", BindingDomain.MOUSE, KeyEvent.KEYCODE_BUTTON_1, codeLabel = "M1", commandTitle = "Left Mouse Button (M1 / Primary Click)"),
+        InputBinding("mouse_m2", BindingDomain.MOUSE, KeyEvent.KEYCODE_BUTTON_2, codeLabel = "M2", commandTitle = "Right Mouse Button (M2 / Aim)"),
+        InputBinding("mouse_m3", BindingDomain.MOUSE, KeyEvent.KEYCODE_BUTTON_3, codeLabel = "MMB", commandTitle = "Middle Mouse Button (M3 / Wheel Click)"),
+        InputBinding("mouse_m4", BindingDomain.MOUSE, KeyEvent.KEYCODE_BUTTON_4, codeLabel = "M4", commandTitle = "Mouse Side 1 (M4 / Thumb Back)"),
+        InputBinding("mouse_m5", BindingDomain.MOUSE, KeyEvent.KEYCODE_BUTTON_5, codeLabel = "M5", commandTitle = "Mouse Side 2 (M5 / Thumb Forward)")
+    )
+
     val analogCommands: List<InputBinding> = listOf(
         InputBinding("axis_left", BindingDomain.ANALOG_AXIS, KeyEvent.KEYCODE_UNKNOWN, codeLabel = "L-STICK", commandTitle = "Left Analog Stick (Move)", axisPair = AxisPair.LEFT_STICK),
         InputBinding("axis_right", BindingDomain.ANALOG_AXIS, KeyEvent.KEYCODE_UNKNOWN, codeLabel = "R-STICK", commandTitle = "Right Analog Stick (Camera)", axisPair = AxisPair.RIGHT_STICK),
+        InputBinding("touchpad_arrows", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_DPAD_RIGHT, codeLabel = "CAM PAD", commandTitle = "Camera Touchpad (Arrow Look Keys)", axisPair = AxisPair.TOUCHPAD_ARROWS),
+        InputBinding("touchpad_qe", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_E, codeLabel = "Q/E PAD", commandTitle = "Camera Touchpad (Q/E Turn + Up/Down)", axisPair = AxisPair.TOUCHPAD_QE),
+        InputBinding("touchpad_ijkl", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_L, codeLabel = "IJKL PAD", commandTitle = "Camera Touchpad (I/J/K/L Look Keys)", axisPair = AxisPair.TOUCHPAD_IJKL),
+        InputBinding("touchpad_dpad", BindingDomain.CONTROLLER, KeyEvent.KEYCODE_DPAD_RIGHT, codeLabel = "DPAD CAM", commandTitle = "Camera Touchpad (Gamepad D-Pad)", axisPair = AxisPair.TOUCHPAD_DPAD),
+        InputBinding("touchpad_pass", BindingDomain.ANALOG_AXIS, KeyEvent.KEYCODE_UNKNOWN, codeLabel = "LOOK ZONE", commandTitle = "Direct Screen Look Zone (Pass-Through)", axisPair = AxisPair.TOUCHPAD_DIRECT_PASS),
         InputBinding("cluster_dpad", BindingDomain.CONTROLLER, KeyEvent.KEYCODE_DPAD_CENTER, codeLabel = "D-PAD", commandTitle = "4-Way Gamepad D-Pad", axisPair = AxisPair.DPAD_4WAY),
         InputBinding("cluster_wasd", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_W, codeLabel = "WASD", commandTitle = "WASD Directional Cluster", axisPair = AxisPair.WASD_KEYS),
         InputBinding("cluster_arrows", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_DPAD_UP, codeLabel = "ARROWS", commandTitle = "Arrow Keys Cluster", axisPair = AxisPair.ARROW_KEYS)
@@ -40,6 +53,9 @@ object CommandCatalog {
         InputBinding("key_tab", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_TAB, codeLabel = "TAB", commandTitle = "Tab (Inventory / Scoreboard)"),
         InputBinding("key_esc", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_ESCAPE, codeLabel = "ESC", commandTitle = "Escape (Pause Menu)"),
         InputBinding("key_enter", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_ENTER, codeLabel = "ENTER", commandTitle = "Enter / Chat"),
+        InputBinding("key_backspace", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_DEL, codeLabel = "BKSP", commandTitle = "Backspace"),
+        InputBinding("key_caps", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_CAPS_LOCK, codeLabel = "CAPS", commandTitle = "Caps Lock"),
+        InputBinding("key_grave", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_GRAVE, codeLabel = "~", commandTitle = "Tilde / Dev Console (~)"),
         InputBinding("key_arrow_up", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_DPAD_UP, codeLabel = "▲ KEY", commandTitle = "Arrow Up Key"),
         InputBinding("key_arrow_down", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_DPAD_DOWN, codeLabel = "▼ KEY", commandTitle = "Arrow Down Key"),
         InputBinding("key_arrow_left", BindingDomain.KEYBOARD, KeyEvent.KEYCODE_DPAD_LEFT, codeLabel = "◀ KEY", commandTitle = "Arrow Left Key"),
@@ -84,14 +100,42 @@ object CommandCatalog {
         InputBinding("combo_steam", BindingDomain.COMBO, KeyEvent.KEYCODE_TAB, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.META_SHIFT_ON, "SHF+TAB", "Steam Overlay (Shift+Tab)"),
         InputBinding("combo_ult", BindingDomain.COMBO, KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1, 0, "LB+RB", "Ultimate Ability (LB + RB)"),
         InputBinding("combo_sprint_jump", BindingDomain.COMBO, KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.META_SHIFT_ON, "SHF+SPC", "Sprint Jump Chord"),
+        InputBinding("combo_shift_m1", BindingDomain.COMBO, KeyEvent.KEYCODE_BUTTON_1, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.META_SHIFT_ON, "SHF+M1", "Sprint Attack (Shift + M1)"),
+        InputBinding("combo_ctrl_m1", BindingDomain.COMBO, KeyEvent.KEYCODE_BUTTON_1, KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.META_CTRL_ON, "CTRL+M1", "Alt Click / Split (Ctrl + M1)"),
         InputBinding("combo_ctrl_r", BindingDomain.COMBO, KeyEvent.KEYCODE_R, KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.META_CTRL_ON, "CTRL+R", "Tactical Reset (Ctrl+R)")
     )
 
     val allCommands: List<InputBinding> =
-        controllerCommands + analogCommands + keyboardCommands + comboCommands
+        controllerCommands + mouseCommands + analogCommands + keyboardCommands + comboCommands
+
+    val singleButtonCommands: List<InputBinding> =
+        controllerCommands + mouseCommands + keyboardCommands
 
     fun findById(id: String): InputBinding =
         allCommands.firstOrNull { it.id == id } ?: controllerCommands.first()
+
+    fun createCustomComboBinding(secondary: InputBinding, primary: InputBinding): InputBinding {
+        val secShort = when (secondary.codeLabel) {
+            "SHIFT" -> "SHF"
+            "SPACE" -> "SPC"
+            else -> secondary.codeLabel.take(4)
+        }
+        val priShort = when (primary.codeLabel) {
+            "SHIFT" -> "SHF"
+            "SPACE" -> "SPC"
+            else -> primary.codeLabel.take(4)
+        }
+        val meta = secondary.modifierMetaState or primary.modifierMetaState
+        return InputBinding(
+            id = "custom_combo_${secondary.id}_${primary.id}",
+            domain = BindingDomain.COMBO,
+            primaryKeyCode = primary.primaryKeyCode,
+            secondaryKeyCode = secondary.primaryKeyCode,
+            modifierMetaState = meta,
+            codeLabel = "$secShort+$priShort",
+            commandTitle = "Custom Chord (${secondary.codeLabel} + ${primary.codeLabel})"
+        )
+    }
 
     fun formatFaceLabel(binding: InputBinding, notation: ControllerNotation): String {
         if (binding.domain != BindingDomain.CONTROLLER) return binding.codeLabel

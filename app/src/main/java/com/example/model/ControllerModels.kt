@@ -5,6 +5,7 @@ import com.squareup.moshi.JsonClass
 
 enum class BindingDomain(val displayName: String) {
     CONTROLLER("Controller"),
+    MOUSE("Mouse"),
     KEYBOARD("Keyboard"),
     COMBO("Combo Macro"),
     ANALOG_AXIS("Analog Axis")
@@ -13,6 +14,7 @@ enum class BindingDomain(val displayName: String) {
 enum class ControlType(val displayName: String) {
     BUTTON("Action Button"),
     ANALOG_STICK("Analog Stick"),
+    TOUCHPAD("Camera Touchpad"),
     DPAD_CLUSTER("D-Pad"),
     WASD_CLUSTER("WASD Pad"),
     SHOULDER_PADDLE("Shoulder Paddle")
@@ -21,10 +23,12 @@ enum class ControlType(val displayName: String) {
 enum class ControlShape(val displayName: String) {
     CIRCLE("Circle"),
     PILL("Pill"),
+    KEYCAP("Keycap"),
     HEX("Tactical Hex"),
     PADDLE("Paddle"),
     RING("Stick Ring"),
-    CROSS("D-Pad Cross")
+    CROSS("D-Pad Cross"),
+    TOUCHPAD_RECT("Touchpad Zone")
 }
 
 enum class TriggerBehavior(val displayName: String, val subtitle: String) {
@@ -48,7 +52,12 @@ enum class AxisPair(val displayName: String) {
     RIGHT_STICK("Right Stick (AXIS_Z / AXIS_RZ)"),
     WASD_KEYS("Keyboard W / A / S / D"),
     ARROW_KEYS("Keyboard Arrow Keys"),
-    DPAD_4WAY("Gamepad D-Pad 4-Way")
+    DPAD_4WAY("Gamepad D-Pad 4-Way"),
+    TOUCHPAD_ARROWS("Camera Pad • Arrow Keys"),
+    TOUCHPAD_QE("Camera Pad • Q / E + Up/Down"),
+    TOUCHPAD_IJKL("Camera Pad • I / J / K / L"),
+    TOUCHPAD_DPAD("Camera Pad • Gamepad D-Pad"),
+    TOUCHPAD_DIRECT_PASS("Look Zone • Direct Screen Pass-Through")
 }
 
 enum class GameGenre(val displayName: String) {
@@ -93,6 +102,7 @@ data class VirtualControl(
     val deadzone: Float = 0.12f,
     val sensitivity: Float = 1.0f,
     val hapticOnPress: Boolean = true,
+    val invertY: Boolean = false,
     val binding: InputBinding
 )
 

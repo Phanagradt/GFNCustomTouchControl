@@ -27,6 +27,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
@@ -73,6 +77,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -104,6 +110,11 @@ class OverlayControllerService : Service() {
     private val controlViews = mutableListOf<ComposeView>()
     private var hudPillView: ComposeView? = null
     private val buttonsVisible = MutableStateFlow(true)
+    private val hudLocked = MutableStateFlow(false)
+    private val hudExpanded = MutableStateFlow(false)
+    private val activeProfileName = MutableStateFlow("NexusPad")
+    private val allProfilesFlow = MutableStateFlow<List<ControllerProfile>>(emptyList())
+    private var profileRepoRef: ProfileRepository? = null
     private var collectorJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -146,11 +157,17 @@ class OverlayControllerService : Service() {
     private fun observeActiveProfile() {
         val db = NexusDatabase.getInstance(applicationContext)
         val profileRepo = ProfileRepository(db.profileDao())
+        profileRepoRef = profileRepo
         val prefsRepo = PreferencesRepository(applicationContext)
 
         collectorJob?.cancel()
         collectorJob = serviceScope.launch {
             profileRepo.ensureSeeded()
+            launch {
+                profileRepo.profiles.collect { list ->
+                    allProfilesFlow.value = list
+                }
+            }
             combine(
                 profileRepo.activeProfile,
                 prefsRepo.settingsFlow,
@@ -158,13 +175,24 @@ class OverlayControllerService : Service() {
             ) { profile, settings, visible ->
                 Triple(profile, settings, visible)
             }.collect { (profile, settings, visible) ->
+                activeProfileName.value = profile?.name ?: "NexusPad"
                 clearControlWindows()
+                InputBridge.releaseAll()
                 if (visible && profile != null) {
                     renderControlWindows(profile, settings)
-                } else {
-                    InputBridge.releaseAll()
                 }
             }
+        }
+    }
+
+    private fun cycleNextProfile() {
+        val repo = profileRepoRef ?: return
+        val list = allProfilesFlow.value
+        if (list.size <= 1) return
+        val currentIdx = list.indexOfFirst { it.isActive }
+        val next = list[(currentIdx + 1) % list.size]
+        serviceScope.launch {
+            repo.setActiveProfile(next.id)
         }
     }
 
@@ -186,53 +214,104 @@ class OverlayControllerService : Service() {
             attachLifecycle(this)
             setContent {
                 val visible by buttonsVisible.collectAsState()
+                val locked by hudLocked.collectAsState()
+                val expanded by hudExpanded.collectAsState()
+                val profileName by activeProfileName.collectAsState()
+                val profileCount = allProfilesFlow.collectAsState().value.size
+
                 NexusPadTheme {
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(24.dp))
                             .background(Color(0xE60B0E14))
-                            .border(1.dp, Color(0xFF8CE000), RoundedCornerShape(24.dp))
-                            .pointerInput(Unit) {
+                            .border(
+                                1.dp,
+                                if (locked) Color(0xFFFFB300) else Color(0xFF8CE000),
+                                RoundedCornerShape(24.dp)
+                            )
+                            .pointerInput(locked) {
                                 detectDragGestures { change, dragAmount ->
-                                    change.consume()
-                                    params.x += dragAmount.x.roundToInt()
-                                    params.y += dragAmount.y.roundToInt()
-                                    runCatching { windowManager.updateViewLayout(this@apply, params) }
+                                    if (!locked) {
+                                        change.consume()
+                                        params.x += dragAmount.x.roundToInt()
+                                        params.y += dragAmount.y.roundToInt()
+                                        runCatching { windowManager.updateViewLayout(this@apply, params) }
+                                    }
                                 }
                             }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.clickable { hudExpanded.value = !expanded }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Gamepad,
+                                contentDescription = "Toggle HUD Tools",
+                                tint = if (locked) Color(0xFFFFB300) else Color(0xFF8CE000),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = if (expanded) profileName.take(14) else "NEXUS",
+                                color = Color.White,
+                                fontFamily = SpaceGroteskFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        if (expanded && !locked && profileCount > 1) {
+                            Icon(
+                                imageVector = Icons.Default.SwapHoriz,
+                                contentDescription = "Switch Profile",
+                                tint = Color(0xFF8CE000),
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clickable { cycleNextProfile() }
+                            )
+                        }
+
+                        if (expanded) {
+                            Icon(
+                                imageVector = Icons.Default.RestartAlt,
+                                contentDescription = "Release Stuck Keys",
+                                tint = Color(0xFFFFB300),
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clickable { InputBridge.releaseAll() }
+                            )
+                        }
+
                         Icon(
-                            imageVector = Icons.Default.Gamepad,
-                            contentDescription = "NexusPad Overlay",
-                            tint = Color(0xFF8CE000),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = "NEXUSPAD",
-                            color = Color.White,
-                            fontFamily = SpaceGroteskFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
-                        )
-                        Icon(
-                            imageVector = if (visible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                            contentDescription = if (visible) "Hide Overlay Buttons" else "Show Overlay Buttons",
-                            tint = Color(0xFF00E5FF),
+                            imageVector = if (locked) Icons.Default.Lock else Icons.Default.LockOpen,
+                            contentDescription = if (locked) "Unlock HUD" else "Lock HUD",
+                            tint = if (locked) Color(0xFFFFB300) else Color(0xFF9FB0C7),
                             modifier = Modifier
-                                .size(20.dp)
-                                .clickable { buttonsVisible.value = !visible }
+                                .size(18.dp)
+                                .clickable { hudLocked.value = !locked }
                         )
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Stop Overlay",
-                            tint = Color(0xFFFF5277),
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clickable { stopSelf() }
-                        )
+
+                        if (!locked) {
+                            Icon(
+                                imageVector = if (visible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = if (visible) "Hide Overlay Buttons" else "Show Overlay Buttons",
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clickable { buttonsVisible.value = !visible }
+                            )
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Stop Overlay",
+                                tint = Color(0xFFFF5277),
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clickable { stopSelf() }
+                            )
+                        }
                     }
                 }
             }
@@ -260,13 +339,18 @@ class OverlayControllerService : Service() {
                 .roundToInt()
                 .coerceIn(0, (screenH - hPx).coerceAtLeast(0))
 
+            val isPassThroughPad = control.binding.axisPair == com.example.model.AxisPair.TOUCHPAD_DIRECT_PASS
+            val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_SPLIT_TOUCH or
+                if (isPassThroughPad) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0
+
             val params = WindowManager.LayoutParams(
                 wPx,
                 hPx,
                 overlayWindowType(),
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_SPLIT_TOUCH,
+                windowFlags,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
@@ -277,8 +361,12 @@ class OverlayControllerService : Service() {
             val view = ComposeView(this).apply {
                 attachLifecycle(this)
                 setContent {
-                    val pressedIds by InputBridge.pressedControlIds.collectAsState()
-                    val toggledIds by InputBridge.toggledControlIds.collectAsState()
+                    val isControlPressed by androidx.compose.runtime.remember(control.id) {
+                        InputBridge.pressedControlIds.map { control.id in it }.distinctUntilChanged()
+                    }.collectAsState(initial = false)
+                    val isControlToggled by androidx.compose.runtime.remember(control.id) {
+                        InputBridge.toggledControlIds.map { control.id in it }.distinctUntilChanged()
+                    }.collectAsState(initial = false)
                     NexusPadTheme {
                         VirtualControlCanvasItem(
                             control = control,
@@ -287,8 +375,8 @@ class OverlayControllerService : Service() {
                             vibrationMode = settings.vibrationMode,
                             isEditMode = false,
                             isSelected = false,
-                            isPressed = control.id in pressedIds,
-                            isToggled = control.id in toggledIds,
+                            isPressed = isControlPressed,
+                            isToggled = isControlToggled,
                             onSelect = {},
                             onDragDelta = { _, _ -> }
                         )
@@ -303,12 +391,16 @@ class OverlayControllerService : Service() {
     private fun controlWidthDp(control: VirtualControl): Float = when (control.shape) {
         com.example.model.ControlShape.PILL -> control.sizeDp * 1.45f
         com.example.model.ControlShape.PADDLE -> control.sizeDp * 1.35f
+        com.example.model.ControlShape.KEYCAP -> control.sizeDp * 1.08f
+        com.example.model.ControlShape.TOUCHPAD_RECT -> control.sizeDp * 1.45f
         else -> control.sizeDp
     }
 
     private fun controlHeightDp(control: VirtualControl): Float = when (control.shape) {
         com.example.model.ControlShape.PILL -> control.sizeDp * 0.78f
         com.example.model.ControlShape.PADDLE -> control.sizeDp * 0.84f
+        com.example.model.ControlShape.KEYCAP -> control.sizeDp * 0.94f
+        com.example.model.ControlShape.TOUCHPAD_RECT -> control.sizeDp
         else -> control.sizeDp
     }
 
