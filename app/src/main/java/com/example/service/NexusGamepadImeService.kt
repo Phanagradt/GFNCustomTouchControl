@@ -1,6 +1,8 @@
 package com.example.service
 
 import android.inputmethodservice.InputMethodService
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -11,10 +13,18 @@ import com.example.input.InputBridge
 
 class NexusGamepadImeService : InputMethodService() {
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     override fun onCreate() {
         super.onCreate()
         InputBridge.attachImeSink { event ->
-            currentInputConnection?.sendKeyEvent(event)
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                currentInputConnection?.sendKeyEvent(event)
+            } else {
+                mainHandler.post {
+                    currentInputConnection?.sendKeyEvent(event)
+                }
+            }
         }
     }
 

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 object InputBridge {
@@ -22,6 +23,7 @@ object InputBridge {
 
     private var activeSink: KeyEventSink? = null
     private val eventIdGen = AtomicLong(1L)
+    private val activeDownTimes = ConcurrentHashMap<Int, Long>()
 
     private val _isImeConnected = MutableStateFlow(false)
     val isImeConnected: StateFlow<Boolean> = _isImeConnected.asStateFlow()
@@ -81,7 +83,7 @@ object InputBridge {
 
     fun pulseTurbo(sourceLabel: String, binding: InputBinding) {
         dispatchBindingAction(sourceLabel, binding, isDown = true, actionOverride = "TURBO_HIT")
-        sendKeyToSink(binding.primaryKeyCode, KeyEvent.ACTION_UP, binding.modifierMetaState, binding.domain)
+        sendKeyToSink(binding.primaryKeyCode, KeyEvent.ACTION_UP, 0, binding.domain)
     }
 
     fun updateAnalogStick(
@@ -168,7 +170,7 @@ object InputBridge {
                 sourceLabel = sourceLabel,
                 codeLabel = safeKeyCodeName(code),
                 actionName = "KEY_UP",
-                detail = "Cluster release",
+                detail = "scan=${resolveLinuxScanCode(code, domain)}",
                 domain = domain
             )
         }
@@ -178,7 +180,7 @@ object InputBridge {
                 sourceLabel = sourceLabel,
                 codeLabel = safeKeyCodeName(code),
                 actionName = "KEY_DOWN",
-                detail = "Cluster active",
+                detail = "scan=${resolveLinuxScanCode(code, domain)}",
                 domain = domain
             )
         }
@@ -201,22 +203,23 @@ object InputBridge {
         actionOverride: String? = null
     ) {
         val action = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
+        val effectiveMeta = if (isDown) binding.modifierMetaState else 0
         if (binding.secondaryKeyCode != KeyEvent.KEYCODE_UNKNOWN) {
             if (isDown) {
-                sendKeyToSink(binding.secondaryKeyCode, KeyEvent.ACTION_DOWN, 0, binding.domain)
+                sendKeyToSink(binding.secondaryKeyCode, KeyEvent.ACTION_DOWN, binding.modifierMetaState, binding.domain)
                 sendKeyToSink(binding.primaryKeyCode, KeyEvent.ACTION_DOWN, binding.modifierMetaState, binding.domain)
             } else {
-                sendKeyToSink(binding.primaryKeyCode, KeyEvent.ACTION_UP, binding.modifierMetaState, binding.domain)
+                sendKeyToSink(binding.primaryKeyCode, KeyEvent.ACTION_UP, 0, binding.domain)
                 sendKeyToSink(binding.secondaryKeyCode, KeyEvent.ACTION_UP, 0, binding.domain)
             }
         } else if (binding.primaryKeyCode != KeyEvent.KEYCODE_UNKNOWN) {
-            sendKeyToSink(binding.primaryKeyCode, action, binding.modifierMetaState, binding.domain)
+            sendKeyToSink(binding.primaryKeyCode, action, effectiveMeta, binding.domain)
         }
 
         val keyDesc = if (binding.secondaryKeyCode != KeyEvent.KEYCODE_UNKNOWN) {
-            "${safeKeyCodeName(binding.secondaryKeyCode)} + ${safeKeyCodeName(binding.primaryKeyCode)}"
+            "${safeKeyCodeName(binding.secondaryKeyCode)}+${safeKeyCodeName(binding.primaryKeyCode)}"
         } else {
-            safeKeyCodeName(binding.primaryKeyCode)
+            "${safeKeyCodeName(binding.primaryKeyCode)} (scan=${resolveLinuxScanCode(binding.primaryKeyCode, binding.domain)})"
         }
 
         recordTelemetry(
@@ -242,6 +245,9 @@ object InputBridge {
                 }
             }
 
+    private fun safeUptimeMillis(): Long =
+        runCatching { SystemClock.uptimeMillis() }.getOrElse { System.currentTimeMillis() }
+
     private fun sendKeyToSink(
         keyCode: Int,
         action: Int,
@@ -250,25 +256,136 @@ object InputBridge {
     ) {
         if (keyCode == KeyEvent.KEYCODE_UNKNOWN) return
         val sink = activeSink ?: return
-        val now = SystemClock.uptimeMillis()
+        val now = safeUptimeMillis()
+        val downTime = if (action == KeyEvent.ACTION_DOWN) {
+            activeDownTimes[keyCode] = now
+            now
+        } else {
+            activeDownTimes.remove(keyCode) ?: now
+        }
+        val scanCode = resolveLinuxScanCode(keyCode, domain)
         val source = if (domain == BindingDomain.CONTROLLER) {
-            InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_KEYBOARD
+            InputDevice.SOURCE_GAMEPAD
         } else {
             InputDevice.SOURCE_KEYBOARD
         }
+        val flags = if (domain == BindingDomain.CONTROLLER) {
+            KeyEvent.FLAG_KEEP_TOUCH_MODE
+        } else {
+            KeyEvent.FLAG_KEEP_TOUCH_MODE
+        }
         val event = KeyEvent(
-            now,
+            downTime,
             now,
             action,
             keyCode,
             0,
             metaState,
             -1,
-            0,
-            KeyEvent.FLAG_SOFT_KEYBOARD or KeyEvent.FLAG_KEEP_TOUCH_MODE,
+            scanCode,
+            flags,
             source
         )
         sink.onDispatchKeyEvent(event)
+    }
+
+    /**
+     * Maps Android KeyEvent keycodes to exact Linux evdev scan codes (uapi/linux/input-event-codes.h)
+     * so cloud streaming clients like GeForce NOW do not fall back to interpreting Android keyCode
+     * integers as raw Linux scan codes (e.g. Android KEYCODE_A=29 vs Linux KEY_LEFTCTRL=29).
+     */
+    fun resolveLinuxScanCode(keyCode: Int, domain: BindingDomain): Int = when (keyCode) {
+        KeyEvent.KEYCODE_ESCAPE -> 1
+        KeyEvent.KEYCODE_1 -> 2
+        KeyEvent.KEYCODE_2 -> 3
+        KeyEvent.KEYCODE_3 -> 4
+        KeyEvent.KEYCODE_4 -> 5
+        KeyEvent.KEYCODE_5 -> 6
+        KeyEvent.KEYCODE_6 -> 7
+        KeyEvent.KEYCODE_7 -> 8
+        KeyEvent.KEYCODE_8 -> 9
+        KeyEvent.KEYCODE_9 -> 10
+        KeyEvent.KEYCODE_0 -> 11
+        KeyEvent.KEYCODE_MINUS -> 12
+        KeyEvent.KEYCODE_EQUALS -> 13
+        KeyEvent.KEYCODE_DEL -> 14
+        KeyEvent.KEYCODE_TAB -> 15
+        KeyEvent.KEYCODE_Q -> 16
+        KeyEvent.KEYCODE_W -> 17
+        KeyEvent.KEYCODE_E -> 18
+        KeyEvent.KEYCODE_R -> 19
+        KeyEvent.KEYCODE_T -> 20
+        KeyEvent.KEYCODE_Y -> 21
+        KeyEvent.KEYCODE_U -> 22
+        KeyEvent.KEYCODE_I -> 23
+        KeyEvent.KEYCODE_O -> 24
+        KeyEvent.KEYCODE_P -> 25
+        KeyEvent.KEYCODE_LEFT_BRACKET -> 26
+        KeyEvent.KEYCODE_RIGHT_BRACKET -> 27
+        KeyEvent.KEYCODE_ENTER -> 28
+        KeyEvent.KEYCODE_CTRL_LEFT -> 29
+        KeyEvent.KEYCODE_A -> 30
+        KeyEvent.KEYCODE_S -> 31
+        KeyEvent.KEYCODE_D -> 32
+        KeyEvent.KEYCODE_F -> 33
+        KeyEvent.KEYCODE_G -> 34
+        KeyEvent.KEYCODE_H -> 35
+        KeyEvent.KEYCODE_J -> 36
+        KeyEvent.KEYCODE_K -> 37
+        KeyEvent.KEYCODE_L -> 38
+        KeyEvent.KEYCODE_SEMICOLON -> 39
+        KeyEvent.KEYCODE_APOSTROPHE -> 40
+        KeyEvent.KEYCODE_GRAVE -> 41
+        KeyEvent.KEYCODE_SHIFT_LEFT -> 42
+        KeyEvent.KEYCODE_BACKSLASH -> 43
+        KeyEvent.KEYCODE_Z -> 44
+        KeyEvent.KEYCODE_X -> 45
+        KeyEvent.KEYCODE_C -> 46
+        KeyEvent.KEYCODE_V -> 47
+        KeyEvent.KEYCODE_B -> 48
+        KeyEvent.KEYCODE_N -> 49
+        KeyEvent.KEYCODE_M -> 50
+        KeyEvent.KEYCODE_COMMA -> 51
+        KeyEvent.KEYCODE_PERIOD -> 52
+        KeyEvent.KEYCODE_SLASH -> 53
+        KeyEvent.KEYCODE_SHIFT_RIGHT -> 54
+        KeyEvent.KEYCODE_ALT_LEFT -> 56
+        KeyEvent.KEYCODE_SPACE -> 57
+        KeyEvent.KEYCODE_CAPS_LOCK -> 58
+        KeyEvent.KEYCODE_F1 -> 59
+        KeyEvent.KEYCODE_F2 -> 60
+        KeyEvent.KEYCODE_F3 -> 61
+        KeyEvent.KEYCODE_F4 -> 62
+        KeyEvent.KEYCODE_F5 -> 63
+        KeyEvent.KEYCODE_F6 -> 64
+        KeyEvent.KEYCODE_F7 -> 65
+        KeyEvent.KEYCODE_F8 -> 66
+        KeyEvent.KEYCODE_F9 -> 67
+        KeyEvent.KEYCODE_F10 -> 68
+        KeyEvent.KEYCODE_F11 -> 87
+        KeyEvent.KEYCODE_F12 -> 88
+        KeyEvent.KEYCODE_CTRL_RIGHT -> 97
+        KeyEvent.KEYCODE_ALT_RIGHT -> 100
+        KeyEvent.KEYCODE_DPAD_UP -> if (domain == BindingDomain.CONTROLLER) 544 else 103
+        KeyEvent.KEYCODE_DPAD_LEFT -> if (domain == BindingDomain.CONTROLLER) 546 else 105
+        KeyEvent.KEYCODE_DPAD_RIGHT -> if (domain == BindingDomain.CONTROLLER) 547 else 106
+        KeyEvent.KEYCODE_DPAD_DOWN -> if (domain == BindingDomain.CONTROLLER) 545 else 108
+        KeyEvent.KEYCODE_BUTTON_A -> 304
+        KeyEvent.KEYCODE_BUTTON_B -> 305
+        KeyEvent.KEYCODE_BUTTON_C -> 306
+        KeyEvent.KEYCODE_BUTTON_X -> 307
+        KeyEvent.KEYCODE_BUTTON_Y -> 308
+        KeyEvent.KEYCODE_BUTTON_Z -> 309
+        KeyEvent.KEYCODE_BUTTON_L1 -> 310
+        KeyEvent.KEYCODE_BUTTON_R1 -> 311
+        KeyEvent.KEYCODE_BUTTON_L2 -> 312
+        KeyEvent.KEYCODE_BUTTON_R2 -> 313
+        KeyEvent.KEYCODE_BUTTON_SELECT -> 314
+        KeyEvent.KEYCODE_BUTTON_START -> 315
+        KeyEvent.KEYCODE_BUTTON_MODE -> 316
+        KeyEvent.KEYCODE_BUTTON_THUMBL -> 317
+        KeyEvent.KEYCODE_BUTTON_THUMBR -> 318
+        else -> 0
     }
 
     private fun recordTelemetry(

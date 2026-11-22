@@ -114,4 +114,17 @@ class ExampleUnitTest {
         assertTrue(upEvents.contains("W"))
         assertTrue(upEvents.contains("D"))
     }
+
+    @Test
+    fun `linux evdev scan codes prevent keycode collisions like A vs LeftCtrl`() {
+        assertEquals(30, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_A, com.example.model.BindingDomain.KEYBOARD))
+        assertEquals(29, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_CTRL_LEFT, com.example.model.BindingDomain.KEYBOARD))
+        assertEquals(17, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_W, com.example.model.BindingDomain.KEYBOARD))
+        assertEquals(31, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_S, com.example.model.BindingDomain.KEYBOARD))
+        assertEquals(32, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_D, com.example.model.BindingDomain.KEYBOARD))
+        assertEquals(311, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_R1, com.example.model.BindingDomain.CONTROLLER))
+        assertEquals(313, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_R2, com.example.model.BindingDomain.CONTROLLER))
+        assertEquals(103, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_DPAD_UP, com.example.model.BindingDomain.KEYBOARD))
+        assertEquals(544, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_DPAD_UP, com.example.model.BindingDomain.CONTROLLER))
+    }
 }
