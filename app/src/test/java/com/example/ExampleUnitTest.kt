@@ -21,6 +21,7 @@ class ExampleUnitTest {
 
     @Before
     fun setup() {
+        InputBridge.releaseAll()
         InputBridge.clearTelemetry()
         InputBridge.attachImeSink(null)
     }
@@ -113,6 +114,47 @@ class ExampleUnitTest {
         val upEvents = InputBridge.telemetry.value.filter { it.actionName == "KEY_UP" }.map { it.codeLabel }
         assertTrue(upEvents.contains("W"))
         assertTrue(upEvents.contains("D"))
+    }
+
+    @Test
+    fun `toggled shift persists metaState across WASD direction turns and clears cleanly`() {
+        val shift = CommandCatalog.findById("key_shift")
+        val keyW = CommandCatalog.findById("key_w")
+        val keyD = CommandCatalog.findById("key_d")
+        val expectedShiftMeta = KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON
+
+        // 1. Walk forward (W) then toggle Shift ON
+        InputBridge.updateDirectionalCluster("wasd_1", "WASD", AxisPair.WASD_KEYS, x = 0f, y = -0.9f, active = true)
+        assertTrue(InputBridge.toggleControl("toggle_shift", "SPRINT", shift))
+        assertEquals(expectedShiftMeta, InputBridge.currentEffectiveMetaState())
+
+        // 2. Turn right (W -> D): new key D must press before W releases, and Shift metaState stays active
+        InputBridge.clearTelemetry()
+        InputBridge.updateDirectionalCluster("wasd_1", "WASD", AxisPair.WASD_KEYS, x = 0.9f, y = 0f, active = true)
+        assertEquals(expectedShiftMeta, InputBridge.currentEffectiveMetaState())
+        val transitionEvents = InputBridge.telemetry.value.reversed() // chronological
+        assertEquals("D", transitionEvents[0].codeLabel)
+        assertEquals("KEY_DOWN", transitionEvents[0].actionName)
+        assertEquals("W", transitionEvents[1].codeLabel)
+        assertEquals("KEY_UP", transitionEvents[1].actionName)
+
+        // 3. Individual button press/release (W/D) while Shift is toggled keeps Shift metaState active
+        InputBridge.pressControl("btn_d", "D", keyD)
+        InputBridge.releaseControl("btn_d", "D", keyD)
+        InputBridge.pressControl("btn_w", "W", keyW)
+        InputBridge.releaseControl("btn_w", "W", keyW)
+        assertEquals(expectedShiftMeta, InputBridge.currentEffectiveMetaState())
+
+        // 4. Toggle Shift OFF clears metaState
+        assertFalse(InputBridge.toggleControl("toggle_shift", "SPRINT", shift))
+        assertEquals(0, InputBridge.currentEffectiveMetaState())
+
+        // 5. Re-toggle ON then releaseAll() clears both toggle state and modifier bits
+        assertTrue(InputBridge.toggleControl("toggle_shift", "SPRINT", shift))
+        assertEquals(expectedShiftMeta, InputBridge.currentEffectiveMetaState())
+        InputBridge.releaseAll()
+        assertEquals(0, InputBridge.currentEffectiveMetaState())
+        assertTrue(InputBridge.toggledControlIds.value.isEmpty())
     }
 
     @Test

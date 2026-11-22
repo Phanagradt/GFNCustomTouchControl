@@ -24,6 +24,7 @@ object InputBridge {
     private var activeSink: KeyEventSink? = null
     private val eventIdGen = AtomicLong(1L)
     private val activeDownTimes = ConcurrentHashMap<Int, Long>()
+    private val activeModifiers = ConcurrentHashMap<Int, Int>()
 
     private val _isImeConnected = MutableStateFlow(false)
     val isImeConnected: StateFlow<Boolean> = _isImeConnected.asStateFlow()
@@ -164,22 +165,22 @@ object InputBridge {
             BindingDomain.CONTROLLER
         }
 
-        released.forEach { code ->
-            sendKeyToSink(code, KeyEvent.ACTION_UP, 0, domain)
-            recordTelemetry(
-                sourceLabel = sourceLabel,
-                codeLabel = safeKeyCodeName(code),
-                actionName = "KEY_UP",
-                detail = "scan=${resolveLinuxScanCode(code, domain)}",
-                domain = domain
-            )
-        }
         pressed.forEach { code ->
             sendKeyToSink(code, KeyEvent.ACTION_DOWN, 0, domain)
             recordTelemetry(
                 sourceLabel = sourceLabel,
                 codeLabel = safeKeyCodeName(code),
                 actionName = "KEY_DOWN",
+                detail = "scan=${resolveLinuxScanCode(code, domain)}",
+                domain = domain
+            )
+        }
+        released.forEach { code ->
+            sendKeyToSink(code, KeyEvent.ACTION_UP, 0, domain)
+            recordTelemetry(
+                sourceLabel = sourceLabel,
+                codeLabel = safeKeyCodeName(code),
+                actionName = "KEY_UP",
                 detail = "scan=${resolveLinuxScanCode(code, domain)}",
                 domain = domain
             )
@@ -196,6 +197,25 @@ object InputBridge {
         _telemetry.value = emptyList()
     }
 
+    fun releaseAll() {
+        val heldKeys = activeDownTimes.keys.toList()
+        val nonModifierKeys = heldKeys.filter { modifierBitsForKeyCode(it) == 0 }
+        val modifierKeys = (heldKeys.filter { modifierBitsForKeyCode(it) != 0 } + activeModifiers.keys).distinct()
+        nonModifierKeys.forEach { code ->
+            sendKeyToSink(code, KeyEvent.ACTION_UP, 0, BindingDomain.KEYBOARD)
+        }
+        modifierKeys.forEach { code ->
+            sendKeyToSink(code, KeyEvent.ACTION_UP, 0, BindingDomain.KEYBOARD)
+        }
+        activeModifiers.clear()
+        activeDownTimes.clear()
+        _pressedControlIds.value = emptySet()
+        _toggledControlIds.value = emptySet()
+        _activeClusterDirections.value = emptyMap()
+        _leftStick.value = StickState()
+        _rightStick.value = StickState()
+    }
+
     private fun dispatchBindingAction(
         sourceLabel: String,
         binding: InputBinding,
@@ -203,7 +223,6 @@ object InputBridge {
         actionOverride: String? = null
     ) {
         val action = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
-        val effectiveMeta = if (isDown) binding.modifierMetaState else 0
         if (binding.secondaryKeyCode != KeyEvent.KEYCODE_UNKNOWN) {
             if (isDown) {
                 sendKeyToSink(binding.secondaryKeyCode, KeyEvent.ACTION_DOWN, binding.modifierMetaState, binding.domain)
@@ -213,7 +232,8 @@ object InputBridge {
                 sendKeyToSink(binding.secondaryKeyCode, KeyEvent.ACTION_UP, 0, binding.domain)
             }
         } else if (binding.primaryKeyCode != KeyEvent.KEYCODE_UNKNOWN) {
-            sendKeyToSink(binding.primaryKeyCode, action, effectiveMeta, binding.domain)
+            val extraMeta = if (isDown) binding.modifierMetaState else 0
+            sendKeyToSink(binding.primaryKeyCode, action, extraMeta, binding.domain)
         }
 
         val keyDesc = if (binding.secondaryKeyCode != KeyEvent.KEYCODE_UNKNOWN) {
@@ -230,6 +250,22 @@ object InputBridge {
             domain = binding.domain
         )
     }
+
+    private fun modifierBitsForKeyCode(keyCode: Int): Int = when (keyCode) {
+        KeyEvent.KEYCODE_SHIFT_LEFT -> KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON
+        KeyEvent.KEYCODE_SHIFT_RIGHT -> KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_RIGHT_ON
+        KeyEvent.KEYCODE_CTRL_LEFT -> KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+        KeyEvent.KEYCODE_CTRL_RIGHT -> KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_RIGHT_ON
+        KeyEvent.KEYCODE_ALT_LEFT -> KeyEvent.META_ALT_ON or KeyEvent.META_ALT_LEFT_ON
+        KeyEvent.KEYCODE_ALT_RIGHT -> KeyEvent.META_ALT_ON or KeyEvent.META_ALT_RIGHT_ON
+        else -> 0
+    }
+
+    private fun currentModifierMetaState(): Int =
+        activeModifiers.values.fold(0) { acc, mask -> acc or mask }
+
+    fun currentEffectiveMetaState(extraMeta: Int = 0): Int =
+        currentModifierMetaState() or extraMeta
 
     private fun safeKeyCodeName(keyCode: Int): String =
         runCatching { KeyEvent.keyCodeToString(keyCode).removePrefix("KEYCODE_") }
@@ -255,6 +291,16 @@ object InputBridge {
         domain: BindingDomain
     ) {
         if (keyCode == KeyEvent.KEYCODE_UNKNOWN) return
+        val modBits = modifierBitsForKeyCode(keyCode)
+        if (modBits != 0) {
+            if (action == KeyEvent.ACTION_DOWN) {
+                activeModifiers[keyCode] = modBits
+            } else {
+                activeModifiers.remove(keyCode)
+            }
+        }
+        val combinedMetaState = currentEffectiveMetaState(metaState)
+
         val sink = activeSink ?: return
         val now = safeUptimeMillis()
         val downTime = if (action == KeyEvent.ACTION_DOWN) {
@@ -269,18 +315,14 @@ object InputBridge {
         } else {
             InputDevice.SOURCE_KEYBOARD
         }
-        val flags = if (domain == BindingDomain.CONTROLLER) {
-            KeyEvent.FLAG_KEEP_TOUCH_MODE
-        } else {
-            KeyEvent.FLAG_KEEP_TOUCH_MODE
-        }
+        val flags = KeyEvent.FLAG_KEEP_TOUCH_MODE
         val event = KeyEvent(
             downTime,
             now,
             action,
             keyCode,
             0,
-            metaState,
+            combinedMetaState,
             -1,
             scanCode,
             flags,

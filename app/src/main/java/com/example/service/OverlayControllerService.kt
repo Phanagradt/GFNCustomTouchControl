@@ -161,6 +161,8 @@ class OverlayControllerService : Service() {
                 clearControlWindows()
                 if (visible && profile != null) {
                     renderControlWindows(profile, settings)
+                } else {
+                    InputBridge.releaseAll()
                 }
             }
         }
@@ -377,6 +379,7 @@ class OverlayControllerService : Service() {
         lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
         lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         lifecycleOwner.viewModelStore.clear()
+        InputBridge.releaseAll()
         InputBridge.setOverlayRunning(false)
         serviceScope.cancel()
         super.onDestroy()
