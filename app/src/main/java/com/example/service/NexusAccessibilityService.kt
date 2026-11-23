@@ -65,6 +65,10 @@ class NexusAccessibilityService : AccessibilityService() {
             override fun onMouseSwipeEnd() {
                 runOnMain { endMousePan() }
             }
+
+            override fun onMouseFlick(dxPx: Float, dyPx: Float) {
+                runOnMain { dispatchMouseFlick(dxPx, dyPx) }
+            }
         })
     }
 
@@ -284,6 +288,23 @@ class NexusAccessibilityService : AccessibilityService() {
             panStrokeInFlight = false
             activePanStroke = null
         }
+    }
+
+    private fun dispatchMouseFlick(dxPx: Float, dyPx: Float) {
+        val zone = currentPanZone()
+        val dist = hypot(dxPx, dyPx)
+        if (dist < 1f) return
+        val endX = (zone.anchorX + dxPx).coerceIn(zone.minX, zone.maxX)
+        val endY = (zone.anchorY + dyPx).coerceIn(zone.minY, zone.maxY)
+        val durationMs = (dist * 0.45f).toLong().coerceIn(55L, 165L)
+        val path = Path().apply {
+            moveTo(zone.anchorX, zone.anchorY)
+            lineTo(endX, endY)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
+            .build()
+        runCatching { dispatchGesture(gesture, null, null) }
     }
 
     private fun dispatchLeftButton(isDown: Boolean) {

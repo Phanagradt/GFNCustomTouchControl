@@ -27,15 +27,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.FolderCopy
 import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.FolderCopy
+import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -84,8 +88,10 @@ import com.example.model.BindingDomain
 import com.example.model.ControllerProfile
 import com.example.model.LocalNexusStrings
 import com.example.service.OverlayControllerService
+import com.example.service.ScreenCaptureService
 import com.example.ui.NexusViewModel
 import com.example.ui.screens.CockpitScreen
+import com.example.ui.screens.GalleryScreen
 import com.example.ui.screens.GameFilterScreen
 import com.example.ui.screens.LayoutEditorScreen
 import com.example.ui.screens.ProfilesScreen
@@ -93,12 +99,14 @@ import com.example.ui.screens.SetupScreen
 import com.example.ui.screens.TestArenaScreen
 import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.NexusPadTheme
+import com.example.update.UpdateUiState
 import com.example.util.SystemIntegrations
 
 object NexusRoutes {
     const val COCKPIT = "cockpit"
     const val PROFILES = "profiles"
     const val FILTERS = "filters"
+    const val GALLERY = "gallery"
     const val SANDBOX = "sandbox"
     const val SETUP = "setup"
     const val EDITOR = "editor/{profileId}"
@@ -149,10 +157,17 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun consumeIntentExtras(intent: Intent?) {
-        if (intent?.getStringExtra(OverlayControllerService.EXTRA_VISUALS_TAB) == "crosshair") {
-            visualsInitialTab = 1
-            openVisualsTrigger++
-            intent.removeExtra(OverlayControllerService.EXTRA_VISUALS_TAB)
+        when (intent?.getStringExtra(OverlayControllerService.EXTRA_VISUALS_TAB)) {
+            "crosshair" -> {
+                visualsInitialTab = 1
+                openVisualsTrigger++
+                intent.removeExtra(OverlayControllerService.EXTRA_VISUALS_TAB)
+            }
+            "filter" -> {
+                visualsInitialTab = 0
+                openVisualsTrigger++
+                intent.removeExtra(OverlayControllerService.EXTRA_VISUALS_TAB)
+            }
         }
     }
 
@@ -187,6 +202,7 @@ private fun NexusPadAppShell(
             NavTab(NexusRoutes.COCKPIT, strings.navCockpit, Icons.Filled.Dashboard, Icons.Outlined.Dashboard, "nav_cockpit"),
             NavTab(NexusRoutes.PROFILES, strings.navProfiles, Icons.Filled.FolderCopy, Icons.Outlined.FolderCopy, "nav_profiles"),
             NavTab(NexusRoutes.FILTERS, strings.navVisuals, Icons.Filled.Tune, Icons.Outlined.Tune, "nav_filters"),
+            NavTab(NexusRoutes.GALLERY, strings.navGallery, Icons.Filled.PhotoLibrary, Icons.Outlined.PhotoLibrary, "nav_gallery"),
             NavTab(NexusRoutes.SANDBOX, strings.navSandbox, Icons.Filled.TouchApp, Icons.Outlined.TouchApp, "nav_sandbox"),
             NavTab(NexusRoutes.SETUP, strings.navSetup, Icons.Filled.Settings, Icons.Outlined.Settings, "nav_setup")
         )
@@ -211,6 +227,8 @@ private fun NexusPadAppShell(
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val liveFilterState by viewModel.liveFilterState.collectAsStateWithLifecycle()
+    val isGpuShaderActive by viewModel.isGpuShaderActive.collectAsStateWithLifecycle()
     val readiness by viewModel.readiness.collectAsStateWithLifecycle()
     val isOverlayRunning by viewModel.isOverlayRunning.collectAsStateWithLifecycle()
     val pressedIds by viewModel.pressedControlIds.collectAsStateWithLifecycle()
@@ -220,6 +238,8 @@ private fun NexusPadAppShell(
     val telemetry by viewModel.telemetry.collectAsStateWithLifecycle()
     val editorState by viewModel.editorState.collectAsStateWithLifecycle()
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
+    val hasUpdateBadge = updateState is UpdateUiState.UpdateAvailable || updateState is UpdateUiState.ReadyToInstall
 
     var showOverlayPermissionDialog by remember { mutableStateOf(false) }
     var pendingExportProfile by remember { mutableStateOf<ControllerProfile?>(null) }
@@ -367,10 +387,21 @@ private fun NexusPadAppShell(
                                     }
                                 },
                                 icon = {
-                                    Icon(
-                                        imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                        contentDescription = tab.label
-                                    )
+                                    if (tab.route == NexusRoutes.SETUP && hasUpdateBadge) {
+                                        BadgedBox(
+                                            badge = { Badge(containerColor = GeForceLime) }
+                                        ) {
+                                            Icon(
+                                                imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                                contentDescription = tab.label
+                                            )
+                                        }
+                                    } else {
+                                        Icon(
+                                            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                            contentDescription = tab.label
+                                        )
+                                    }
                                 },
                                 label = { Text(tab.label) },
                                 modifier = Modifier.testTag(tab.testTag)
@@ -407,10 +438,21 @@ private fun NexusPadAppShell(
                                     }
                                 },
                                 icon = {
-                                    Icon(
-                                        imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                        contentDescription = tab.label
-                                    )
+                                    if (tab.route == NexusRoutes.SETUP && hasUpdateBadge) {
+                                        BadgedBox(
+                                            badge = { Badge(containerColor = GeForceLime) }
+                                        ) {
+                                            Icon(
+                                                imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                                contentDescription = tab.label
+                                            )
+                                        }
+                                    } else {
+                                        Icon(
+                                            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                            contentDescription = tab.label
+                                        )
+                                    }
                                 },
                                 label = { Text(tab.label) },
                                 modifier = Modifier.testTag(tab.testTag)
@@ -503,18 +545,50 @@ private fun NexusPadAppShell(
 
                         composable(NexusRoutes.FILTERS) {
                             GameFilterScreen(
-                                filterState = settings.gameFilter,
+                                filterState = liveFilterState,
+                                isGpuShaderActive = isGpuShaderActive,
                                 crosshair = settings.crosshair,
                                 isOverlayRunning = isOverlayRunning,
                                 initialSection = visualsInitialSection,
                                 onSelectSlot = viewModel::selectFilterSlot,
+                                onPreviewStyle = viewModel::previewFilterStyle,
                                 onUpdateStyle = viewModel::updateFilterStyle,
                                 onResetSlot = viewModel::resetActiveFilterSlot,
+                                onToggleGpuShader = {
+                                    if (isGpuShaderActive) {
+                                        ScreenCaptureService.stopGpuFilter(context)
+                                    } else {
+                                        if (!SystemIntegrations.canDrawOverlays(context)) {
+                                            showOverlayPermissionDialog = true
+                                        } else {
+                                            if (!isOverlayRunning) {
+                                                OverlayControllerService.start(context)
+                                            }
+                                            if (liveFilterState.activeSlot == 0) {
+                                                viewModel.selectFilterSlot(1)
+                                            }
+                                            ScreenCaptureService.toggleGpuFilter(context)
+                                        }
+                                    }
+                                },
+                                onPickStickerImage = viewModel::applyCustomStickerImage,
                                 onUpdateCrosshair = viewModel::updateCrosshair,
                                 onSelectCrosshairPreset = viewModel::selectCrosshairPreset,
                                 onResetCrosshair = viewModel::resetCrosshair,
                                 onPickCrosshairImage = viewModel::applyCrosshairCustomImage,
                                 onToggleOverlay = toggleOverlayAction
+                            )
+                        }
+
+                        composable(NexusRoutes.GALLERY) {
+                            GalleryScreen(
+                                replayDurationSec = settings.instantReplayDurationSec,
+                                recordingResolution = settings.recordingResolution,
+                                recordingFps = settings.recordingFps,
+                                onReplayDurationChange = viewModel::setInstantReplayDurationSec,
+                                onRecordingResolutionChange = viewModel::setRecordingResolution,
+                                onRecordingFpsChange = viewModel::setRecordingFps,
+                                onShowMessage = viewModel::showMessage
                             )
                         }
 
@@ -543,6 +617,7 @@ private fun NexusPadAppShell(
                             SetupScreen(
                                 settings = settings,
                                 readiness = readiness,
+                                updateState = updateState,
                                 onVibrationModeChange = viewModel::setVibrationMode,
                                 onOpacityChange = viewModel::setGlobalOpacity,
                                 onGridSnapChange = viewModel::setGridSnapEnabled,
@@ -561,6 +636,14 @@ private fun NexusPadAppShell(
                                 },
                                 onAppLanguageChange = viewModel::setAppLanguage,
                                 onTargetModeChange = viewModel::setTargetPlatformMode,
+                                onRecordingResolutionChange = viewModel::setRecordingResolution,
+                                onRecordingFpsChange = viewModel::setRecordingFps,
+                                onGithubRepoSlugChange = viewModel::setGithubRepoSlug,
+                                onAutoCheckUpdatesChange = viewModel::setAutoCheckUpdates,
+                                onCheckForUpdates = { repo -> viewModel.checkForUpdates(explicitRepoInput = repo, silent = false) },
+                                onDownloadUpdate = viewModel::downloadAvailableUpdate,
+                                onCancelUpdateDownload = viewModel::cancelUpdateDownload,
+                                onInstallUpdate = viewModel::installDownloadedUpdate,
                                 onRequestOverlayPermission = {
                                     SystemIntegrations.openOverlayPermissionSettings(context)
                                 },

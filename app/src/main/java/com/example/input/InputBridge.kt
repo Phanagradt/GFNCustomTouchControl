@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 object InputBridge {
@@ -30,6 +31,7 @@ object InputBridge {
         fun onMouseSwipeStart() {}
         fun onMouseSwipe(dxPx: Float, dyPx: Float) {}
         fun onMouseSwipeEnd() {}
+        fun onMouseFlick(dxPx: Float, dyPx: Float) {}
     }
 
     interface KeyboardTextSink {
@@ -86,7 +88,59 @@ object InputBridge {
     val telemetry: StateFlow<List<TelemetryEvent>> = _telemetry.asStateFlow()
 
     private val _activeClusterDirections = MutableStateFlow<Map<String, Set<Int>>>(emptyMap())
+    private val activeOverlayTouchCount = AtomicInteger(0)
     private var lastSwipeTelemetryMs = 0L
+
+    private sealed interface PendingPointerAction {
+        data object LeftTap : PendingPointerAction
+        data object RightTap : PendingPointerAction
+        data object MiddleTap : PendingPointerAction
+        data class Scroll(val scrollUp: Boolean) : PendingPointerAction
+        data class FlickSwipe(val dxPx: Float, val dyPx: Float) : PendingPointerAction
+    }
+
+    private var pendingPointerAction: PendingPointerAction? = null
+
+    fun beginOverlayTouch() {
+        activeOverlayTouchCount.incrementAndGet()
+    }
+
+    fun endOverlayTouch() {
+        val remaining = activeOverlayTouchCount.decrementAndGet().coerceAtLeast(0)
+        if (remaining <= 0) {
+            activeOverlayTouchCount.set(0)
+            flushPendingPointerAction()
+        }
+    }
+
+    private fun canDispatchAccessibilityGestureNow(): Boolean =
+        !_isAppInForeground.value && activeOverlayTouchCount.get() <= 0
+
+    private fun flushPendingPointerAction() {
+        if (!canDispatchAccessibilityGestureNow()) return
+        val action = pendingPointerAction ?: return
+        pendingPointerAction = null
+        val sink = pointerSink ?: return
+        when (action) {
+            is PendingPointerAction.LeftTap -> {
+                sink.onLeftButton(true)
+                sink.onLeftButton(false)
+            }
+            is PendingPointerAction.RightTap -> {
+                sink.onRightButton(true)
+                sink.onRightButton(false)
+            }
+            is PendingPointerAction.MiddleTap -> {
+                sink.onMiddleClick()
+            }
+            is PendingPointerAction.Scroll -> {
+                sink.onScroll(action.scrollUp)
+            }
+            is PendingPointerAction.FlickSwipe -> {
+                sink.onMouseFlick(action.dxPx, action.dyPx)
+            }
+        }
+    }
 
     fun attachImeSink(sink: KeyEventSink?) {
         activeSink = sink
@@ -189,8 +243,7 @@ object InputBridge {
     fun pulseTurbo(sourceLabel: String, binding: InputBinding) {
         dispatchBindingAction(sourceLabel, binding, isDown = true, actionOverride = "TURBO_HIT")
         if (binding.domain == BindingDomain.MOUSE) {
-            val allowPointerGestures = !_isAppInForeground.value
-            if (allowPointerGestures) {
+            if (canDispatchAccessibilityGestureNow()) {
                 if (binding.id == "mouse_left" || binding.id == "mouse_m1") {
                     pointerSink?.onLeftButton(false)
                 } else if (binding.id == "mouse_right" || binding.id == "mouse_m2") {
@@ -353,16 +406,42 @@ object InputBridge {
     }
 
     fun startTouchpadMouseMove() {
-        if (!_isAppInForeground.value) {
+        if (canDispatchAccessibilityGestureNow()) {
             pointerSink?.onMouseSwipeStart()
         }
     }
 
     fun endTouchpadMouseMove() {
         _rightStick.value = StickState()
-        if (!_isAppInForeground.value) {
+        if (canDispatchAccessibilityGestureNow()) {
             pointerSink?.onMouseSwipeEnd()
         }
+    }
+
+    fun commitTouchpadFlickSwipe(
+        sourceLabel: String,
+        totalDeltaXPx: Float,
+        totalDeltaYPx: Float,
+        sensitivity: Float,
+        invertY: Boolean
+    ) {
+        val effDy = if (invertY) -totalDeltaYPx else totalDeltaYPx
+        val scaledDx = deltaXScaled(totalDeltaXPx, sensitivity)
+        val scaledDy = deltaXScaled(effDy, sensitivity)
+        if (kotlin.math.abs(scaledDx) < 0.5f && kotlin.math.abs(scaledDy) < 0.5f) return
+
+        if (canDispatchAccessibilityGestureNow()) {
+            pointerSink?.onMouseFlick(scaledDx, scaledDy)
+        } else if (!_isAppInForeground.value) {
+            pendingPointerAction = PendingPointerAction.FlickSwipe(scaledDx, scaledDy)
+        }
+        recordTelemetry(
+            sourceLabel = sourceLabel,
+            codeLabel = "FLICK",
+            actionName = "CAMERA_SWIPE",
+            detail = "dx=%.1f  dy=%.1f (%s)".format(scaledDx, scaledDy, _targetMode.value.shortLabel),
+            domain = BindingDomain.MOUSE
+        )
     }
 
     fun updateTouchpadMouseMove(
@@ -390,7 +469,9 @@ object InputBridge {
         _rightStick.value = StickState(x = normX, y = normY, active = true)
 
         if (kotlin.math.abs(scaledDx) > 0.05f || kotlin.math.abs(scaledDy) > 0.05f) {
-            if (!_isAppInForeground.value) {
+            // Only stream live Accessibility pointer gestures when no physical overlay fingers are held;
+            // otherwise Physical-Touch Touchpads commit their accumulated flick smoothly on release so Android doesn't cancel the drag!
+            if (canDispatchAccessibilityGestureNow()) {
                 pointerSink?.onMouseSwipe(scaledDx, scaledDy)
             }
             // Throttle telemetry writes during continuous drags/flicks to avoid 120Hz list allocations
@@ -411,9 +492,11 @@ object InputBridge {
     fun dispatchMouseTapClick(sourceLabel: String) {
         sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, KeyEvent.ACTION_DOWN, 0, BindingDomain.MOUSE)
         sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, KeyEvent.ACTION_UP, 0, BindingDomain.MOUSE)
-        if (!_isAppInForeground.value) {
+        if (canDispatchAccessibilityGestureNow()) {
             pointerSink?.onLeftButton(true)
             pointerSink?.onLeftButton(false)
+        } else if (!_isAppInForeground.value) {
+            pendingPointerAction = PendingPointerAction.LeftTap
         }
         recordTelemetry(sourceLabel, "LMB", "TAP_CLICK", "Touchpad Tap", BindingDomain.MOUSE)
     }
@@ -430,6 +513,8 @@ object InputBridge {
     }
 
     fun releaseAll() {
+        pendingPointerAction = null
+        activeOverlayTouchCount.set(0)
         if (!_isAppInForeground.value) {
             pointerSink?.onMouseSwipeEnd()
             pointerSink?.onLeftButton(false)
@@ -505,42 +590,68 @@ object InputBridge {
         isDown: Boolean,
         actionOverride: String?
     ) {
-        // Never dispatch Accessibility touch gestures back onto NexusPad's own Play-Test / Sandbox windows,
-        // because injecting a system touch onto the foreground window sends ACTION_CANCEL to the held button.
-        val sink = if (_isAppInForeground.value) null else pointerSink
+        // Never dispatch Accessibility touch gestures while NexusPad is foreground OR while any physical overlay finger is down,
+        // otherwise InputDispatcher cancels the held physical touch on the overlay button!
+        val canInjectNow = canDispatchAccessibilityGestureNow()
+        val sink = if (canInjectNow) pointerSink else null
+        val shouldQueueTap = !_isAppInForeground.value && pointerSink != null && !canInjectNow
         val keyAction = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
         val modeTag = _targetMode.value.shortLabel
 
         val detail = when (binding.id) {
             "mouse_left", "mouse_m1" -> {
                 sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, keyAction, 0, BindingDomain.MOUSE)
-                sink?.onLeftButton(isDown)
-                if (sink != null) "LMB • $modeTag (scan=272 + Touch)" else "LMB • $modeTag (scan=272)"
+                if (sink != null) {
+                    sink.onLeftButton(isDown)
+                } else if (shouldQueueTap && !isDown) {
+                    pendingPointerAction = PendingPointerAction.LeftTap
+                }
+                if (sink != null || shouldQueueTap) "LMB • $modeTag (scan=272 + Touch)" else "LMB • $modeTag (scan=272)"
             }
             "mouse_right", "mouse_m2" -> {
                 sendKeyToSink(KeyEvent.KEYCODE_BUTTON_2, keyAction, 0, BindingDomain.MOUSE)
-                sink?.onRightButton(isDown)
-                if (sink != null) "RMB • $modeTag (scan=273 + Touch)" else "RMB • $modeTag (scan=273)"
+                if (sink != null) {
+                    sink.onRightButton(isDown)
+                } else if (shouldQueueTap && !isDown) {
+                    pendingPointerAction = PendingPointerAction.RightTap
+                }
+                if (sink != null || shouldQueueTap) "RMB • $modeTag (scan=273 + Touch)" else "RMB • $modeTag (scan=273)"
             }
             "mouse_middle", "mouse_m3" -> {
                 sendKeyToSink(KeyEvent.KEYCODE_BUTTON_3, keyAction, 0, BindingDomain.MOUSE)
-                if (isDown) sink?.onMiddleClick()
-                if (sink != null) "MMB • $modeTag (scan=274 + Touch)" else "MMB • $modeTag (scan=274)"
+                if (sink != null && isDown) {
+                    sink.onMiddleClick()
+                } else if (shouldQueueTap && !isDown) {
+                    pendingPointerAction = PendingPointerAction.MiddleTap
+                }
+                if (sink != null || shouldQueueTap) "MMB • $modeTag (scan=274 + Touch)" else "MMB • $modeTag (scan=274)"
             }
             "mouse_scroll_up", "mouse_m5" -> {
                 sendKeyToSink(KeyEvent.KEYCODE_PAGE_UP, keyAction, 0, BindingDomain.MOUSE)
-                if (isDown) sink?.onScroll(scrollUp = true)
-                if (sink != null) "Scroll Up ($modeTag)" else "Scroll Up KeyEvent"
+                if (sink != null && isDown) {
+                    sink.onScroll(scrollUp = true)
+                } else if (shouldQueueTap && !isDown) {
+                    pendingPointerAction = PendingPointerAction.Scroll(scrollUp = true)
+                }
+                if (sink != null || shouldQueueTap) "Scroll Up ($modeTag)" else "Scroll Up KeyEvent"
             }
             "mouse_scroll_down", "mouse_m4" -> {
                 sendKeyToSink(KeyEvent.KEYCODE_PAGE_DOWN, keyAction, 0, BindingDomain.MOUSE)
-                if (isDown) sink?.onScroll(scrollUp = false)
-                if (sink != null) "Scroll Down ($modeTag)" else "Scroll Down KeyEvent"
+                if (sink != null && isDown) {
+                    sink.onScroll(scrollUp = false)
+                } else if (shouldQueueTap && !isDown) {
+                    pendingPointerAction = PendingPointerAction.Scroll(scrollUp = false)
+                }
+                if (sink != null || shouldQueueTap) "Scroll Down ($modeTag)" else "Scroll Down KeyEvent"
             }
             else -> {
                 sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, keyAction, 0, BindingDomain.MOUSE)
-                sink?.onLeftButton(isDown)
-                if (sink != null) "LMB • $modeTag (scan=272 + Touch)" else "LMB • $modeTag (scan=272)"
+                if (sink != null) {
+                    sink.onLeftButton(isDown)
+                } else if (shouldQueueTap && !isDown) {
+                    pendingPointerAction = PendingPointerAction.LeftTap
+                }
+                if (sink != null || shouldQueueTap) "LMB • $modeTag (scan=272 + Touch)" else "LMB • $modeTag (scan=272)"
             }
         }
 

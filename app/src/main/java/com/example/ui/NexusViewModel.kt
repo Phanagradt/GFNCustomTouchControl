@@ -4,11 +4,13 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.capture.CaptureBridge
 import com.example.data.NexusDatabase
 import com.example.data.OverlaySettings
 import com.example.data.PreferencesRepository
 import com.example.data.ProfileRepository
 import com.example.data.VibrationMode
+import com.example.filter.GameFilterBridge
 import com.example.input.InputBridge
 import com.example.model.AppLanguage
 import com.example.model.BindingDomain
@@ -20,18 +22,26 @@ import com.example.model.ControllerProfile
 import com.example.model.CrosshairPreset
 import com.example.model.CrosshairSettings
 import com.example.model.CrosshairStyle
+import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
 import com.example.model.GameGenre
 import com.example.model.InputBinding
 import com.example.model.PresetProfiles
 import com.example.model.ProfileTemplate
+import com.example.model.RecordingFps
+import com.example.model.RecordingResolution
 import com.example.model.StickState
+import com.example.model.StickerPreset
 import com.example.model.TargetPlatformMode
 import com.example.model.TelemetryEvent
 import com.example.model.TriggerBehavior
 import com.example.model.VirtualControl
+import com.example.update.GitHubUpdateManager
+import com.example.update.UpdateUiState
 import com.example.util.ButtonImageCodec
 import com.example.util.SystemIntegrations
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -48,7 +58,8 @@ data class SystemReadiness(
     val isImeSelected: Boolean = false,
     val isAccessibilityEnabled: Boolean = false,
     val hasNotificationPermission: Boolean = true,
-    val isGeForceNowInstalled: Boolean = false
+    val isGeForceNowInstalled: Boolean = false,
+    val canInstallPackages: Boolean = true
 )
 
 data class EditorUiState(
@@ -84,6 +95,8 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     val toggledControlIds: StateFlow<Set<String>> = InputBridge.toggledControlIds
     val leftStick: StateFlow<StickState> = InputBridge.leftStick
     val rightStick: StateFlow<StickState> = InputBridge.rightStick
+    val liveFilterState: StateFlow<GameFilterState> = GameFilterBridge.liveFilterState
+    val isGpuShaderActive: StateFlow<Boolean> = GameFilterBridge.isGpuShaderActive
 
     private val _readiness = MutableStateFlow(SystemReadiness())
     val readiness: StateFlow<SystemReadiness> = _readiness.asStateFlow()
@@ -94,6 +107,12 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     val snackbarMessage: StateFlow<String?> = _snackbarMessage.asStateFlow()
 
+    private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
+    val updateState: StateFlow<UpdateUiState> = _updateState.asStateFlow()
+
+    private var updateJob: Job? = null
+    private var didAutoCheckUpdates = false
+
     init {
         viewModelScope.launch {
             profileRepo.ensureSeeded()
@@ -101,6 +120,18 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             prefsRepo.settingsFlow.collect { s ->
                 InputBridge.setTargetMode(s.targetMode)
+                CaptureBridge.setReplayDurationSec(s.instantReplayDurationSec)
+                CaptureBridge.setRecordingResolution(s.recordingResolution)
+                CaptureBridge.setRecordingFps(s.recordingFps)
+                GameFilterBridge.syncFromPersisted(s.gameFilter)
+
+                if (!didAutoCheckUpdates && s.autoCheckUpdates) {
+                    val effectiveRepo = s.githubRepoSlug.ifBlank { GitHubUpdateManager.defaultBuiltInRepo() }
+                    if (GitHubUpdateManager.normalizeRepoSlug(effectiveRepo) != null) {
+                        didAutoCheckUpdates = true
+                        checkForUpdates(explicitRepoInput = effectiveRepo, silent = true)
+                    }
+                }
             }
         }
         refreshSystemStatus()
@@ -114,7 +145,8 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
             isImeSelected = SystemIntegrations.isImeSelected(ctx),
             isAccessibilityEnabled = SystemIntegrations.isAccessibilityEnabled(ctx),
             hasNotificationPermission = SystemIntegrations.hasNotificationPermission(ctx),
-            isGeForceNowInstalled = SystemIntegrations.isGeForceNowInstalled(ctx)
+            isGeForceNowInstalled = SystemIntegrations.isGeForceNowInstalled(ctx),
+            canInstallPackages = GitHubUpdateManager.canInstallPackages(ctx)
         )
     }
 
@@ -234,6 +266,151 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         InputBridge.setTargetMode(mode)
         viewModelScope.launch { prefsRepo.setTargetPlatformMode(mode) }
     }
+    fun setInstantReplayDurationSec(seconds: Int) {
+        CaptureBridge.setReplayDurationSec(seconds)
+        viewModelScope.launch { prefsRepo.setInstantReplayDurationSec(seconds) }
+    }
+    fun setRecordingResolution(resolution: RecordingResolution) {
+        CaptureBridge.setRecordingResolution(resolution)
+        viewModelScope.launch { prefsRepo.setRecordingResolution(resolution) }
+    }
+    fun setRecordingFps(fps: RecordingFps) {
+        CaptureBridge.setRecordingFps(fps)
+        viewModelScope.launch { prefsRepo.setRecordingFps(fps) }
+    }
+    fun setGithubRepoSlug(rawInput: String) {
+        val trimmed = rawInput.trim()
+        val normalized = if (trimmed.isEmpty()) "" else (GitHubUpdateManager.normalizeRepoSlug(trimmed) ?: trimmed)
+        viewModelScope.launch { prefsRepo.setGithubRepoSlug(normalized) }
+    }
+    fun setAutoCheckUpdates(enabled: Boolean) {
+        viewModelScope.launch { prefsRepo.setAutoCheckUpdates(enabled) }
+    }
+
+    // GitHub Releases In-App Updater
+    fun checkForUpdates(explicitRepoInput: String? = null, silent: Boolean = false) {
+        val rawRepo = (explicitRepoInput ?: settings.value.githubRepoSlug)
+            .ifBlank { GitHubUpdateManager.defaultBuiltInRepo() }
+        val slug = GitHubUpdateManager.normalizeRepoSlug(rawRepo)
+        if (slug == null) {
+            if (!silent) {
+                _updateState.value = UpdateUiState.Error(
+                    "Enter your GitHub repository (e.g. username/NexusPad) to check for releases."
+                )
+            }
+            return
+        }
+
+        if (!explicitRepoInput.isNullOrBlank() && explicitRepoInput.trim() != settings.value.githubRepoSlug) {
+            viewModelScope.launch { prefsRepo.setGithubRepoSlug(slug) }
+        }
+
+        updateJob?.cancel()
+        if (!silent) {
+            _updateState.value = UpdateUiState.Checking
+        }
+
+        updateJob = viewModelScope.launch {
+            val currentVersion = GitHubUpdateManager.currentVersionName()
+            GitHubUpdateManager.fetchLatestRelease(slug)
+                .onSuccess { release ->
+                    val newer = GitHubUpdateManager.isNewerVersion(currentVersion, release.tagName)
+                    if (newer) {
+                        _updateState.value = UpdateUiState.UpdateAvailable(
+                            currentVersion = currentVersion,
+                            release = release
+                        )
+                        if (!silent) {
+                            _snackbarMessage.value = "Update ${release.tagName} available!"
+                        }
+                    } else {
+                        if (!silent) {
+                            _updateState.value = UpdateUiState.UpToDate(
+                                currentVersion = currentVersion,
+                                latestTag = release.tagName,
+                                checkedAtMs = System.currentTimeMillis()
+                            )
+                            _snackbarMessage.value = "NexusPad is up to date (v$currentVersion)"
+                        }
+                    }
+                }
+                .onFailure { err ->
+                    if (err is CancellationException) throw err
+                    if (!silent) {
+                        _updateState.value = UpdateUiState.Error(
+                            err.localizedMessage ?: "Unable to reach GitHub Releases"
+                        )
+                    }
+                }
+        }
+    }
+
+    fun downloadAvailableUpdate() {
+        val release = when (val s = _updateState.value) {
+            is UpdateUiState.UpdateAvailable -> s.release
+            is UpdateUiState.ReadyToInstall -> s.release
+            else -> return
+        }
+        updateJob?.cancel()
+        _updateState.value = UpdateUiState.Downloading(
+            release = release,
+            bytesDownloaded = 0L,
+            totalBytes = release.apkSizeBytes
+        )
+        updateJob = viewModelScope.launch {
+            GitHubUpdateManager.downloadReleaseApk(
+                context = getApplication(),
+                release = release,
+                onProgress = { downloaded, total ->
+                    _updateState.value = UpdateUiState.Downloading(
+                        release = release,
+                        bytesDownloaded = downloaded,
+                        totalBytes = total
+                    )
+                }
+            ).onSuccess { apkFile ->
+                _updateState.value = UpdateUiState.ReadyToInstall(release = release, apkFile = apkFile)
+                installDownloadedUpdate()
+            }.onFailure { err ->
+                if (err is CancellationException) {
+                    _updateState.value = UpdateUiState.UpdateAvailable(
+                        currentVersion = GitHubUpdateManager.currentVersionName(),
+                        release = release
+                    )
+                    throw err
+                }
+                _updateState.value = UpdateUiState.Error(
+                    err.localizedMessage ?: "Failed to download APK update"
+                )
+            }
+        }
+    }
+
+    fun cancelUpdateDownload() {
+        val current = _updateState.value
+        updateJob?.cancel()
+        if (current is UpdateUiState.Downloading) {
+            _updateState.value = UpdateUiState.UpdateAvailable(
+                currentVersion = GitHubUpdateManager.currentVersionName(),
+                release = current.release
+            )
+            _snackbarMessage.value = "Update download cancelled"
+        }
+    }
+
+    fun installDownloadedUpdate() {
+        val state = _updateState.value as? UpdateUiState.ReadyToInstall ?: return
+        refreshSystemStatus()
+        GitHubUpdateManager.launchApkInstaller(getApplication(), state.apkFile)
+            .onFailure { err ->
+                _snackbarMessage.value = err.localizedMessage ?: "Unable to launch package installer"
+            }
+    }
+
+    fun resetUpdateState() {
+        updateJob?.cancel()
+        _updateState.value = UpdateUiState.Idle
+    }
 
     // Crosshair HUD
     fun updateCrosshair(crosshair: CrosshairSettings) = viewModelScope.launch {
@@ -250,20 +427,55 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         _snackbarMessage.value = "Crosshair reset to default"
     }
 
-    // GeForce Experience Style Game Filters
-    fun selectFilterSlot(slot: Int) = viewModelScope.launch {
-        prefsRepo.setActiveFilterSlot(slot)
+    // GeForce Experience Style Game Filters (Zero-Stutter Live Preview + DataStore Commit)
+    fun selectFilterSlot(slot: Int) {
+        GameFilterBridge.selectLiveSlot(slot)
+        viewModelScope.launch {
+            prefsRepo.setActiveFilterSlot(slot)
+        }
     }
 
-    fun updateFilterStyle(style: GameFilterStyle) = viewModelScope.launch {
-        prefsRepo.updateFilterStyle(style)
+    fun previewFilterStyle(style: GameFilterStyle) {
+        GameFilterBridge.updateLiveStyle(style)
     }
 
-    fun resetActiveFilterSlot() = viewModelScope.launch {
-        val activeSlot = settings.value.gameFilter.activeSlot
+    fun updateFilterStyle(style: GameFilterStyle) {
+        GameFilterBridge.updateLiveStyle(style)
+        viewModelScope.launch {
+            prefsRepo.updateFilterStyle(style)
+        }
+    }
+
+    fun resetActiveFilterSlot() {
+        val current = GameFilterBridge.liveFilterState.value
+        val activeSlot = current.activeSlot
         if (activeSlot in 1..3) {
-            prefsRepo.resetFilterSlot(activeSlot)
-            _snackbarMessage.value = "Reset Style $activeSlot to 0%"
+            GameFilterBridge.syncFromPersisted(current.withResetSlot(activeSlot))
+            viewModelScope.launch {
+                prefsRepo.resetFilterSlot(activeSlot)
+                _snackbarMessage.value = "Reset Style $activeSlot to default"
+            }
+        }
+    }
+
+    fun applyCustomStickerImage(imageUri: Uri) {
+        viewModelScope.launch {
+            ButtonImageCodec.encodeUriToBase64(getApplication(), imageUri, cropSquare = false)
+                .onSuccess { encoded ->
+                    val currentState = GameFilterBridge.liveFilterState.value
+                    val slot = if (currentState.activeSlot in 1..3) currentState.activeSlot else 1
+                    val updated = currentState.styleForSlot(slot).copy(
+                        stickersEnabled = true,
+                        stickerPreset = StickerPreset.CUSTOM_IMAGE,
+                        customStickerBase64 = encoded
+                    )
+                    GameFilterBridge.updateLiveStyle(updated)
+                    prefsRepo.updateFilterStyle(updated)
+                    _snackbarMessage.value = "Custom sticker applied to Style $slot"
+                }
+                .onFailure { err ->
+                    _snackbarMessage.value = "Failed to load sticker: ${err.localizedMessage ?: "Unsupported file"}"
+                }
         }
     }
 

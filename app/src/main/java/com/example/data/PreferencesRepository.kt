@@ -12,6 +12,8 @@ import com.example.model.ControllerNotation
 import com.example.model.CrosshairSettings
 import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
+import com.example.model.RecordingFps
+import com.example.model.RecordingResolution
 import com.example.model.TargetPlatformMode
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -38,6 +40,11 @@ data class OverlaySettings(
     val floatingKeyboardDefault: Boolean = false,
     val appLanguage: AppLanguage = AppLanguage.SYSTEM,
     val targetMode: TargetPlatformMode = TargetPlatformMode.GEFORCE_NOW,
+    val instantReplayDurationSec: Int = 30,
+    val recordingResolution: RecordingResolution = RecordingResolution.P720,
+    val recordingFps: RecordingFps = RecordingFps.FPS_30,
+    val githubRepoSlug: String = "",
+    val autoCheckUpdates: Boolean = true,
     val gameFilter: GameFilterState = GameFilterState.default(),
     val crosshair: CrosshairSettings = CrosshairSettings()
 ) {
@@ -67,6 +74,11 @@ class PreferencesRepository(private val context: Context) {
         val FLOATING_KB = booleanPreferencesKey("floating_keyboard_default")
         val APP_LANGUAGE = stringPreferencesKey("app_language")
         val TARGET_MODE = stringPreferencesKey("target_platform_mode")
+        val REPLAY_DURATION_SEC = intPreferencesKey("instant_replay_duration_sec")
+        val RECORDING_RESOLUTION = stringPreferencesKey("recording_resolution")
+        val RECORDING_FPS = stringPreferencesKey("recording_fps")
+        val GITHUB_REPO_SLUG = stringPreferencesKey("github_repo_slug")
+        val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
         val GAME_FILTER_JSON = stringPreferencesKey("game_filter_json")
         val CROSSHAIR_JSON = stringPreferencesKey("crosshair_json")
     }
@@ -93,6 +105,14 @@ class PreferencesRepository(private val context: Context) {
         val targetMode = runCatching { TargetPlatformMode.valueOf(targetModeName) }
             .getOrDefault(TargetPlatformMode.GEFORCE_NOW)
 
+        val recResName = prefs[Keys.RECORDING_RESOLUTION] ?: RecordingResolution.P720.name
+        val recordingResolution = runCatching { RecordingResolution.valueOf(recResName) }
+            .getOrDefault(RecordingResolution.P720)
+
+        val recFpsName = prefs[Keys.RECORDING_FPS] ?: RecordingFps.FPS_30.name
+        val recordingFps = runCatching { RecordingFps.valueOf(recFpsName) }
+            .getOrDefault(RecordingFps.FPS_30)
+
         val gameFilter = decodeFilterState(prefs[Keys.GAME_FILTER_JSON])
         val crosshair = decodeCrosshairSettings(prefs[Keys.CROSSHAIR_JSON])
 
@@ -108,6 +128,11 @@ class PreferencesRepository(private val context: Context) {
             floatingKeyboardDefault = prefs[Keys.FLOATING_KB] ?: false,
             appLanguage = appLanguage,
             targetMode = targetMode,
+            instantReplayDurationSec = (prefs[Keys.REPLAY_DURATION_SEC] ?: 30).coerceIn(10, 3600),
+            recordingResolution = recordingResolution,
+            recordingFps = recordingFps,
+            githubRepoSlug = prefs[Keys.GITHUB_REPO_SLUG] ?: "",
+            autoCheckUpdates = prefs[Keys.AUTO_CHECK_UPDATES] ?: true,
             gameFilter = gameFilter,
             crosshair = crosshair
         )
@@ -174,6 +199,26 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun setTargetPlatformMode(mode: TargetPlatformMode) {
         context.nexusDataStore.edit { it[Keys.TARGET_MODE] = mode.name }
+    }
+
+    suspend fun setInstantReplayDurationSec(seconds: Int) {
+        context.nexusDataStore.edit { it[Keys.REPLAY_DURATION_SEC] = seconds.coerceIn(10, 3600) }
+    }
+
+    suspend fun setRecordingResolution(resolution: RecordingResolution) {
+        context.nexusDataStore.edit { it[Keys.RECORDING_RESOLUTION] = resolution.name }
+    }
+
+    suspend fun setRecordingFps(fps: RecordingFps) {
+        context.nexusDataStore.edit { it[Keys.RECORDING_FPS] = fps.name }
+    }
+
+    suspend fun setGithubRepoSlug(slug: String) {
+        context.nexusDataStore.edit { it[Keys.GITHUB_REPO_SLUG] = slug.trim() }
+    }
+
+    suspend fun setAutoCheckUpdates(enabled: Boolean) {
+        context.nexusDataStore.edit { it[Keys.AUTO_CHECK_UPDATES] = enabled }
     }
 
     suspend fun setActiveFilterSlot(slot: Int) {

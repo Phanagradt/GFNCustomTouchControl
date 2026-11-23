@@ -16,8 +16,14 @@ android {
     applicationId = "com.aistudio.nexuspad.vktrmz"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    val ciVersionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 2
+    val ciVersionName = System.getenv("APP_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.2"
+    val ciGithubRepo = (System.getenv("GITHUB_REPOSITORY") ?: "")
+      .replace("\"", "")
+      .trim()
+    versionCode = ciVersionCode
+    versionName = ciVersionName
+    buildConfigField("String", "GITHUB_REPO", "\"$ciGithubRepo\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

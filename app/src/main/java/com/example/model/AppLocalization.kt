@@ -66,7 +66,14 @@ data class NexusStrings(
     val targetModeGfnSubtitle: String = "Linux scan codes + center mouse camera & GFN touch gestures",
     val targetModeAndroidTitle: String = "Android Games (Roblox, Minecraft, etc.)",
     val targetModeAndroidSubtitle: String = "Standard Android key events + right-side 360° camera drag & native mouse clicks",
-    val menuTargetMode: String = "Mode"
+    val menuTargetMode: String = "Mode",
+    val navGallery: String = "Gallery",
+    val menuLayouts: String = "Layouts",
+    val menuScreenshot: String = "Screenshot",
+    val menuReplay: String = "Instant Replay",
+    val menuSaveReplay: String = "Save Replay",
+    val menuRecord: String = "Record",
+    val menuStopRecord: String = "Stop Rec"
 )
 
 object AppLocalization {
@@ -139,7 +146,14 @@ object AppLocalization {
                 targetModeGfnSubtitle = "ใช้รหัสสแกนคีย์ Linux + เลื่อนเมาส์กลางจอและคำสั่งสัมผัสสำหรับ GFN",
                 targetModeAndroidTitle = "เกม Android (Roblox, Minecraft ฯลฯ)",
                 targetModeAndroidSubtitle = "ใช้คีย์ Android มาตรฐาน + เลื่อนมุมกล้องฝั่งขวาและคลิกเมาส์สำหรับเกมมือถือ",
-                menuTargetMode = "โหมดเกม"
+                menuTargetMode = "โหมดเกม",
+                navGallery = "แกลเลอรี",
+                menuLayouts = "เลือกรูปแบบ",
+                menuScreenshot = "แคปหน้าจอ",
+                menuReplay = "รีเพลย์ย้อนหลัง",
+                menuSaveReplay = "บันทึกรีเพลย์",
+                menuRecord = "บันทึกวิดีโอ",
+                menuStopRecord = "หยุดบันทึก"
             )
             AppLanguage.SPANISH -> NexusStrings(
                 navCockpit = "Panel",
@@ -193,7 +207,14 @@ object AppLocalization {
                 targetModeGfnSubtitle = "Códigos Linux y cámara táctil central para GeForce NOW",
                 targetModeAndroidTitle = "Juegos Android (Roblox, Minecraft, etc.)",
                 targetModeAndroidSubtitle = "Teclas Android estándar y giro de cámara en zona derecha",
-                menuTargetMode = "Modo"
+                menuTargetMode = "Modo",
+                navGallery = "Galería",
+                menuLayouts = "Diseños",
+                menuScreenshot = "Captura",
+                menuReplay = "Repetición",
+                menuSaveReplay = "Guardar Clip",
+                menuRecord = "Grabar",
+                menuStopRecord = "Detener"
             )
             AppLanguage.JAPANESE -> NexusStrings(
                 navCockpit = "ホーム",
@@ -247,7 +268,14 @@ object AppLocalization {
                 targetModeGfnSubtitle = "Linux スキャンコード＋中央視点マウスジェスチャー",
                 targetModeAndroidTitle = "Android ゲーム (Roblox, Minecraft など)",
                 targetModeAndroidSubtitle = "標準 Android キー入力＋右画面カメラ操作・ネイティブクリック",
-                menuTargetMode = "モード"
+                menuTargetMode = "モード",
+                navGallery = "ギャラリー",
+                menuLayouts = "レイアウト",
+                menuScreenshot = "スクショ",
+                menuReplay = "リプレイ",
+                menuSaveReplay = "クリップ保存",
+                menuRecord = "録画",
+                menuStopRecord = "録画停止"
             )
             AppLanguage.CHINESE -> NexusStrings(
                 navCockpit = "控制台",
@@ -301,7 +329,14 @@ object AppLocalization {
                 targetModeGfnSubtitle = "Linux 硬件扫描码 + 居中触控鼠标视角",
                 targetModeAndroidTitle = "安卓本地游戏 (Roblox / Minecraft 等)",
                 targetModeAndroidSubtitle = "标准安卓按键 + 右半屏 360° 视角滑动与原生点击",
-                menuTargetMode = "模式"
+                menuTargetMode = "模式",
+                navGallery = "媒体库",
+                menuLayouts = "切换布局",
+                menuScreenshot = "截图",
+                menuReplay = "即时重放",
+                menuSaveReplay = "保存重放",
+                menuRecord = "录屏",
+                menuStopRecord = "停止录屏"
             )
             else -> NexusStrings()
         }

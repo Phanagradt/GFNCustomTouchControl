@@ -2,10 +2,17 @@ package com.example
 
 import android.view.KeyEvent
 import com.example.input.InputBridge
+import com.example.capture.CaptureBridge
+import com.example.filter.FreestyleGlTextureView
+import com.example.filter.GameFilterBridge
 import com.example.model.AppLanguage
 import com.example.model.AppLocalization
 import com.example.model.AxisPair
+import com.example.model.BlackWhiteTone
+import com.example.model.CaptureMediaType
+import com.example.model.CapturedMediaItem
 import com.example.model.ColorMatrixBuilder
+import com.example.model.ColorblindMode
 import com.example.model.CommandCatalog
 import com.example.model.ControllerNotation
 import com.example.model.ControllerProfile
@@ -16,10 +23,19 @@ import com.example.model.FilterTintPreset
 import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
 import com.example.model.GameGenre
+import com.example.model.MoodFilterPreset
 import com.example.model.PresetProfiles
+import com.example.model.RecordingConfigHelper
+import com.example.model.RecordingFps
+import com.example.model.RecordingResolution
+import com.example.model.ReplayBufferPreset
+import com.example.model.SpecialFxMode
+import com.example.model.StickerPreset
 import com.example.model.TargetPlatformMode
 import com.example.model.TouchpadMode
+import com.example.ui.components.computeOverlayBlurRadius
 import com.example.ui.components.computeOverlayDimAmount
+import com.example.update.GitHubUpdateManager
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.util.Locale
@@ -40,6 +56,10 @@ class ExampleUnitTest {
         InputBridge.setTargetMode(TargetPlatformMode.GEFORCE_NOW)
         InputBridge.releaseAll()
         InputBridge.clearTelemetry()
+        CaptureBridge.setInstantReplayOn(false)
+        CaptureBridge.setRecordingState(false, 0L)
+        CaptureBridge.setReplayDurationSec(30)
+        CaptureBridge.postBanner(null)
     }
 
     @Test
@@ -620,5 +640,344 @@ class ExampleUnitTest {
         val th = AppLocalization.stringsFor(AppLanguage.THAI)
         assertTrue(en.targetModeAndroidTitle.contains("Roblox"))
         assertTrue(th.targetModeAndroidTitle.contains("Roblox"))
+    }
+
+    @Test
+    fun `overlay touch guard defers LMB RMB MMB and flick accessibility gestures until finger lifts`() {
+        val pointerEvents = mutableListOf<String>()
+        InputBridge.attachPointerSink(object : InputBridge.PointerGestureSink {
+            override fun onLeftButton(isDown: Boolean) {
+                pointerEvents += if (isDown) "LMB_DOWN" else "LMB_UP"
+            }
+
+            override fun onRightButton(isDown: Boolean) {
+                pointerEvents += if (isDown) "RMB_DOWN" else "RMB_UP"
+            }
+
+            override fun onMiddleClick() {
+                pointerEvents += "MMB_CLICK"
+            }
+
+            override fun onScroll(scrollUp: Boolean) {
+                pointerEvents += if (scrollUp) "SCROLL_UP" else "SCROLL_DOWN"
+            }
+
+            override fun onMouseFlick(dxPx: Float, dyPx: Float) {
+                pointerEvents += "FLICK(${dxPx.toInt()},${dyPx.toInt()})"
+            }
+        })
+
+        val lmb = CommandCatalog.findById("mouse_left")
+        val rmb = CommandCatalog.findById("mouse_right")
+        val mmb = CommandCatalog.findById("mouse_middle")
+
+        // Finger presses LMB on overlay -> IME/pressed state updates immediately, PointerGestureSink is deferred
+        InputBridge.beginOverlayTouch()
+        InputBridge.pressControl("btn_lmb", "LMB", lmb)
+        assertTrue("btn_lmb" in InputBridge.pressedControlIds.value)
+        assertTrue("Pointer gesture must not fire mid-touch on overlay", pointerEvents.isEmpty())
+
+        // Finger releases LMB -> deferred LeftTap flushes cleanly after endOverlayTouch
+        InputBridge.releaseControl("btn_lmb", "LMB", lmb)
+        InputBridge.endOverlayTouch()
+        assertFalse("btn_lmb" in InputBridge.pressedControlIds.value)
+        assertEquals(listOf("LMB_DOWN", "LMB_UP"), pointerEvents)
+
+        // Trackpad drag followed by release commits FlickSwipe only once overlay fingers lift
+        pointerEvents.clear()
+        InputBridge.beginOverlayTouch() // Trackpad finger down
+        InputBridge.beginOverlayTouch() // RMB finger down
+        InputBridge.pressControl("btn_rmb", "RMB", rmb)
+        assertTrue("btn_rmb" in InputBridge.pressedControlIds.value)
+        assertTrue(pointerEvents.isEmpty())
+
+        InputBridge.releaseControl("btn_rmb", "RMB", rmb)
+        InputBridge.endOverlayTouch() // RMB finger lifts, Trackpad finger still down
+        assertTrue("Deferred RMB click waits for Trackpad finger too", pointerEvents.isEmpty())
+
+        // Single-finger Trackpad lift flushes deferred FlickSwipe without canceling mid-drag
+        InputBridge.commitTouchpadFlickSwipe("CAMERA", 42f, -18f, 1.0f, false)
+        assertTrue(pointerEvents.isEmpty())
+
+        InputBridge.endOverlayTouch() // Last finger lifts -> FlickSwipe flushes cleanly
+        assertEquals(listOf("FLICK(42,-18)"), pointerEvents)
+
+        // Quick MMB verification
+        pointerEvents.clear()
+        InputBridge.beginOverlayTouch()
+        InputBridge.pressControl("btn_mmb", "MMB", mmb)
+        assertTrue("btn_mmb" in InputBridge.pressedControlIds.value)
+        assertTrue(pointerEvents.isEmpty())
+        InputBridge.releaseControl("btn_mmb", "MMB", mmb)
+        InputBridge.endOverlayTouch()
+        assertEquals(listOf("MMB_CLICK"), pointerEvents)
+    }
+
+    @Test
+    fun `replay buffer presets format 10s to 1h and captured media item round-trips`() {
+        assertEquals("10s", ReplayBufferPreset.formatDuration(10))
+        assertEquals("20s", ReplayBufferPreset.formatDuration(20))
+        assertEquals("30s", ReplayBufferPreset.formatDuration(30))
+        assertEquals("1m", ReplayBufferPreset.formatDuration(60))
+        assertEquals("30m", ReplayBufferPreset.formatDuration(1800))
+        assertEquals("1h", ReplayBufferPreset.formatDuration(3600))
+        assertEquals("1h", ReplayBufferPreset.formatDuration(9999))
+        assertEquals("10s", ReplayBufferPreset.formatDuration(2))
+
+        val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        val adapter = moshi.adapter(CapturedMediaItem::class.java)
+        val item = CapturedMediaItem(
+            id = "clip-1",
+            filePath = "/data/user/0/com.example/files/nexus_gallery/replay_1.mp4",
+            fileName = "replay_1.mp4",
+            type = CaptureMediaType.REPLAY,
+            createdAtMs = 1_760_000_000_000L,
+            durationMs = 20_000L,
+            sizeBytes = 4_250_000L,
+            replayWindowSec = 20
+        )
+        val restored = adapter.fromJson(adapter.toJson(item))
+        assertNotNull(restored)
+        assertEquals(CaptureMediaType.REPLAY, restored?.type)
+        assertEquals(20, restored?.replayWindowSec)
+        assertEquals(20_000L, restored?.durationMs)
+
+        assertEquals("00:20", CaptureBridge.formatDurationMs(20_000L))
+        assertEquals("1:00:00", CaptureBridge.formatDurationMs(3_600_000L))
+    }
+
+    @Test
+    fun `gallery capture and floating layout chooser strings exist across locales`() {
+        val en = AppLocalization.stringsFor(AppLanguage.ENGLISH)
+        val th = AppLocalization.stringsFor(AppLanguage.THAI)
+        assertEquals("Gallery", en.navGallery)
+        assertEquals("แกลเลอรี", th.navGallery)
+        assertEquals("Layouts", en.menuLayouts)
+        assertEquals("เลือกรูปแบบ", th.menuLayouts)
+        assertEquals("Screenshot", en.menuScreenshot)
+        assertEquals("Instant Replay", en.menuReplay)
+        assertEquals("Save Replay", en.menuSaveReplay)
+        assertEquals("Record", en.menuRecord)
+        assertEquals("Stop Rec", en.menuStopRecord)
+    }
+
+    @Test
+    fun `all 18 Freestyle filter modules serialize round-trip and count active modules accurately`() {
+        val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        val adapter = moshi.adapter(GameFilterStyle::class.java)
+
+        val fullStyle = GameFilterStyle(
+            slot = 1,
+            name = "Full 18 Suite",
+            sharpenEnabled = true,
+            sharpenAmount = 0.65f,
+            sharpenIgnoreFilmGrain = 0.25f,
+            sharpenPlusEnabled = true,
+            sharpenPlusIntensity = 0.50f,
+            sharpenPlusTextureDetails = 0.70f,
+            brightnessContrastEnabled = true,
+            exposure = 0.15f,
+            contrast = 0.25f,
+            highlights = -0.20f,
+            shadows = 0.45f,
+            gamma = 0.10f,
+            detailsEnabled = true,
+            detailsSharpen = 0.30f,
+            detailsClarity = 0.40f,
+            detailsHdrToning = 0.55f,
+            detailsBloom = -0.25f,
+            colorEnabled = true,
+            tintHue = 195f,
+            tintIntensity = 0.30f,
+            temperature = -0.10f,
+            colorVibrance = 0.60f,
+            colorblindEnabled = true,
+            colorblindMode = ColorblindMode.DEUTERANOPIA,
+            colorblindIntensity = 0.80f,
+            nightModeEnabled = true,
+            nightModeIntensity = 0.35f,
+            splitscreenEnabled = true,
+            splitscreenPosition = 0.42f,
+            blackWhiteEnabled = true,
+            blackWhiteTone = BlackWhiteTone.WARM,
+            blackWhiteIntensity = 0.50f,
+            sepiaEnabled = true,
+            sepiaIntensity = 0.40f,
+            vignetteEnabled = true,
+            vignetteIntensity = 0.55f,
+            dofEnabled = true,
+            dofBlurCurve = 0.60f,
+            dofFocusDepth = 0.48f,
+            dofNearBlur = 0.40f,
+            dofFarBlur = 0.70f,
+            oldFilmEnabled = true,
+            oldFilmGamma = 0.20f,
+            oldFilmExposure = -0.10f,
+            oldFilmContrast = 0.30f,
+            oldFilmVignette = 0.50f,
+            oldFilmStrength = 0.75f,
+            oldFilmDirtStrength = 0.65f,
+            moodEnabled = true,
+            moodPreset = MoodFilterPreset.CYBER_NEON,
+            moodIntensity = 0.60f,
+            specialFxEnabled = true,
+            specialFxMode = SpecialFxMode.RETRO,
+            specialFxIntensity = 0.50f,
+            painterlyEnabled = true,
+            painterlyEdgeSharpening = 0.45f,
+            painterlyFilterRadius = 0.55f,
+            painterlyEdgeThreshold = 0.35f,
+            letterboxEnabled = true,
+            letterboxHeight = 0.12f,
+            letterboxWidth = 0.05f,
+            stickersEnabled = true,
+            stickerPreset = StickerPreset.TACTICAL_HUD,
+            stickerScale = 1.1f,
+            stickerOpacity = 0.85f
+        )
+
+        assertEquals(18, fullStyle.activeModuleCount())
+        val restored = adapter.fromJson(adapter.toJson(fullStyle))
+        assertNotNull(restored)
+        assertEquals(18, restored!!.activeModuleCount())
+        assertEquals(ColorblindMode.DEUTERANOPIA, restored.colorblindMode)
+        assertEquals(BlackWhiteTone.WARM, restored.blackWhiteTone)
+        assertEquals(MoodFilterPreset.CYBER_NEON, restored.moodPreset)
+        assertEquals(SpecialFxMode.RETRO, restored.specialFxMode)
+        assertEquals(StickerPreset.TACTICAL_HUD, restored.stickerPreset)
+        assertEquals(0.42f, restored.splitscreenPosition, 0.001f)
+        assertEquals(0.65f, restored.oldFilmDirtStrength, 0.001f)
+    }
+
+    @Test
+    fun `daltonization colorblind shifts RGB channels and blur radius respects GPU mode`() {
+        val (pr, pg, pb) = ColorMatrixBuilder.applyDaltonization(0.9f, 0.2f, 0.1f, ColorblindMode.PROTANOPIA, 1.0f)
+        assertTrue(
+            "Protanopia Daltonization must redistribute red channel contrast",
+            kotlin.math.abs(pg - 0.2f) > 0.02f || kotlin.math.abs(pb - 0.1f) > 0.02f
+        )
+
+        val (dr, dg, db) = ColorMatrixBuilder.applyDaltonization(0.2f, 0.9f, 0.1f, ColorblindMode.DEUTERANOPIA, 1.0f)
+        assertTrue(
+            "Deuteranopia Daltonization must shift green contrast into red/blue",
+            kotlin.math.abs(dr - 0.2f) > 0.02f || kotlin.math.abs(db - 0.1f) > 0.02f
+        )
+
+        val (tr, tg, tb) = ColorMatrixBuilder.applyDaltonization(0.1f, 0.2f, 0.9f, ColorblindMode.TRITANOPIA, 1.0f)
+        assertTrue(
+            "Tritanopia Daltonization must shift blue contrast into red/green",
+            kotlin.math.abs(tr - 0.1f) > 0.02f || kotlin.math.abs(tg - 0.2f) > 0.02f
+        )
+
+        val dofStyle = GameFilterStyle(slot = 1, name = "Tilt-Shift", dofEnabled = true, dofNearBlur = 0.8f, dofFarBlur = 0.8f)
+        assertTrue("Optical mode exposes API 31+ blur radius", computeOverlayBlurRadius(dofStyle, gpuShaderActive = false) > 10)
+        assertEquals("GPU shader mode disables window blur behind to avoid double blur", 0, computeOverlayBlurRadius(dofStyle, gpuShaderActive = true))
+    }
+
+    @Test
+    fun `GameFilterBridge updates live styles synchronously and GLSL shader covers all stages`() {
+        GameFilterBridge.syncFromPersisted(GameFilterState.default())
+        assertEquals(0, GameFilterBridge.liveFilterState.value.activeSlot)
+
+        val vivid = GameFilterStyle(slot = 2, name = "Sharp", sharpenEnabled = true, sharpenAmount = 0.8f)
+        GameFilterBridge.updateLiveStyle(vivid)
+        assertEquals(2, GameFilterBridge.liveFilterState.value.activeSlot)
+        assertEquals(0.8f, GameFilterBridge.liveFilterState.value.activeStyle?.sharpenAmount ?: 0f, 0.001f)
+
+        val shader = FreestyleGlTextureView.FREESTYLE_FRAGMENT_BODY
+        assertTrue(shader.contains("uSharpenParams"))
+        assertTrue(shader.contains("uSharpenPlusParams"))
+        assertTrue(shader.contains("uBcParams1"))
+        assertTrue(shader.contains("uDetailsParams"))
+        assertTrue(shader.contains("uColorParams"))
+        assertTrue(shader.contains("uColorblindParams"))
+        assertTrue(shader.contains("uNightModeInt"))
+        assertTrue(shader.contains("uSplitParams"))
+        assertTrue(shader.contains("uBwParams"))
+        assertTrue(shader.contains("uSepiaInt"))
+        assertTrue(shader.contains("uVignetteParams"))
+        assertTrue(shader.contains("uDofParams"))
+        assertTrue(shader.contains("uOldFilm1"))
+        assertTrue(shader.contains("uMoodParams"))
+        assertTrue(shader.contains("uSpecialFxParams"))
+        assertTrue(shader.contains("uPainterlyParams"))
+        assertTrue(shader.contains("uLetterboxParams"))
+    }
+
+    @Test
+    fun `recording quality helper scales bitrate storage and hardware fallback lists accurately`() {
+        val sd24Bitrate = RecordingConfigHelper.computeTargetBitrateBps(RecordingResolution.P480, RecordingFps.FPS_24)
+        val hd30Bitrate = RecordingConfigHelper.computeTargetBitrateBps(RecordingResolution.P720, RecordingFps.FPS_30)
+        val fhd60Bitrate = RecordingConfigHelper.computeTargetBitrateBps(RecordingResolution.P1080, RecordingFps.FPS_60)
+        val native120Bitrate = RecordingConfigHelper.computeTargetBitrateBps(RecordingResolution.NATIVE, RecordingFps.FPS_120)
+
+        assertTrue(sd24Bitrate < hd30Bitrate)
+        assertTrue(hd30Bitrate < fhd60Bitrate)
+        assertTrue(fhd60Bitrate < native120Bitrate)
+        assertTrue(native120Bitrate <= 28_000_000)
+
+        val hd30MbMin = RecordingConfigHelper.estimateStorageMbPerMinute(RecordingResolution.P720, RecordingFps.FPS_30)
+        val fhd60MbMin = RecordingConfigHelper.estimateStorageMbPerMinute(RecordingResolution.P1080, RecordingFps.FPS_60)
+        assertTrue(hd30MbMin in 25..40)
+        assertTrue(fhd60MbMin > hd30MbMin)
+
+        val resFallbacks = RecordingConfigHelper.fallbackLongEdgeCandidates(RecordingResolution.P1080)
+        assertEquals(1920, resFallbacks.first())
+        assertTrue(resFallbacks.zipWithNext().all { (a, b) -> a > b })
+        assertTrue(resFallbacks.contains(1280))
+        assertTrue(resFallbacks.contains(640))
+
+        val fpsFallbacks = RecordingConfigHelper.fallbackFpsCandidates(RecordingFps.FPS_90)
+        assertEquals(listOf(90, 60, 48, 30, 24), fpsFallbacks)
+    }
+
+    @Test
+    fun `github update manager validates repo slugs download hosts semver and parses release json`() {
+        assertEquals("octocat/NexusPad", GitHubUpdateManager.normalizeRepoSlug("octocat/NexusPad"))
+        assertEquals("octocat/NexusPad", GitHubUpdateManager.normalizeRepoSlug("https://github.com/octocat/NexusPad/"))
+        assertEquals("octocat/NexusPad", GitHubUpdateManager.normalizeRepoSlug("https://github.com/octocat/NexusPad.git"))
+        assertEquals(null, GitHubUpdateManager.normalizeRepoSlug("not-a-repo"))
+        assertEquals(null, GitHubUpdateManager.normalizeRepoSlug(""))
+
+        assertTrue(GitHubUpdateManager.isAllowedGitHubDownloadUrl("https://github.com/octocat/NexusPad/releases/download/v1.0.5/NexusPad-v1.0.5.apk"))
+        assertTrue(GitHubUpdateManager.isAllowedGitHubDownloadUrl("https://objects.githubusercontent.com/github-production-release-asset/123"))
+        assertFalse(GitHubUpdateManager.isAllowedGitHubDownloadUrl("http://github.com/octocat/NexusPad/releases/download/v1.0.5/NexusPad.apk"))
+        assertFalse(GitHubUpdateManager.isAllowedGitHubDownloadUrl("https://evil.example.com/NexusPad.apk"))
+
+        assertTrue(GitHubUpdateManager.isNewerVersion("1.0", "v1.0.5"))
+        assertTrue(GitHubUpdateManager.isNewerVersion("1.0.9", "v1.0.10"))
+        assertTrue(GitHubUpdateManager.isNewerVersion("1.0.2", "1.1.0"))
+        assertFalse(GitHubUpdateManager.isNewerVersion("1.0.10", "v1.0.10"))
+        assertFalse(GitHubUpdateManager.isNewerVersion("1.0.11", "v1.0.10"))
+
+        val sampleJson = """
+            {
+              "tag_name": "v1.0.12",
+              "name": "NexusPad v1.0.12",
+              "body": "### What's New\n- Recording 1080p 60 FPS\n- Direct in-app updates",
+              "html_url": "https://github.com/octocat/NexusPad/releases/tag/v1.0.12",
+              "published_at": "2026-11-23T12:00:00Z",
+              "assets": [
+                {
+                  "name": "other.apk",
+                  "browser_download_url": "https://github.com/octocat/NexusPad/releases/download/v1.0.12/other.apk",
+                  "size": 1200000
+                },
+                {
+                  "name": "NexusPad-v1.0.12.apk",
+                  "browser_download_url": "https://github.com/octocat/NexusPad/releases/download/v1.0.12/NexusPad-v1.0.12.apk",
+                  "size": 18450000
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val parsed = GitHubUpdateManager.parseReleaseJson(sampleJson)
+        assertEquals("v1.0.12", parsed.tagName)
+        assertEquals("1.0.12", parsed.versionName)
+        assertEquals("NexusPad-v1.0.12.apk", parsed.apkFileName)
+        assertEquals(18_450_000L, parsed.apkSizeBytes)
+        assertTrue(parsed.apkDownloadUrl!!.endsWith("NexusPad-v1.0.12.apk"))
+        assertTrue(parsed.releaseNotes.contains("Recording 1080p 60 FPS"))
     }
 }

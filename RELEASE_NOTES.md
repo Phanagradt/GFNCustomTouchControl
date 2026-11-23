@@ -1,16 +1,17 @@
 ### New Features
-- **Game Compatibility Mode (GeForce NOW ↔ Android Games)**: Switch between **GeForce NOW (Cloud PC)** mode and **Android Games (Roblox, Minecraft, etc.)** mode in **Setup** or directly inside the floating menu (`Mode: GFN` / `Mode: Android`) to tailor camera panning zones, key behavior, and mouse clicks per game type.
-- **Customizable Crosshair HUD**: Toggle a precision aiming crosshair directly in the app or from the floating bubble menu. Includes 5 built-in presets (*Pro Lime +*, *Headshot Dot*, *Holo Ring*, *Red T-Bar*, *Sniper X*), live color & outline swatches, thickness/length/gap/opacity sliders, center dot toggle, and custom crosshair image upload.
-- **Floating Keyboard & Multi-Language Input (EN / ไทย)**: Added a movable **Floating Keyboard** window (`FLOAT` / `DOCK` button on the keyboard bar, floating bubble menu, and Settings) plus a built-in **Thai (Kedmanee ไทย)** layout with one-tap `🌐 EN / ไทย` switching.
-- **Auto App Language & Settings Selector**: NexusPad detects your phone's system language automatically on install and adds an **App Language** selector in **Setup** (*System Default*, *English*, *ไทย*, *Español*, *日本語*, *中文*).
-- **GeForce-Style Game Color Filter**: Tune **Brightness**, **Contrast**, **Shadows**, **Color Vibrance**, **Temperature**, and tint presets live from the app or the floating bubble menu.
+- **Screen Recording & Instant Replay Quality Settings (Resolution & FPS)**:
+  - Choose your preferred recording resolution (**480p SD**, **720p HD**, **1080p Full HD**, **1440p QHD**, or **Native Screen**) and frame rate (**24**, **30**, **48**, **60**, **90**, or **120 FPS**) in **Setup** or directly from the **Shadow Capture & Gallery** deck.
+  - Displays live target H.264 bitrate (`Mbps`) and estimated storage usage (`~MB/min`), with automatic `MediaCodecList` hardware-encoder capability checks that gracefully step down if a device caps 1440p or high frame rates.
+- **Direct In-App GitHub Release Updates (In-Place Upgrade — Keeps All Data)**:
+  - Added an **App Updates (GitHub Releases)** system in **Setup** (plus an update badge indicator on the Setup tab) so users can check for new releases, read the "What's New" notes, download the signed release APK with live progress, and launch Android's installer directly from inside NexusPad **without uninstalling the old version or losing saved layouts, filters, and gallery captures**.
+  - Updated GitHub Actions release builds to automatically embed monotonically increasing `versionCode`, matching `versionName`, and the repository slug while keeping the exact same signing key for seamless one-tap in-place updates.
+- **Real OpenGL ES 2.0 GeForce Freestyle GPU Post-Processing Filter Engine**: Full 18-module hardware-accelerated GLSL fragment shader pipeline (*Sharpen*, *Sharpen+*, *Brightness/Contrast*, *Details*, *Color*, *Colorblind*, *Night Mode*, *Splitscreen*, *Black & White*, *Sepia*, *Vignette*, *Depth of Field / Tilt-Shift*, *Old Film*, *Mood*, *Special FX*, *Painterly*, *Letterbox*, and *Stickers*).
+- **GeForce-Style Instant Replay (10s – 1h), Screen Recording, Screenshot & Gallery**: Capture PNG screenshots, manual MP4 recordings, and 10s–1h Instant Replay clips with a dedicated **Gallery** tab.
 
-### UI & Controls Improvements
-- **Continuous 360° Trackpad Mouse Camera**: Rebuilt Mouse Trackpad camera control using unbroken continuous `continueStroke` gesture streaming with sub-pixel accumulation and automatic edge recentering, eliminating single-flick cutoffs, held-key interruptions (`WASD`/`Shift`), and frame stutters.
-- **Silky-Smooth Bubble & Floating Keyboard Dragging**: Anchored floating window dragging to raw screen coordinates (`rawX` / `rawY`) to eliminate coordinate oscillation jitter while moving the floating bubble or floating keyboard.
-- **Left-Side Docked Overlay Menu & Smooth Grid Editor**: Tapping the floating bubble opens the menu cleanly along the **left side** of the screen, paired with hardware-accelerated dragging and configurable grid size in Layout Studio.
+### UI & Performance Improvements
+- **Silky-Smooth 120Hz Zero-Stutter Sliders App-Wide**: Custom Canvas `SmoothSlider` and in-memory `GameFilterBridge` eliminate lag while dragging sliders across **Game Filters**, **Crosshair**, **Layout Editor**, **Setup**, and **Gallery**.
+- **Dynamic Frame-Accurate Replay Muxing**: Instant Replay segment stitching now calculates exact per-frame presentation timestamps from your chosen recording FPS.
 
 ### Bug Fixes
-- **Fixed LMB / RMB / MMB Hold & Telemetry State**: Prevented Accessibility pointer gestures from self-tapping NexusPad's own Play-Test and Sandbox windows (which previously canceled the held finger and flashed `MOUSE_UP` immediately), so holding `LMB`, `RMB`, or `MMB` cleanly displays `MOUSE_DOWN` while held and `MOUSE_UP` on release, alongside reliable gameplay dispatch.
-- **Fixed Custom Button Image Upload & True Full-Screen Landscape Layout**: Reliable `ImageDecoder` + Files picker import and edge-to-edge `FLAG_LAYOUT_NO_LIMITS` full-screen landscape coverage.
-
+- **Fixed MediaProjection Screen Capture & Recording Crashes**: Resolved Android 15/16 (`targetSdk 36`) foreground service permission ordering for `FOREGROUND_SERVICE_MEDIA_PROJECTION`, guarded empty-frame MP4 muxer teardown, and added safe video thumbnail/playback fallback handling.
+- **Fixed Overlay Mouse & Trackpad Feedback**: Preserved reliable press highlights for `LMB`, `RMB`, `MMB` and continuous non-freezing trackpad camera drags on floating overlays.

@@ -64,7 +64,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -72,7 +71,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -103,6 +104,7 @@ import com.example.model.CommandCatalog
 import com.example.model.ControlAccent
 import com.example.model.ControlShape
 import com.example.model.ControlType
+import com.example.ui.components.SmoothSlider
 import com.example.model.GameGenre
 import com.example.model.InputBinding
 import com.example.model.TelemetryEvent
@@ -654,24 +656,40 @@ fun LayoutEditorScreen(
                         )
                     }
                     Column {
+                        var gridDraft by remember { mutableFloatStateOf(divsX.toFloat()) }
+                        var gridDragging by remember { mutableStateOf(false) }
+                        LaunchedEffect(divsX, gridDragging) {
+                            if (!gridDragging) gridDraft = divsX.toFloat()
+                        }
+                        val displayDivsX = gridDraft.roundToInt().coerceIn(4, 32)
+                        val displayDivsY = (displayDivsX * 0.66f).roundToInt().coerceIn(4, 24)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text("Grid Density", style = MaterialTheme.typography.titleSmall)
                             Text(
-                                text = "${divsX} × ${divsY} cells",
+                                text = "${displayDivsX} × ${displayDivsY} cells",
                                 fontFamily = JetBrainsMonoFontFamily,
                                 color = GeForceLime,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
-                        Slider(
+                        SmoothSlider(
                             value = divsX.toFloat(),
-                            onValueChange = { onGridDivisionsChange(it.roundToInt()) },
+                            onValueChange = { v ->
+                                gridDragging = true
+                                gridDraft = v
+                            },
+                            onValueChangeFinished = { v ->
+                                gridDragging = false
+                                val snapped = v.roundToInt().coerceIn(4, 32)
+                                gridDraft = snapped.toFloat()
+                                onGridDivisionsChange(snapped)
+                            },
                             valueRange = 4f..32f,
-                            steps = 27,
+                            accentColor = GeForceLime,
                             modifier = Modifier.testTag("editor_grid_size_slider")
                         )
                         Row(
@@ -1124,35 +1142,65 @@ private fun ControlInspectorSheetContent(
 
         item {
             val maxSize = if (control.controlType == ControlType.TOUCHPAD) 240f else 160f
+            var sizeDraft by remember(control.id) { mutableFloatStateOf(control.sizeDp.coerceIn(48f, maxSize)) }
+            var sizeDragging by remember(control.id) { mutableStateOf(false) }
+            LaunchedEffect(control.sizeDp, sizeDragging) {
+                if (!sizeDragging) sizeDraft = control.sizeDp.coerceIn(48f, maxSize)
+            }
             Column {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text("Size", style = MaterialTheme.typography.titleSmall)
-                    Text("${control.sizeDp.roundToInt()} dp", style = MaterialTheme.typography.labelMedium)
+                    Text("${sizeDraft.roundToInt()} dp", style = MaterialTheme.typography.labelMedium)
                 }
-                Slider(
+                SmoothSlider(
                     value = control.sizeDp.coerceIn(48f, maxSize),
-                    onValueChange = { onChange(control.copy(sizeDp = it)) },
-                    valueRange = 48f..maxSize
+                    onValueChange = { v ->
+                        sizeDragging = true
+                        sizeDraft = v
+                        onChange(control.copy(sizeDp = v))
+                    },
+                    onValueChangeFinished = { v ->
+                        sizeDragging = false
+                        sizeDraft = v
+                        onChange(control.copy(sizeDp = v))
+                    },
+                    valueRange = 48f..maxSize,
+                    accentColor = GeForceLime
                 )
             }
         }
 
         item {
+            var opacityDraft by remember(control.id) { mutableFloatStateOf(control.opacity.coerceIn(0.25f, 1.0f)) }
+            var opacityDragging by remember(control.id) { mutableStateOf(false) }
+            LaunchedEffect(control.opacity, opacityDragging) {
+                if (!opacityDragging) opacityDraft = control.opacity.coerceIn(0.25f, 1.0f)
+            }
             Column {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text("Control Opacity", style = MaterialTheme.typography.titleSmall)
-                    Text("${(control.opacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
+                    Text("${(opacityDraft * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
                 }
-                Slider(
-                    value = control.opacity,
-                    onValueChange = { onChange(control.copy(opacity = it)) },
-                    valueRange = 0.25f..1.0f
+                SmoothSlider(
+                    value = control.opacity.coerceIn(0.25f, 1.0f),
+                    onValueChange = { v ->
+                        opacityDragging = true
+                        opacityDraft = v
+                        onChange(control.copy(opacity = v))
+                    },
+                    onValueChangeFinished = { v ->
+                        opacityDragging = false
+                        opacityDraft = v
+                        onChange(control.copy(opacity = v))
+                    },
+                    valueRange = 0.25f..1.0f,
+                    accentColor = TacticalCyan
                 )
             }
         }
@@ -1193,18 +1241,33 @@ private fun ControlInspectorSheetContent(
                     }
                 }
                 if (control.behavior == TriggerBehavior.TURBO) {
+                    var turboDraft by remember(control.id) { mutableFloatStateOf(control.turboRateHz.toFloat()) }
+                    var turboDragging by remember(control.id) { mutableStateOf(false) }
+                    LaunchedEffect(control.turboRateHz, turboDragging) {
+                        if (!turboDragging) turboDraft = control.turboRateHz.toFloat()
+                    }
                     Spacer(Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Turbo Fire Rate", style = MaterialTheme.typography.bodyMedium)
-                        Text("${control.turboRateHz} Hz", style = MaterialTheme.typography.labelMedium, color = TurboAmber)
+                        Text("${turboDraft.roundToInt()} Hz", style = MaterialTheme.typography.labelMedium, color = TurboAmber)
                     }
-                    Slider(
-                        value = control.turboRateHz.toFloat(),
-                        onValueChange = { onChange(control.copy(turboRateHz = it.roundToInt())) },
-                        valueRange = 2f..25f
+                    SmoothSlider(
+                        value = control.turboRateHz.toFloat().coerceIn(2f, 25f),
+                        onValueChange = { v ->
+                            turboDragging = true
+                            turboDraft = v
+                        },
+                        onValueChangeFinished = { v ->
+                            turboDragging = false
+                            val hz = v.roundToInt().coerceIn(2, 25)
+                            turboDraft = hz.toFloat()
+                            onChange(control.copy(turboRateHz = hz))
+                        },
+                        valueRange = 2f..25f,
+                        accentColor = TurboAmber
                     )
                 }
             }
@@ -1245,6 +1308,16 @@ private fun ControlInspectorSheetContent(
 
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    var deadzoneDraft by remember(control.id) { mutableFloatStateOf(control.deadzone.coerceIn(0.02f, 0.40f)) }
+                    var deadzoneDragging by remember(control.id) { mutableStateOf(false) }
+                    LaunchedEffect(control.deadzone, deadzoneDragging) {
+                        if (!deadzoneDragging) deadzoneDraft = control.deadzone.coerceIn(0.02f, 0.40f)
+                    }
+                    var sensDraft by remember(control.id) { mutableFloatStateOf(control.sensitivity.coerceIn(0.5f, 2.2f)) }
+                    var sensDragging by remember(control.id) { mutableStateOf(false) }
+                    LaunchedEffect(control.sensitivity, sensDragging) {
+                        if (!sensDragging) sensDraft = control.sensitivity.coerceIn(0.5f, 2.2f)
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -1253,12 +1326,21 @@ private fun ControlInspectorSheetContent(
                             if (control.controlType == ControlType.TOUCHPAD) "Swipe Deadzone" else "Analog Deadzone",
                             style = MaterialTheme.typography.titleSmall
                         )
-                        Text("${(control.deadzone * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
+                        Text("${(deadzoneDraft * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
                     }
-                    Slider(
-                        value = control.deadzone,
-                        onValueChange = { onChange(control.copy(deadzone = it)) },
-                        valueRange = 0.02f..0.40f
+                    SmoothSlider(
+                        value = control.deadzone.coerceIn(0.02f, 0.40f),
+                        onValueChange = { v ->
+                            deadzoneDragging = true
+                            deadzoneDraft = v
+                        },
+                        onValueChangeFinished = { v ->
+                            deadzoneDragging = false
+                            deadzoneDraft = v
+                            onChange(control.copy(deadzone = v))
+                        },
+                        valueRange = 0.02f..0.40f,
+                        accentColor = TacticalCyan
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1268,12 +1350,21 @@ private fun ControlInspectorSheetContent(
                             if (control.controlType == ControlType.TOUCHPAD) "Touchpad Sensitivity" else "Sensitivity Curve",
                             style = MaterialTheme.typography.titleSmall
                         )
-                        Text("%.2fx".format(control.sensitivity), style = MaterialTheme.typography.labelMedium)
+                        Text("%.2fx".format(sensDraft), style = MaterialTheme.typography.labelMedium)
                     }
-                    Slider(
-                        value = control.sensitivity,
-                        onValueChange = { onChange(control.copy(sensitivity = it)) },
-                        valueRange = 0.5f..2.2f
+                    SmoothSlider(
+                        value = control.sensitivity.coerceIn(0.5f, 2.2f),
+                        onValueChange = { v ->
+                            sensDragging = true
+                            sensDraft = v
+                        },
+                        onValueChangeFinished = { v ->
+                            sensDragging = false
+                            sensDraft = v
+                            onChange(control.copy(sensitivity = v))
+                        },
+                        valueRange = 0.5f..2.2f,
+                        accentColor = GeForceLime
                     )
                     if (control.controlType == ControlType.TOUCHPAD) {
                         Row(

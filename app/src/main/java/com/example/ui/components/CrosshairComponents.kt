@@ -34,13 +34,16 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -611,10 +614,18 @@ private fun CrosshairSlider(
     decimals: Boolean = false,
     onValueChange: (Float) -> Unit
 ) {
+    val clamped = value.coerceIn(range.start, range.endInclusive)
+    var displayVal by remember { mutableFloatStateOf(clamped) }
+    var dragging by remember { mutableStateOf(false) }
+
+    LaunchedEffect(clamped, dragging) {
+        if (!dragging) displayVal = clamped
+    }
+
     val text = if (decimals) {
-        "%.1f %s".format(value, unit)
+        "%.1f %s".format(displayVal, unit)
     } else {
-        "${value.roundToInt()} $unit"
+        "${displayVal.roundToInt()} $unit"
     }
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -636,15 +647,21 @@ private fun CrosshairSlider(
                 fontSize = 11.sp
             )
         }
-        Slider(
-            value = value.coerceIn(range.start, range.endInclusive),
-            onValueChange = onValueChange,
+        SmoothSlider(
+            value = clamped,
+            onValueChange = { v ->
+                dragging = true
+                displayVal = v
+                onValueChange(v)
+            },
+            onValueChangeFinished = { v ->
+                dragging = false
+                displayVal = v
+                onValueChange(v)
+            },
             valueRange = range,
-            colors = SliderDefaults.colors(
-                thumbColor = accent,
-                activeTrackColor = accent,
-                inactiveTrackColor = Color(0xFF283344)
-            ),
+            accentColor = accent,
+            inactiveTrackColor = Color(0xFF283344),
             modifier = Modifier.fillMaxWidth()
         )
     }

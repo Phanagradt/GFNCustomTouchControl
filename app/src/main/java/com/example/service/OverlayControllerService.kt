@@ -47,16 +47,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
@@ -101,10 +108,13 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.MainActivity
 import com.example.R
+import com.example.capture.CaptureBridge
 import com.example.data.NexusDatabase
 import com.example.data.OverlaySettings
 import com.example.data.PreferencesRepository
 import com.example.data.ProfileRepository
+import com.example.filter.FreestyleGlTextureView
+import com.example.filter.GameFilterBridge
 import com.example.input.InputBridge
 import com.example.model.AppLanguage
 import com.example.model.AppLocalization
@@ -115,6 +125,7 @@ import com.example.model.CrosshairPresets
 import com.example.model.CrosshairSettings
 import com.example.model.GameFilterState
 import com.example.model.LocalNexusStrings
+import com.example.model.ReplayBufferPreset
 import com.example.model.TargetPlatformMode
 import com.example.model.VirtualControl
 import com.example.ui.components.CrosshairOverlayCanvas
@@ -122,6 +133,7 @@ import com.example.ui.components.CrosshairPanelContent
 import com.example.ui.components.GeForceFilterPanelContent
 import com.example.ui.components.ScreenFilterOverlayCanvas
 import com.example.ui.components.VirtualControlCanvasItem
+import com.example.ui.components.computeOverlayBlurRadius
 import com.example.ui.components.computeOverlayDimAmount
 import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.JetBrainsMonoFontFamily
@@ -136,6 +148,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -186,8 +199,13 @@ class OverlayControllerService : Service() {
     private val controlViews = mutableListOf<ComposeView>()
     private val controlViewParams = mutableListOf<WindowManager.LayoutParams>()
 
+    private var gpuFilterOverlayView: FreestyleGlTextureView? = null
+    private var gpuFilterOverlayParams: WindowManager.LayoutParams? = null
     private var filterOverlayView: ComposeView? = null
     private var filterOverlayParams: WindowManager.LayoutParams? = null
+    private var lastAppliedFilterFlags: Int = -1
+    private var lastAppliedFilterDim: Float = -1f
+    private var lastAppliedFilterBlur: Int = -1
     private var crosshairOverlayView: ComposeView? = null
     private var crosshairOverlayParams: WindowManager.LayoutParams? = null
     private var floatingKeyboardView: ComposeView? = null
@@ -198,12 +216,15 @@ class OverlayControllerService : Service() {
     private var leftMenuView: ComposeView? = null
     private var filterPanelView: ComposeView? = null
     private var crosshairPanelView: ComposeView? = null
+    private var layoutPickerPanelView: ComposeView? = null
+    private var captureBannerView: ComposeView? = null
 
     private val buttonsVisible = MutableStateFlow(true)
     private val bubbleLocked = MutableStateFlow(false)
     private val leftMenuOpen = MutableStateFlow(false)
     private val filterPanelOpen = MutableStateFlow(false)
     private val crosshairPanelOpen = MutableStateFlow(false)
+    private val layoutPickerPanelOpen = MutableStateFlow(false)
     private val floatingKeyboardOpen = MutableStateFlow(false)
     private val floatingKeyboardDefaultFlow = MutableStateFlow(false)
 
@@ -211,7 +232,9 @@ class OverlayControllerService : Service() {
     private val crosshairFlow = MutableStateFlow(CrosshairSettings())
     private val appLanguageFlow = MutableStateFlow(AppLanguage.SYSTEM)
     private val targetModeFlow = MutableStateFlow(TargetPlatformMode.GEFORCE_NOW)
+    private val replayDurationSecFlow = MutableStateFlow(30)
     private val activeProfileName = MutableStateFlow("NexusPad")
+    private val activeProfileIdFlow = MutableStateFlow<String?>(null)
     private val allProfilesFlow = MutableStateFlow<List<ControllerProfile>>(emptyList())
 
     private var lastRenderedProfile: ControllerProfile? = null
@@ -256,7 +279,9 @@ class OverlayControllerService : Service() {
         observeLeftMenuState()
         observeFilterPanelState()
         observeCrosshairPanelState()
+        observeLayoutPickerPanelState()
         observeFloatingKeyboardState()
+        observeCaptureStatusBanner()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -347,9 +372,24 @@ class OverlayControllerService : Service() {
                 prefsRepo.settingsFlow
                     .map { it.gameFilter }
                     .distinctUntilChanged()
-                    .collect { filterState ->
-                        applyLiveFilterState(filterState)
+                    .collect { persistedFilter ->
+                        GameFilterBridge.syncFromPersisted(persistedFilter)
                     }
+            }
+            launch {
+                combine(
+                    GameFilterBridge.liveFilterState,
+                    GameFilterBridge.isGpuShaderActive
+                ) { filterState, gpuActive ->
+                    filterState to gpuActive
+                }.collect { (filterState, gpuActive) ->
+                    applyLiveFilterState(filterState, gpuActive)
+                }
+            }
+            launch {
+                GameFilterBridge.gpuContentSize.collect { (w, h) ->
+                    gpuFilterOverlayView?.updateProjectionBufferSize(w, h)
+                }
             }
             launch {
                 prefsRepo.settingsFlow
@@ -370,12 +410,27 @@ class OverlayControllerService : Service() {
                         InputBridge.setTargetMode(mode)
                     }
             }
+            launch {
+                prefsRepo.settingsFlow
+                    .map { Triple(it.instantReplayDurationSec, it.recordingResolution, it.recordingFps) }
+                    .distinctUntilChanged()
+                    .collect { (sec, res, fps) ->
+                        replayDurationSecFlow.value = sec
+                        CaptureBridge.setReplayDurationSec(sec)
+                        CaptureBridge.setRecordingResolution(res)
+                        CaptureBridge.setRecordingFps(fps)
+                    }
+            }
 
             val controlSettingsFlow = prefsRepo.settingsFlow
                 .map { s ->
                     s.copy(
                         gameFilter = GameFilterState.default(),
-                        crosshair = CrosshairSettings()
+                        crosshair = CrosshairSettings(),
+                        recordingResolution = com.example.model.RecordingResolution.P720,
+                        recordingFps = com.example.model.RecordingFps.FPS_30,
+                        githubRepoSlug = "",
+                        autoCheckUpdates = true
                     )
                 }
                 .distinctUntilChanged()
@@ -390,6 +445,7 @@ class OverlayControllerService : Service() {
                 lastRenderedProfile = profile
                 lastRenderedSettings = settings
                 activeProfileName.value = profile?.name ?: "NexusPad"
+                activeProfileIdFlow.value = profile?.id
                 clearControlWindows()
                 InputBridge.releaseAll()
                 if (visible && profile != null) {
@@ -406,6 +462,7 @@ class OverlayControllerService : Service() {
                 if (open) {
                     filterPanelOpen.value = false
                     crosshairPanelOpen.value = false
+                    layoutPickerPanelOpen.value = false
                     showLeftMenuOverlay()
                 } else {
                     dismissLeftMenuOverlay()
@@ -420,6 +477,7 @@ class OverlayControllerService : Service() {
                 if (open) {
                     leftMenuOpen.value = false
                     crosshairPanelOpen.value = false
+                    layoutPickerPanelOpen.value = false
                     showFloatingFilterPanel()
                 } else {
                     dismissFloatingFilterPanel()
@@ -434,9 +492,41 @@ class OverlayControllerService : Service() {
                 if (open) {
                     leftMenuOpen.value = false
                     filterPanelOpen.value = false
+                    layoutPickerPanelOpen.value = false
                     showFloatingCrosshairPanel()
                 } else {
                     dismissFloatingCrosshairPanel()
+                }
+            }
+        }
+    }
+
+    private fun observeLayoutPickerPanelState() {
+        serviceScope.launch {
+            layoutPickerPanelOpen.collect { open ->
+                if (open) {
+                    leftMenuOpen.value = false
+                    filterPanelOpen.value = false
+                    crosshairPanelOpen.value = false
+                    showFloatingLayoutPickerPanel()
+                } else {
+                    dismissFloatingLayoutPickerPanel()
+                }
+            }
+        }
+    }
+
+    private fun observeCaptureStatusBanner() {
+        serviceScope.launch {
+            CaptureBridge.statusBanner.collect { msg ->
+                if (!msg.isNullOrBlank()) {
+                    showCaptureBanner(msg)
+                    delay(2400L)
+                    if (CaptureBridge.statusBanner.value == msg) {
+                        CaptureBridge.postBanner(null)
+                    }
+                } else {
+                    dismissCaptureBanner()
                 }
             }
         }
@@ -465,14 +555,15 @@ class OverlayControllerService : Service() {
         }
     }
 
-    private fun openMainApp(openCrosshairTab: Boolean = false) {
+    private fun openMainApp(openCrosshairTab: Boolean = false, openFilterTab: Boolean = false) {
         leftMenuOpen.value = false
         filterPanelOpen.value = false
         crosshairPanelOpen.value = false
         val intent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            if (openCrosshairTab) {
-                putExtra(EXTRA_VISUALS_TAB, "crosshair")
+            when {
+                openCrosshairTab -> putExtra(EXTRA_VISUALS_TAB, "crosshair")
+                openFilterTab -> putExtra(EXTRA_VISUALS_TAB, "filter")
             }
         }
         runCatching { startActivity(intent) }
@@ -527,10 +618,14 @@ class OverlayControllerService : Service() {
                 val menuOpen by leftMenuOpen.collectAsState()
                 val filterOpen by filterPanelOpen.collectAsState()
                 val crossOpen by crosshairPanelOpen.collectAsState()
-                val anyPanelOpen = menuOpen || filterOpen || crossOpen
+                val layoutOpen by layoutPickerPanelOpen.collectAsState()
+                val isRec by CaptureBridge.isRecording.collectAsState()
+                val isRep by CaptureBridge.isInstantReplayOn.collectAsState()
+                val anyPanelOpen = menuOpen || filterOpen || crossOpen || layoutOpen
 
                 NexusPadTheme {
                     val accent = when {
+                        isRec -> MacroCoral
                         anyPanelOpen -> TacticalCyan
                         locked -> TurboAmber
                         !visible -> Color(0xFF9FB0C7)
@@ -581,9 +676,10 @@ class OverlayControllerService : Service() {
                                     }
                                     MotionEvent.ACTION_UP -> {
                                         if (!didDrag) {
-                                            if (filterPanelOpen.value || crosshairPanelOpen.value) {
+                                            if (filterPanelOpen.value || crosshairPanelOpen.value || layoutPickerPanelOpen.value) {
                                                 filterPanelOpen.value = false
                                                 crosshairPanelOpen.value = false
+                                                layoutPickerPanelOpen.value = false
                                             } else {
                                                 leftMenuOpen.value = !leftMenuOpen.value
                                             }
@@ -601,6 +697,25 @@ class OverlayControllerService : Service() {
                             tint = accent,
                             modifier = Modifier.size(25.dp)
                         )
+                        if (isRec && !anyPanelOpen) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(6.dp)
+                                    .size(9.dp)
+                                    .clip(CircleShape)
+                                    .background(MacroCoral)
+                            )
+                        } else if (isRep && !anyPanelOpen) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(6.dp)
+                                    .size(9.dp)
+                                    .clip(CircleShape)
+                                    .background(TacticalCyan)
+                            )
+                        }
                         if (locked && !anyPanelOpen) {
                             Box(
                                 modifier = Modifier
@@ -629,26 +744,77 @@ class OverlayControllerService : Service() {
         runCatching { windowManager.addView(bubble, params) }
     }
 
-    private fun applyLiveFilterState(state: GameFilterState) {
+    private fun applyLiveFilterState(state: GameFilterState, gpuActive: Boolean) {
         filterStateFlow.value = state
         val activeStyle = state.activeStyle
         if (activeStyle == null) {
             removeScreenFilterOverlay()
+            removeGpuFilterOverlay()
             return
         }
 
-        val dim = computeOverlayDimAmount(activeStyle)
-        val baseFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            if (dim > 0.005f) WindowManager.LayoutParams.FLAG_DIM_BEHIND else 0
+        // 1. Real OpenGL ES 2.0 Live GPU Shader Surface (when MediaProjection GPU Engine is active)
+        if (gpuActive) {
+            val existingGl = gpuFilterOverlayView
+            if (existingGl == null) {
+                val glParams = WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    overlayWindowType(),
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                    PixelFormat.TRANSLUCENT
+                ).apply {
+                    gravity = Gravity.TOP or Gravity.START
+                    applyFullScreenOverlayFlags(this)
+                }
+                val glView = FreestyleGlTextureView(this, FreestyleGlTextureView.Mode.LIVE_PROJECTION).apply {
+                    setFilterStyle(activeStyle)
+                    setProjectionSurfaceCallback { surface, w, h ->
+                        GameFilterBridge.publishGpuTargetSurface(surface, w, h)
+                    }
+                }
+                gpuFilterOverlayView = glView
+                gpuFilterOverlayParams = glParams
+                runCatching { windowManager.addView(glView, glParams) }
+                reStackAllLayers()
+            } else {
+                existingGl.setFilterStyle(activeStyle)
+            }
+        } else {
+            removeGpuFilterOverlay()
+        }
+
+        // 2. Compose Sticker / Quick Optical Overlay Layer
+        val dim = if (gpuActive) 0f else computeOverlayDimAmount(activeStyle)
+        val blurRadius = computeOverlayBlurRadius(activeStyle, gpuShaderActive = gpuActive)
+        var baseFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        if (dim > 0.005f) {
+            baseFlags = baseFlags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && blurRadius > 0) {
+            baseFlags = baseFlags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
+        }
 
         val existingView = filterOverlayView
         val existingParams = filterOverlayParams
         if (existingView != null && existingParams != null) {
-            existingParams.flags = baseFlags
-            applyFullScreenOverlayFlags(existingParams)
-            existingParams.dimAmount = dim
-            runCatching { windowManager.updateViewLayout(existingView, existingParams) }
+            val layoutChanged = baseFlags != lastAppliedFilterFlags ||
+                kotlin.math.abs(dim - lastAppliedFilterDim) > 0.004f ||
+                blurRadius != lastAppliedFilterBlur
+            if (layoutChanged) {
+                existingParams.flags = baseFlags
+                applyFullScreenOverlayFlags(existingParams)
+                existingParams.dimAmount = dim
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    existingParams.blurBehindRadius = blurRadius
+                }
+                lastAppliedFilterFlags = baseFlags
+                lastAppliedFilterDim = dim
+                lastAppliedFilterBlur = blurRadius
+                runCatching { windowManager.updateViewLayout(existingView, existingParams) }
+            }
         } else {
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
@@ -659,23 +825,44 @@ class OverlayControllerService : Service() {
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
                 dimAmount = dim
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    blurBehindRadius = blurRadius
+                }
                 applyFullScreenOverlayFlags(this)
             }
             val view = ComposeView(this).apply {
                 attachLifecycle(this)
                 setContent {
                     val currentFilter by filterStateFlow.collectAsState()
+                    val gpuOn by GameFilterBridge.isGpuShaderActive.collectAsState()
                     val styleToDraw = currentFilter.activeStyle
                     if (styleToDraw != null) {
-                        ScreenFilterOverlayCanvas(style = styleToDraw)
+                        ScreenFilterOverlayCanvas(
+                            style = styleToDraw,
+                            gpuShaderActive = gpuOn
+                        )
                     }
                 }
             }
             filterOverlayView = view
             filterOverlayParams = params
+            lastAppliedFilterFlags = baseFlags
+            lastAppliedFilterDim = dim
+            lastAppliedFilterBlur = blurRadius
             runCatching { windowManager.addView(view, params) }
             reStackAllLayers()
         }
+    }
+
+    private fun removeGpuFilterOverlay() {
+        gpuFilterOverlayView?.let { glView ->
+            glView.setProjectionSurfaceCallback(null)
+            glView.setFilterStyle(null)
+            runCatching { windowManager.removeViewImmediate(glView) }
+        }
+        gpuFilterOverlayView = null
+        gpuFilterOverlayParams = null
+        GameFilterBridge.publishGpuTargetSurface(null)
     }
 
     private fun removeScreenFilterOverlay() {
@@ -684,6 +871,9 @@ class OverlayControllerService : Service() {
         }
         filterOverlayView = null
         filterOverlayParams = null
+        lastAppliedFilterFlags = -1
+        lastAppliedFilterDim = -1f
+        lastAppliedFilterBlur = -1
     }
 
     private fun applyLiveCrosshairState(crosshair: CrosshairSettings) {
@@ -728,6 +918,13 @@ class OverlayControllerService : Service() {
     }
 
     private fun reStackAllLayers() {
+        // Keep gpuFilterOverlayView undisturbed at the very bottom so its EGL surface never resets;
+        // stack filterOverlayView (Stickers/HUD), crosshair, controls, and floating chrome above it.
+        filterOverlayView?.let { v ->
+            val p = filterOverlayParams ?: return@let
+            runCatching { windowManager.removeViewImmediate(v) }
+            runCatching { windowManager.addView(v, p) }
+        }
         crosshairOverlayView?.let { v ->
             val p = crosshairOverlayParams ?: return@let
             runCatching { windowManager.removeViewImmediate(v) }
@@ -768,6 +965,10 @@ class OverlayControllerService : Service() {
                 val crosshair by crosshairFlow.collectAsState()
                 val appLang by appLanguageFlow.collectAsState()
                 val targetMode by targetModeFlow.collectAsState()
+                val replaySec by replayDurationSecFlow.collectAsState()
+                val isReplayOn by CaptureBridge.isInstantReplayOn.collectAsState()
+                val isRecording by CaptureBridge.isRecording.collectAsState()
+                val recElapsedMs by CaptureBridge.recordingElapsedMs.collectAsState()
                 val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
 
                 CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
@@ -776,16 +977,23 @@ class OverlayControllerService : Service() {
                             profileName = profileName,
                             buttonsVisible = visible,
                             bubbleLocked = locked,
-                            canSwitchProfile = profileCount > 1,
+                            canSwitchProfile = profileCount > 0,
                             activeFilterSlot = filterState.activeSlot,
                             crosshairEnabled = crosshair.enabled,
                             targetMode = targetMode,
+                            isReplayOn = isReplayOn,
+                            replayDurationSec = replaySec,
+                            isRecording = isRecording,
+                            recordingElapsedMs = recElapsedMs,
                             onDismiss = { leftMenuOpen.value = false },
                             onToggleButtons = {
                                 buttonsVisible.value = !visible
                                 leftMenuOpen.value = false
                             },
-                            onSwitchProfile = { cycleNextProfile() },
+                            onOpenLayouts = {
+                                leftMenuOpen.value = false
+                                layoutPickerPanelOpen.value = true
+                            },
                             onToggleTargetMode = {
                                 val next = if (targetMode == TargetPlatformMode.GEFORCE_NOW) {
                                     TargetPlatformMode.ANDROID_NATIVE
@@ -805,6 +1013,22 @@ class OverlayControllerService : Service() {
                             onOpenCrosshair = {
                                 leftMenuOpen.value = false
                                 crosshairPanelOpen.value = true
+                            },
+                            onTakeScreenshot = {
+                                leftMenuOpen.value = false
+                                ScreenCaptureService.requestScreenshot(this@OverlayControllerService)
+                            },
+                            onToggleReplay = {
+                                leftMenuOpen.value = false
+                                ScreenCaptureService.toggleInstantReplay(this@OverlayControllerService, replaySec)
+                            },
+                            onSaveReplay = {
+                                leftMenuOpen.value = false
+                                ScreenCaptureService.saveInstantReplayClip(this@OverlayControllerService, replaySec)
+                            },
+                            onToggleRecord = {
+                                leftMenuOpen.value = false
+                                ScreenCaptureService.toggleRecording(this@OverlayControllerService)
                             },
                             onOpenKeyboard = { openKeyboardFromMenu() },
                             onOpenFloatingKeyboard = {
@@ -855,7 +1079,8 @@ class OverlayControllerService : Service() {
         val panel = ComposeView(this).apply {
             attachLifecycle(this)
             setContent {
-                val filterState by filterStateFlow.collectAsState()
+                val filterState by GameFilterBridge.liveFilterState.collectAsState()
+                val isGpuShaderActive by GameFilterBridge.isGpuShaderActive.collectAsState()
                 val appLang by appLanguageFlow.collectAsState()
                 val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
 
@@ -867,18 +1092,30 @@ class OverlayControllerService : Service() {
                             GeForceFilterPanelContent(
                                 filterState = filterState,
                                 compactMode = true,
+                                isGpuShaderActive = isGpuShaderActive,
+                                onToggleGpuShader = {
+                                    if (!isGpuShaderActive && filterState.activeSlot == 0) {
+                                        GameFilterBridge.selectLiveSlot(1)
+                                        serviceScope.launch {
+                                            prefsRepoRef?.setActiveFilterSlot(1)
+                                        }
+                                    }
+                                    ScreenCaptureService.toggleGpuFilter(this@OverlayControllerService)
+                                },
+                                onUploadStickerClick = {
+                                    openMainApp(openFilterTab = true)
+                                },
                                 onSelectSlot = { slot ->
-                                    val optimistic = filterState.copy(activeSlot = slot.coerceIn(0, 3))
-                                    applyLiveFilterState(optimistic)
+                                    GameFilterBridge.selectLiveSlot(slot)
                                     serviceScope.launch {
                                         prefsRepoRef?.setActiveFilterSlot(slot)
                                     }
                                 },
+                                onPreviewStyle = { previewStyle ->
+                                    GameFilterBridge.updateLiveStyle(previewStyle)
+                                },
                                 onUpdateStyle = { updatedStyle ->
-                                    val optimistic = filterState
-                                        .withUpdatedStyle(updatedStyle)
-                                        .copy(activeSlot = updatedStyle.slot)
-                                    applyLiveFilterState(optimistic)
+                                    GameFilterBridge.updateLiveStyle(updatedStyle)
                                     serviceScope.launch {
                                         prefsRepoRef?.updateFilterStyle(updatedStyle)
                                     }
@@ -886,7 +1123,7 @@ class OverlayControllerService : Service() {
                                 onResetSlot = {
                                     val slot = filterState.activeSlot
                                     if (slot in 1..3) {
-                                        applyLiveFilterState(filterState.withResetSlot(slot))
+                                        GameFilterBridge.syncFromPersisted(filterState.withResetSlot(slot))
                                         serviceScope.launch {
                                             prefsRepoRef?.resetFilterSlot(slot)
                                         }
@@ -974,6 +1211,195 @@ class OverlayControllerService : Service() {
     private fun dismissFloatingCrosshairPanel() {
         crosshairPanelView?.let { runCatching { windowManager.removeViewImmediate(it) } }
         crosshairPanelView = null
+    }
+
+    private fun showFloatingLayoutPickerPanel() {
+        if (layoutPickerPanelView != null) return
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            overlayWindowType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            applyFullScreenOverlayFlags(this)
+        }
+
+        val panel = ComposeView(this).apply {
+            attachLifecycle(this)
+            setContent {
+                val profiles by allProfilesFlow.collectAsState()
+                val activeId by activeProfileIdFlow.collectAsState()
+                val appLang by appLanguageFlow.collectAsState()
+                val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
+
+                CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
+                    NexusPadTheme(darkTheme = true) {
+                        LeftDockedPanelWrapper(
+                            onDismiss = { layoutPickerPanelOpen.value = false }
+                        ) {
+                            Surface(
+                                color = Color(0xF20D121A),
+                                shape = RoundedCornerShape(18.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.2.dp, Color(0xFF2B384C), RoundedCornerShape(18.dp))
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = "CHOOSE LAYOUT",
+                                                color = GeForceLime,
+                                                fontFamily = JetBrainsMonoFontFamily,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.sp
+                                            )
+                                            Text(
+                                                text = localizedStrings.menuLayouts,
+                                                color = Color.White,
+                                                fontFamily = SpaceGroteskFontFamily,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { layoutPickerPanelOpen.value = false },
+                                            modifier = Modifier.size(34.dp)
+                                        ) {
+                                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFFA2B3C9))
+                                        }
+                                    }
+
+                                    profiles.forEach { profile ->
+                                        val isCurrent = profile.id == activeId
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(if (isCurrent) Color(0xFF1A2814) else Color(0xFF151C28))
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (isCurrent) GeForceLime else Color(0xFF2B384C),
+                                                    shape = RoundedCornerShape(12.dp)
+                                                )
+                                                .clickable {
+                                                    layoutPickerPanelOpen.value = false
+                                                    serviceScope.launch {
+                                                        profileRepoRef?.setActiveProfile(profile.id)
+                                                    }
+                                                }
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = profile.name,
+                                                    color = Color.White,
+                                                    fontFamily = SpaceGroteskFontFamily,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = "${profile.gameTitle} • ${profile.controls.size} controls",
+                                                    color = Color(0xFF9FB0C7),
+                                                    fontSize = 10.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            if (isCurrent) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CheckCircle,
+                                                    contentDescription = "Active Layout",
+                                                    tint = GeForceLime,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        layoutPickerPanelView = panel
+        runCatching { windowManager.addView(panel, params) }
+    }
+
+    private fun dismissFloatingLayoutPickerPanel() {
+        layoutPickerPanelView?.let { runCatching { windowManager.removeViewImmediate(it) } }
+        layoutPickerPanelView = null
+    }
+
+    private fun showCaptureBanner(message: String) {
+        dismissCaptureBanner()
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayWindowType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            x = (18 * resources.displayMetrics.density).roundToInt()
+            y = (18 * resources.displayMetrics.density).roundToInt()
+            applyFullScreenOverlayFlags(this)
+        }
+        val view = ComposeView(this).apply {
+            attachLifecycle(this)
+            setContent {
+                NexusPadTheme(darkTheme = true) {
+                    Surface(
+                        color = Color(0xEC0C1219),
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.border(1.2.dp, GeForceLime, RoundedCornerShape(20.dp))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = null,
+                                tint = GeForceLime,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = message,
+                                color = Color.White,
+                                fontFamily = SpaceGroteskFontFamily,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        captureBannerView = view
+        runCatching { windowManager.addView(view, params) }
+    }
+
+    private fun dismissCaptureBanner() {
+        captureBannerView?.let { runCatching { windowManager.removeViewImmediate(it) } }
+        captureBannerView = null
     }
 
     @OptIn(ExperimentalComposeUiApi::class)
@@ -1158,6 +1584,10 @@ class OverlayControllerService : Service() {
             dismissFloatingCrosshairPanel()
             showFloatingCrosshairPanel()
         }
+        if (layoutPickerPanelOpen.value) {
+            dismissFloatingLayoutPickerPanel()
+            showFloatingLayoutPickerPanel()
+        }
     }
 
     private fun renderControlWindows(profile: ControllerProfile, settings: OverlaySettings) {
@@ -1306,12 +1736,18 @@ class OverlayControllerService : Service() {
         collectorJob?.cancel()
         InputBridge.attachFloatKeyboardHandler(null)
         dismissFloatingKeyboardOverlay()
+        dismissFloatingLayoutPickerPanel()
         dismissFloatingCrosshairPanel()
         dismissFloatingFilterPanel()
         dismissLeftMenuOverlay()
+        dismissCaptureBanner()
         clearControlWindows()
         removeCrosshairOverlay()
         removeScreenFilterOverlay()
+        removeGpuFilterOverlay()
+        if (GameFilterBridge.isGpuShaderActive.value) {
+            ScreenCaptureService.stopGpuFilter(this)
+        }
         floatingBubbleView?.let { runCatching { windowManager.removeViewImmediate(it) } }
         floatingBubbleView = null
         lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
@@ -1399,12 +1835,20 @@ private fun LeftSideOverlayMenu(
     activeFilterSlot: Int,
     crosshairEnabled: Boolean,
     targetMode: TargetPlatformMode,
+    isReplayOn: Boolean,
+    replayDurationSec: Int,
+    isRecording: Boolean,
+    recordingElapsedMs: Long,
     onDismiss: () -> Unit,
     onToggleButtons: () -> Unit,
-    onSwitchProfile: () -> Unit,
+    onOpenLayouts: () -> Unit,
     onToggleTargetMode: () -> Unit,
     onOpenFilters: () -> Unit,
     onOpenCrosshair: () -> Unit,
+    onTakeScreenshot: () -> Unit,
+    onToggleReplay: () -> Unit,
+    onSaveReplay: () -> Unit,
+    onToggleRecord: () -> Unit,
     onOpenKeyboard: () -> Unit,
     onOpenFloatingKeyboard: () -> Unit,
     onReleaseAll: () -> Unit,
@@ -1427,17 +1871,17 @@ private fun LeftSideOverlayMenu(
 
     val actions = listOf(
         DockActionItem(
+            label = strings.menuLayouts,
+            icon = Icons.Default.Layers,
+            tint = if (canSwitchProfile) GeForceLime else Color(0xFF607087),
+            enabled = canSwitchProfile,
+            onClick = onOpenLayouts
+        ),
+        DockActionItem(
             label = if (buttonsVisible) strings.menuHidePad else strings.menuShowPad,
             icon = if (buttonsVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
             tint = TacticalCyan,
             onClick = onToggleButtons
-        ),
-        DockActionItem(
-            label = strings.menuSwitch,
-            icon = Icons.Default.SwapHoriz,
-            tint = if (canSwitchProfile) GeForceLime else Color(0xFF607087),
-            enabled = canSwitchProfile,
-            onClick = onSwitchProfile
         ),
         DockActionItem(
             label = "${strings.menuTargetMode}: ${targetMode.shortLabel}",
@@ -1456,6 +1900,31 @@ private fun LeftSideOverlayMenu(
             icon = Icons.Default.CenterFocusStrong,
             tint = if (crosshairEnabled) GeForceLime else TacticalCyan,
             onClick = onOpenCrosshair
+        ),
+        DockActionItem(
+            label = strings.menuScreenshot,
+            icon = Icons.Default.CameraAlt,
+            tint = TacticalCyan,
+            onClick = onTakeScreenshot
+        ),
+        DockActionItem(
+            label = if (isReplayOn) "Replay ON (${ReplayBufferPreset.formatDuration(replayDurationSec)})" else strings.menuReplay,
+            icon = Icons.Default.Replay,
+            tint = if (isReplayOn) GeForceLime else TacticalCyan,
+            onClick = onToggleReplay
+        ),
+        DockActionItem(
+            label = strings.menuSaveReplay,
+            icon = Icons.Default.Save,
+            tint = if (isReplayOn) GeForceLime else Color(0xFF607087),
+            enabled = isReplayOn,
+            onClick = onSaveReplay
+        ),
+        DockActionItem(
+            label = if (isRecording) CaptureBridge.formatDurationMs(recordingElapsedMs) else strings.menuRecord,
+            icon = if (isRecording) Icons.Default.Stop else Icons.Default.FiberManualRecord,
+            tint = MacroCoral,
+            onClick = onToggleRecord
         ),
         DockActionItem(
             label = strings.menuKeyboard,

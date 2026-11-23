@@ -58,13 +58,7 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: Run unit tests
-        run: gradle :app:testDebugUnitTest --tests com.example.ExampleUnitTest
-
-      - name: Build NexusPad APK
-        run: gradle :app:assembleDebug --stacktrace
-
-      - name: Prepare release APK & version tag
+      - name: Compute release version & APK metadata
         id: meta
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
@@ -72,10 +66,30 @@ jobs:
           else
             TAG="v1.0.${{ github.run_number }}"
           fi
+          VERSION_NAME="${TAG#v}"
+          VERSION_CODE=$((100 + ${{ github.run_number }}))
           APK_NAME="NexusPad-${TAG}.apk"
-          cp app/build/outputs/apk/debug/app-debug.apk "${APK_NAME}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
           echo "apk_name=${APK_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Run unit tests
+        env:
+          APP_VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          APP_VERSION_NAME: ${{ steps.meta.outputs.version_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: gradle :app:testDebugUnitTest --tests com.example.ExampleUnitTest
+
+      - name: Build NexusPad APK
+        env:
+          APP_VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          APP_VERSION_NAME: ${{ steps.meta.outputs.version_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Package versioned release APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk "${{ steps.meta.outputs.apk_name }}"
 
       - name: Upload APK build artifact
         uses: actions/upload-artifact@v4

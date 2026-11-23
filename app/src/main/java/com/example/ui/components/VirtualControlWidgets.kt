@@ -229,7 +229,8 @@ private fun ActionButtonSurface(
     onPressStart: () -> Unit,
     onPressEnd: () -> Unit
 ) {
-    val active = isPressed || isToggled
+    var isLocallyPressed by remember(control.id) { mutableStateOf(false) }
+    val active = isPressed || isLocallyPressed || isToggled
     val fillAlpha = if (active) 0.42f else 0.16f
     val borderColor = if (active) accentColor else accentColor.copy(alpha = 0.72f)
     val latestOnPressStart by rememberUpdatedState(onPressStart)
@@ -241,6 +242,8 @@ private fun ActionButtonSurface(
                 val down = awaitFirstDown(requireUnconsumed = false)
                 val pointerId = down.id
                 down.consume()
+                isLocallyPressed = true
+                InputBridge.beginOverlayTouch()
                 latestOnPressStart()
                 try {
                     while (true) {
@@ -252,7 +255,9 @@ private fun ActionButtonSurface(
                         tracked.consume()
                     }
                 } finally {
+                    isLocallyPressed = false
                     latestOnPressEnd()
+                    InputBridge.endOverlayTouch()
                 }
             }
         }
@@ -507,6 +512,7 @@ private fun AnalogStickSurface(
                             val pointerId = down.id
                             down.consume()
                             isActive = true
+                            InputBridge.beginOverlayTouch()
                             SystemIntegrations.performKeyHaptic(
                                 view = view,
                                 vibrationMode = latestVibration,
@@ -559,6 +565,7 @@ private fun AnalogStickSurface(
                                     sensitivity = control.sensitivity,
                                     active = false
                                 )
+                                InputBridge.endOverlayTouch()
                             }
                         }
                     }
@@ -670,6 +677,7 @@ private fun DirectionalPadSurface(
                             val pointerId = down.id
                             down.consume()
                             isPressed = true
+                            InputBridge.beginOverlayTouch()
                             SystemIntegrations.performKeyHaptic(
                                 view = view,
                                 vibrationMode = latestVibration,
@@ -716,6 +724,7 @@ private fun DirectionalPadSurface(
                                     y = 0f,
                                     active = false
                                 )
+                                InputBridge.endOverlayTouch()
                             }
                         }
                     }
@@ -870,14 +879,19 @@ private fun TouchpadSurface(
                             isCoasting = false
                             isSwiping = true
                             anchorPos = down.position
-                            fingerPos = down.position
-                            InputBridge.startTouchpadMouseMove()
+                            fingerPos = Offset(
+                                down.position.x.coerceIn(0f, size.width.toFloat()),
+                                down.position.y.coerceIn(0f, size.height.toFloat())
+                            )
+                            InputBridge.beginOverlayTouch()
 
                             val velocityTracker = VelocityTracker().apply {
                                 addPosition(down.uptimeMillis, down.position)
                             }
                             var prevPos = down.position
                             var totalTravel = 0f
+                            var netDx = 0f
+                            var netDy = 0f
                             val touchSlop = viewConfiguration.touchSlop
                             val downTime = down.uptimeMillis
 
@@ -892,8 +906,13 @@ private fun TouchpadSurface(
                                     val dx = pointer.position.x - prevPos.x
                                     val dy = pointer.position.y - prevPos.y
                                     prevPos = pointer.position
-                                    fingerPos = pointer.position
+                                    fingerPos = Offset(
+                                        pointer.position.x.coerceIn(0f, size.width.toFloat()),
+                                        pointer.position.y.coerceIn(0f, size.height.toFloat())
+                                    )
                                     totalTravel += hypot(dx, dy)
+                                    netDx += dx
+                                    netDy += dy
                                     velocityTracker.addPosition(pointer.uptimeMillis, pointer.position)
 
                                     normX = (dx / 16f).coerceIn(-1f, 1f)
@@ -921,9 +940,21 @@ private fun TouchpadSurface(
                                 if (totalTravel < touchSlop && elapsed < 240L) {
                                     normX = 0f
                                     normY = 0f
-                                    InputBridge.endTouchpadMouseMove()
                                     InputBridge.dispatchMouseTapClick(control.label)
+                                    InputBridge.endTouchpadMouseMove()
+                                    InputBridge.endOverlayTouch()
                                 } else if (speed > 180f) {
+                                    // Commit smooth flick + inertia delta once finger lifts so OS never freezes trackpad drag
+                                    val flickBoostX = netDx + vx * 0.14f
+                                    val flickBoostY = netDy + vy * 0.14f
+                                    InputBridge.commitTouchpadFlickSwipe(
+                                        sourceLabel = control.label,
+                                        totalDeltaXPx = flickBoostX,
+                                        totalDeltaYPx = flickBoostY,
+                                        sensitivity = control.sensitivity,
+                                        invertY = control.invertY
+                                    )
+                                    InputBridge.endOverlayTouch()
                                     isCoasting = true
                                     flickJob = scope.launch {
                                         try {
@@ -955,9 +986,17 @@ private fun TouchpadSurface(
                                         }
                                     }
                                 } else {
+                                    InputBridge.commitTouchpadFlickSwipe(
+                                        sourceLabel = control.label,
+                                        totalDeltaXPx = netDx,
+                                        totalDeltaYPx = netDy,
+                                        sensitivity = control.sensitivity,
+                                        invertY = control.invertY
+                                    )
                                     normX = 0f
                                     normY = 0f
                                     InputBridge.endTouchpadMouseMove()
+                                    InputBridge.endOverlayTouch()
                                 }
                             }
                         }
@@ -978,9 +1017,13 @@ private fun TouchpadSurface(
                             isSwiping = true
                             anchorPos = down.position
                             fingerPos = down.position
+                            InputBridge.beginOverlayTouch()
 
                             fun updateFromDrag(pos: Offset) {
-                                fingerPos = pos
+                                fingerPos = Offset(
+                                    pos.x.coerceIn(0f, size.width.toFloat()),
+                                    pos.y.coerceIn(0f, size.height.toFloat())
+                                )
                                 var dx = pos.x - anchorPos.x
                                 var dy = pos.y - anchorPos.y
                                 if (kotlin.math.abs(dx) > maxOffsetPx) {
@@ -1032,6 +1075,7 @@ private fun TouchpadSurface(
                                     invertY = control.invertY,
                                     active = false
                                 )
+                                InputBridge.endOverlayTouch()
                             }
                         }
                     }
