@@ -17,6 +17,8 @@ import android.os.IBinder
 import android.provider.Settings
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -24,8 +26,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -72,13 +72,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -114,6 +115,7 @@ import com.example.model.CrosshairPresets
 import com.example.model.CrosshairSettings
 import com.example.model.GameFilterState
 import com.example.model.LocalNexusStrings
+import com.example.model.TargetPlatformMode
 import com.example.model.VirtualControl
 import com.example.ui.components.CrosshairOverlayCanvas
 import com.example.ui.components.CrosshairPanelContent
@@ -208,6 +210,7 @@ class OverlayControllerService : Service() {
     private val filterStateFlow = MutableStateFlow(GameFilterState.default())
     private val crosshairFlow = MutableStateFlow(CrosshairSettings())
     private val appLanguageFlow = MutableStateFlow(AppLanguage.SYSTEM)
+    private val targetModeFlow = MutableStateFlow(TargetPlatformMode.GEFORCE_NOW)
     private val activeProfileName = MutableStateFlow("NexusPad")
     private val allProfilesFlow = MutableStateFlow<List<ControllerProfile>>(emptyList())
 
@@ -358,11 +361,13 @@ class OverlayControllerService : Service() {
             }
             launch {
                 prefsRepo.settingsFlow
-                    .map { it.appLanguage to it.floatingKeyboardDefault }
+                    .map { Triple(it.appLanguage, it.floatingKeyboardDefault, it.targetMode) }
                     .distinctUntilChanged()
-                    .collect { (lang, floatKb) ->
+                    .collect { (lang, floatKb, mode) ->
                         appLanguageFlow.value = lang
                         floatingKeyboardDefaultFlow.value = floatKb
+                        targetModeFlow.value = mode
+                        InputBridge.setTargetMode(mode)
                     }
             }
 
@@ -485,9 +490,11 @@ class OverlayControllerService : Service() {
         }
     }
 
+    @OptIn(ExperimentalComposeUiApi::class)
     private fun attachFloatingBubble() {
         val (screenW, screenH) = realScreenSize()
         val density = resources.displayMetrics.density
+        val touchSlopPx = ViewConfiguration.get(this).scaledTouchSlop.toFloat()
         val bubblePx = (56 * density).roundToInt()
         val params = WindowManager.LayoutParams(
             bubblePx,
@@ -506,6 +513,14 @@ class OverlayControllerService : Service() {
 
         val bubble = ComposeView(this).apply {
             attachLifecycle(this)
+            var dragStartRawX = 0f
+            var dragStartRawY = 0f
+            var dragStartWinX = 0
+            var dragStartWinY = 0
+            var dragCurW = screenW
+            var dragCurH = screenH
+            var didDrag = false
+
             setContent {
                 val visible by buttonsVisible.collectAsState()
                 val locked by bubbleLocked.collectAsState()
@@ -532,49 +547,50 @@ class OverlayControllerService : Service() {
                                 )
                             )
                             .border(2.dp, accent, CircleShape)
-                            .pointerInput(Unit) {
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    val pointerId = down.id
-                                    down.consume()
-                                    val touchSlop = viewConfiguration.touchSlop
-                                    var prevPos = down.position
-                                    var totalMoved = 0f
-                                    var didDrag = false
-                                    val (curW, curH) = realScreenSize()
-
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        val change = event.changes.firstOrNull { it.id == pointerId }
-                                        if (change == null || !change.pressed) {
-                                            break
-                                        }
-                                        val dx = change.position.x - prevPos.x
-                                        val dy = change.position.y - prevPos.y
-                                        prevPos = change.position
-                                        totalMoved += hypot(dx, dy)
-
-                                        if (totalMoved > touchSlop) {
+                            .pointerInteropFilter { event ->
+                                when (event.actionMasked) {
+                                    MotionEvent.ACTION_DOWN -> {
+                                        dragStartRawX = event.rawX
+                                        dragStartRawY = event.rawY
+                                        dragStartWinX = params.x
+                                        dragStartWinY = params.y
+                                        didDrag = false
+                                        val (cw, ch) = realScreenSize()
+                                        dragCurW = cw
+                                        dragCurH = ch
+                                        true
+                                    }
+                                    MotionEvent.ACTION_MOVE -> {
+                                        val totalDx = event.rawX - dragStartRawX
+                                        val totalDy = event.rawY - dragStartRawY
+                                        if (!didDrag && hypot(totalDx, totalDy) > touchSlopPx) {
                                             didDrag = true
-                                            if (!bubbleLocked.value) {
-                                                change.consume()
-                                                params.x = (params.x + dx.roundToInt())
-                                                    .coerceIn(0, (curW - params.width).coerceAtLeast(0))
-                                                params.y = (params.y + dy.roundToInt())
-                                                    .coerceIn(0, (curH - params.height).coerceAtLeast(0))
+                                        }
+                                        if (didDrag && !bubbleLocked.value) {
+                                            val newX = (dragStartWinX + totalDx).roundToInt()
+                                                .coerceIn(0, (dragCurW - params.width).coerceAtLeast(0))
+                                            val newY = (dragStartWinY + totalDy).roundToInt()
+                                                .coerceIn(0, (dragCurH - params.height).coerceAtLeast(0))
+                                            if (newX != params.x || newY != params.y) {
+                                                params.x = newX
+                                                params.y = newY
                                                 runCatching { windowManager.updateViewLayout(this@apply, params) }
                                             }
                                         }
+                                        true
                                     }
-
-                                    if (!didDrag) {
-                                        if (filterPanelOpen.value || crosshairPanelOpen.value) {
-                                            filterPanelOpen.value = false
-                                            crosshairPanelOpen.value = false
-                                        } else {
-                                            leftMenuOpen.value = !leftMenuOpen.value
+                                    MotionEvent.ACTION_UP -> {
+                                        if (!didDrag) {
+                                            if (filterPanelOpen.value || crosshairPanelOpen.value) {
+                                                filterPanelOpen.value = false
+                                                crosshairPanelOpen.value = false
+                                            } else {
+                                                leftMenuOpen.value = !leftMenuOpen.value
+                                            }
                                         }
+                                        true
                                     }
+                                    else -> true
                                 }
                             },
                         contentAlignment = Alignment.Center
@@ -751,6 +767,7 @@ class OverlayControllerService : Service() {
                 val filterState by filterStateFlow.collectAsState()
                 val crosshair by crosshairFlow.collectAsState()
                 val appLang by appLanguageFlow.collectAsState()
+                val targetMode by targetModeFlow.collectAsState()
                 val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
 
                 CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
@@ -762,12 +779,25 @@ class OverlayControllerService : Service() {
                             canSwitchProfile = profileCount > 1,
                             activeFilterSlot = filterState.activeSlot,
                             crosshairEnabled = crosshair.enabled,
+                            targetMode = targetMode,
                             onDismiss = { leftMenuOpen.value = false },
                             onToggleButtons = {
                                 buttonsVisible.value = !visible
                                 leftMenuOpen.value = false
                             },
                             onSwitchProfile = { cycleNextProfile() },
+                            onToggleTargetMode = {
+                                val next = if (targetMode == TargetPlatformMode.GEFORCE_NOW) {
+                                    TargetPlatformMode.ANDROID_NATIVE
+                                } else {
+                                    TargetPlatformMode.GEFORCE_NOW
+                                }
+                                targetModeFlow.value = next
+                                InputBridge.setTargetMode(next)
+                                serviceScope.launch {
+                                    prefsRepoRef?.setTargetPlatformMode(next)
+                                }
+                            },
                             onOpenFilters = {
                                 leftMenuOpen.value = false
                                 filterPanelOpen.value = true
@@ -946,6 +976,7 @@ class OverlayControllerService : Service() {
         crosshairPanelView = null
     }
 
+    @OptIn(ExperimentalComposeUiApi::class)
     private fun showFloatingKeyboardOverlay() {
         if (floatingKeyboardView != null) return
         val (screenW, screenH) = realScreenSize()
@@ -977,6 +1008,13 @@ class OverlayControllerService : Service() {
 
         val view = ComposeView(this).apply {
             attachLifecycle(this)
+            var kbStartRawX = 0f
+            var kbStartRawY = 0f
+            var kbStartWinX = 0
+            var kbStartWinY = 0
+            var kbCurW = screenW
+            var kbCurH = screenH
+
             setContent {
                 NexusPadTheme(darkTheme = true) {
                     Surface(
@@ -987,32 +1025,39 @@ class OverlayControllerService : Service() {
                             .border(1.5.dp, GeForceLime.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
                     ) {
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            // Draggable Header Bar (so user can position keyboard freely above taskbar)
+                            // Silky 1:1 raw-screen-coordinate Drag Bar (never stutters or fights window coords)
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(Color(0xFF141B26))
-                                    .pointerInput(Unit) {
-                                        awaitEachGesture {
-                                            val down = awaitFirstDown(requireUnconsumed = false)
-                                            val pointerId = down.id
-                                            down.consume()
-                                            var prev = down.position
-                                            val (curW, curH) = realScreenSize()
-                                            while (true) {
-                                                val ev = awaitPointerEvent()
-                                                val ch = ev.changes.firstOrNull { it.id == pointerId }
-                                                if (ch == null || !ch.pressed) break
-                                                val dx = ch.position.x - prev.x
-                                                val dy = ch.position.y - prev.y
-                                                prev = ch.position
-                                                ch.consume()
-                                                params.x = (params.x + dx.roundToInt())
-                                                    .coerceIn(0, (curW - params.width).coerceAtLeast(0))
-                                                params.y = (params.y + dy.roundToInt())
-                                                    .coerceIn(0, (curH - (140 * density).roundToInt()).coerceAtLeast(0))
-                                                runCatching { windowManager.updateViewLayout(this@apply, params) }
+                                    .pointerInteropFilter { event ->
+                                        when (event.actionMasked) {
+                                            MotionEvent.ACTION_DOWN -> {
+                                                kbStartRawX = event.rawX
+                                                kbStartRawY = event.rawY
+                                                kbStartWinX = params.x
+                                                kbStartWinY = params.y
+                                                val (cw, ch) = realScreenSize()
+                                                kbCurW = cw
+                                                kbCurH = ch
+                                                true
                                             }
+                                            MotionEvent.ACTION_MOVE -> {
+                                                val totalDx = event.rawX - kbStartRawX
+                                                val totalDy = event.rawY - kbStartRawY
+                                                val measuredH = this@apply.height.coerceAtLeast((140 * density).roundToInt())
+                                                val newX = (kbStartWinX + totalDx).roundToInt()
+                                                    .coerceIn(0, (kbCurW - params.width).coerceAtLeast(0))
+                                                val newY = (kbStartWinY + totalDy).roundToInt()
+                                                    .coerceIn(0, (kbCurH - measuredH).coerceAtLeast(0))
+                                                if (newX != params.x || newY != params.y) {
+                                                    params.x = newX
+                                                    params.y = newY
+                                                    runCatching { windowManager.updateViewLayout(this@apply, params) }
+                                                }
+                                                true
+                                            }
+                                            else -> true
                                         }
                                     }
                                     .padding(horizontal = 10.dp, vertical = 4.dp),
@@ -1353,9 +1398,11 @@ private fun LeftSideOverlayMenu(
     canSwitchProfile: Boolean,
     activeFilterSlot: Int,
     crosshairEnabled: Boolean,
+    targetMode: TargetPlatformMode,
     onDismiss: () -> Unit,
     onToggleButtons: () -> Unit,
     onSwitchProfile: () -> Unit,
+    onToggleTargetMode: () -> Unit,
     onOpenFilters: () -> Unit,
     onOpenCrosshair: () -> Unit,
     onOpenKeyboard: () -> Unit,
@@ -1391,6 +1438,12 @@ private fun LeftSideOverlayMenu(
             tint = if (canSwitchProfile) GeForceLime else Color(0xFF607087),
             enabled = canSwitchProfile,
             onClick = onSwitchProfile
+        ),
+        DockActionItem(
+            label = "${strings.menuTargetMode}: ${targetMode.shortLabel}",
+            icon = Icons.Default.Gamepad,
+            tint = if (targetMode == TargetPlatformMode.ANDROID_NATIVE) TacticalCyan else GeForceLime,
+            onClick = onToggleTargetMode
         ),
         DockActionItem(
             label = if (activeFilterSlot in 1..3) "${strings.menuFilter} S$activeFilterSlot" else strings.menuFilter,

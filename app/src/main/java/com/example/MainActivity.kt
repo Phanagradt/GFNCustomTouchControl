@@ -269,12 +269,22 @@ private fun NexusPadAppShell(
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.refreshSystemStatus()
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    InputBridge.setAppForeground(true)
+                    viewModel.refreshSystemStatus()
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    InputBridge.setAppForeground(false)
+                }
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            InputBridge.setAppForeground(false)
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     LaunchedEffect(snackbarMessage) {
@@ -550,6 +560,7 @@ private fun NexusPadAppShell(
                                     }
                                 },
                                 onAppLanguageChange = viewModel::setAppLanguage,
+                                onTargetModeChange = viewModel::setTargetPlatformMode,
                                 onRequestOverlayPermission = {
                                     SystemIntegrations.openOverlayPermissionSettings(context)
                                 },

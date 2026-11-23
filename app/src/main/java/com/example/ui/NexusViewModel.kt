@@ -26,6 +26,7 @@ import com.example.model.InputBinding
 import com.example.model.PresetProfiles
 import com.example.model.ProfileTemplate
 import com.example.model.StickState
+import com.example.model.TargetPlatformMode
 import com.example.model.TelemetryEvent
 import com.example.model.TriggerBehavior
 import com.example.model.VirtualControl
@@ -96,6 +97,11 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             profileRepo.ensureSeeded()
+        }
+        viewModelScope.launch {
+            prefsRepo.settingsFlow.collect { s ->
+                InputBridge.setTargetMode(s.targetMode)
+            }
         }
         refreshSystemStatus()
     }
@@ -224,6 +230,10 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     fun setAutoLaunchGeForceNow(enabled: Boolean) = viewModelScope.launch { prefsRepo.setAutoLaunchGeForceNow(enabled) }
     fun setFloatingKeyboardDefault(enabled: Boolean) = viewModelScope.launch { prefsRepo.setFloatingKeyboardDefault(enabled) }
     fun setAppLanguage(language: AppLanguage) = viewModelScope.launch { prefsRepo.setAppLanguage(language) }
+    fun setTargetPlatformMode(mode: TargetPlatformMode) {
+        InputBridge.setTargetMode(mode)
+        viewModelScope.launch { prefsRepo.setTargetPlatformMode(mode) }
+    }
 
     // Crosshair HUD
     fun updateCrosshair(crosshair: CrosshairSettings) = viewModelScope.launch {

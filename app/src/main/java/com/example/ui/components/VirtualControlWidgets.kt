@@ -857,7 +857,6 @@ private fun TouchpadSurface(
                 if (!isEditMode && !isPassThrough && isMouseFlickMode) {
                     Modifier.pointerInput(
                         control.id,
-                        control.binding.axisPair,
                         control.touchpadMode,
                         control.deadzone,
                         control.sensitivity,
@@ -872,6 +871,7 @@ private fun TouchpadSurface(
                             isSwiping = true
                             anchorPos = down.position
                             fingerPos = down.position
+                            InputBridge.startTouchpadMouseMove()
 
                             val velocityTracker = VelocityTracker().apply {
                                 addPosition(down.uptimeMillis, down.position)
@@ -896,8 +896,8 @@ private fun TouchpadSurface(
                                     totalTravel += hypot(dx, dy)
                                     velocityTracker.addPosition(pointer.uptimeMillis, pointer.position)
 
-                                    normX = (dx / 18f).coerceIn(-1f, 1f)
-                                    normY = (dy / 18f).coerceIn(-1f, 1f)
+                                    normX = (dx / 16f).coerceIn(-1f, 1f)
+                                    normY = (dy / 16f).coerceIn(-1f, 1f)
                                     InputBridge.updateTouchpadMouseMove(
                                         controlId = control.id,
                                         sourceLabel = control.label,
@@ -914,34 +914,24 @@ private fun TouchpadSurface(
                                 isSwiping = false
                                 val elapsed = android.os.SystemClock.uptimeMillis() - downTime
                                 val vel = velocityTracker.calculateVelocity()
-                                var vx = vel.x
-                                var vy = vel.y
+                                var vx = vel.x.coerceIn(-4500f, 4500f)
+                                var vy = vel.y.coerceIn(-4500f, 4500f)
                                 val speed = hypot(vx, vy)
 
                                 if (totalTravel < touchSlop && elapsed < 240L) {
-                                    InputBridge.updateTouchpadMouseMove(
-                                        controlId = control.id,
-                                        sourceLabel = control.label,
-                                        axisPair = control.binding.axisPair,
-                                        deltaXPx = 0f,
-                                        deltaYPx = 0f,
-                                        sensitivity = control.sensitivity,
-                                        invertY = control.invertY,
-                                        isFlickInertia = false,
-                                        active = false
-                                    )
-                                    InputBridge.dispatchMouseTapClick(control.label)
                                     normX = 0f
                                     normY = 0f
-                                } else if (speed > 240f) {
+                                    InputBridge.endTouchpadMouseMove()
+                                    InputBridge.dispatchMouseTapClick(control.label)
+                                } else if (speed > 180f) {
                                     isCoasting = true
                                     flickJob = scope.launch {
                                         try {
-                                            while (hypot(vx, vy) > 45f) {
+                                            while (hypot(vx, vy) > 28f) {
                                                 val stepX = vx * 0.016f
                                                 val stepY = vy * 0.016f
-                                                normX = (stepX / 18f).coerceIn(-1f, 1f)
-                                                normY = (stepY / 18f).coerceIn(-1f, 1f)
+                                                normX = (stepX / 16f).coerceIn(-1f, 1f)
+                                                normY = (stepY / 16f).coerceIn(-1f, 1f)
                                                 InputBridge.updateTouchpadMouseMove(
                                                     controlId = control.id,
                                                     sourceLabel = control.label,
@@ -953,41 +943,21 @@ private fun TouchpadSurface(
                                                     isFlickInertia = true,
                                                     active = true
                                                 )
-                                                vx *= 0.87f
-                                                vy *= 0.87f
+                                                vx *= 0.91f
+                                                vy *= 0.91f
                                                 delay(16L)
                                             }
                                         } finally {
                                             isCoasting = false
                                             normX = 0f
                                             normY = 0f
-                                            InputBridge.updateTouchpadMouseMove(
-                                                controlId = control.id,
-                                                sourceLabel = control.label,
-                                                axisPair = control.binding.axisPair,
-                                                deltaXPx = 0f,
-                                                deltaYPx = 0f,
-                                                sensitivity = control.sensitivity,
-                                                invertY = control.invertY,
-                                                isFlickInertia = false,
-                                                active = false
-                                            )
+                                            InputBridge.endTouchpadMouseMove()
                                         }
                                     }
                                 } else {
                                     normX = 0f
                                     normY = 0f
-                                    InputBridge.updateTouchpadMouseMove(
-                                        controlId = control.id,
-                                        sourceLabel = control.label,
-                                        axisPair = control.binding.axisPair,
-                                        deltaXPx = 0f,
-                                        deltaYPx = 0f,
-                                        sensitivity = control.sensitivity,
-                                        invertY = control.invertY,
-                                        isFlickInertia = false,
-                                        active = false
-                                    )
+                                    InputBridge.endTouchpadMouseMove()
                                 }
                             }
                         }

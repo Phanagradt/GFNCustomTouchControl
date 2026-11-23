@@ -54,6 +54,7 @@ import com.example.data.VibrationMode
 import com.example.model.AppLanguage
 import com.example.model.ControllerNotation
 import com.example.model.LocalNexusStrings
+import com.example.model.TargetPlatformMode
 import com.example.ui.SystemReadiness
 import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.TacticalCyan
@@ -76,6 +77,7 @@ fun SetupScreen(
     onFloatingKeyboardDefaultChange: (Boolean) -> Unit,
     onOpenFloatingKeyboard: () -> Unit,
     onAppLanguageChange: (AppLanguage) -> Unit,
+    onTargetModeChange: (TargetPlatformMode) -> Unit,
     onRequestOverlayPermission: () -> Unit,
     onOpenImeSettings: () -> Unit,
     onShowImePicker: () -> Unit,
@@ -148,6 +150,75 @@ fun SetupScreen(
                                     label = { Text(lang.nativeLabel) },
                                     modifier = Modifier.testTag("setup_language_${lang.name.lowercase()}")
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Card(
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.large)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Gamepad, contentDescription = null, tint = GeForceLime)
+                            Column {
+                                Text(
+                                    text = strings.targetModeCardTitle,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = GeForceLime
+                                )
+                                Text(
+                                    text = strings.targetModeSubtitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        TargetPlatformMode.entries.forEach { mode ->
+                            val title = when (mode) {
+                                TargetPlatformMode.GEFORCE_NOW -> strings.targetModeGfnTitle
+                                TargetPlatformMode.ANDROID_NATIVE -> strings.targetModeAndroidTitle
+                            }
+                            val subtitle = when (mode) {
+                                TargetPlatformMode.GEFORCE_NOW -> strings.targetModeGfnSubtitle
+                                TargetPlatformMode.ANDROID_NATIVE -> strings.targetModeAndroidSubtitle
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onTargetModeChange(mode) }
+                                    .padding(vertical = 4.dp)
+                                    .testTag("setup_target_mode_${mode.name.lowercase()}"),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = settings.targetMode == mode,
+                                    onClick = { onTargetModeChange(mode) }
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = title,
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                    Text(
+                                        text = subtitle,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }

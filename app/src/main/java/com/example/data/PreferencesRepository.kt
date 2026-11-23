@@ -12,6 +12,7 @@ import com.example.model.ControllerNotation
 import com.example.model.CrosshairSettings
 import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
+import com.example.model.TargetPlatformMode
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.Flow
@@ -36,6 +37,7 @@ data class OverlaySettings(
     val autoLaunchGeForceNow: Boolean = false,
     val floatingKeyboardDefault: Boolean = false,
     val appLanguage: AppLanguage = AppLanguage.SYSTEM,
+    val targetMode: TargetPlatformMode = TargetPlatformMode.GEFORCE_NOW,
     val gameFilter: GameFilterState = GameFilterState.default(),
     val crosshair: CrosshairSettings = CrosshairSettings()
 ) {
@@ -64,6 +66,7 @@ class PreferencesRepository(private val context: Context) {
         val AUTO_LAUNCH_GFN = booleanPreferencesKey("auto_launch_gfn")
         val FLOATING_KB = booleanPreferencesKey("floating_keyboard_default")
         val APP_LANGUAGE = stringPreferencesKey("app_language")
+        val TARGET_MODE = stringPreferencesKey("target_platform_mode")
         val GAME_FILTER_JSON = stringPreferencesKey("game_filter_json")
         val CROSSHAIR_JSON = stringPreferencesKey("crosshair_json")
     }
@@ -86,6 +89,10 @@ class PreferencesRepository(private val context: Context) {
         val appLanguage = runCatching { AppLanguage.valueOf(langName) }
             .getOrDefault(AppLanguage.SYSTEM)
 
+        val targetModeName = prefs[Keys.TARGET_MODE] ?: TargetPlatformMode.GEFORCE_NOW.name
+        val targetMode = runCatching { TargetPlatformMode.valueOf(targetModeName) }
+            .getOrDefault(TargetPlatformMode.GEFORCE_NOW)
+
         val gameFilter = decodeFilterState(prefs[Keys.GAME_FILTER_JSON])
         val crosshair = decodeCrosshairSettings(prefs[Keys.CROSSHAIR_JSON])
 
@@ -100,6 +107,7 @@ class PreferencesRepository(private val context: Context) {
             autoLaunchGeForceNow = prefs[Keys.AUTO_LAUNCH_GFN] ?: false,
             floatingKeyboardDefault = prefs[Keys.FLOATING_KB] ?: false,
             appLanguage = appLanguage,
+            targetMode = targetMode,
             gameFilter = gameFilter,
             crosshair = crosshair
         )
@@ -162,6 +170,10 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun setAppLanguage(language: AppLanguage) {
         context.nexusDataStore.edit { it[Keys.APP_LANGUAGE] = language.name }
+    }
+
+    suspend fun setTargetPlatformMode(mode: TargetPlatformMode) {
+        context.nexusDataStore.edit { it[Keys.TARGET_MODE] = mode.name }
     }
 
     suspend fun setActiveFilterSlot(slot: Int) {

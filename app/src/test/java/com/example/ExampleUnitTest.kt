@@ -17,6 +17,7 @@ import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
 import com.example.model.GameGenre
 import com.example.model.PresetProfiles
+import com.example.model.TargetPlatformMode
 import com.example.model.TouchpadMode
 import com.example.ui.components.computeOverlayDimAmount
 import com.squareup.moshi.Moshi
@@ -35,6 +36,8 @@ class ExampleUnitTest {
     fun setup() {
         InputBridge.attachImeSink(null)
         InputBridge.attachPointerSink(null)
+        InputBridge.setAppForeground(false)
+        InputBridge.setTargetMode(TargetPlatformMode.GEFORCE_NOW)
         InputBridge.releaseAll()
         InputBridge.clearTelemetry()
     }
@@ -501,5 +504,121 @@ class ExampleUnitTest {
         assertEquals(272, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_1, com.example.model.BindingDomain.MOUSE))
         assertEquals(273, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_2, com.example.model.BindingDomain.MOUSE))
         assertEquals(274, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_3, com.example.model.BindingDomain.MOUSE))
+    }
+
+    @Test
+    fun `foreground play-test preserves LMB RMB MMB MOUSE_DOWN state and skips self-tapping PointerGestureSink`() {
+        val pointerCalls = mutableListOf<String>()
+        InputBridge.attachPointerSink(object : InputBridge.PointerGestureSink {
+            override fun onLeftButton(isDown: Boolean) {
+                pointerCalls += if (isDown) "LMB_DOWN" else "LMB_UP"
+            }
+
+            override fun onRightButton(isDown: Boolean) {
+                pointerCalls += if (isDown) "RMB_DOWN" else "RMB_UP"
+            }
+
+            override fun onMiddleClick() {
+                pointerCalls += "MMB_CLICK"
+            }
+
+            override fun onScroll(scrollUp: Boolean) = Unit
+        })
+
+        InputBridge.setAppForeground(true)
+
+        val lmb = CommandCatalog.findById("mouse_left")
+        val rmb = CommandCatalog.findById("mouse_right")
+        val mmb = CommandCatalog.findById("mouse_middle")
+
+        InputBridge.pressControl("btn_lmb", "LMB", lmb)
+        assertTrue("btn_lmb" in InputBridge.pressedControlIds.value)
+        assertEquals("MOUSE_DOWN", InputBridge.telemetry.value.first().actionName)
+        assertEquals("LMB", InputBridge.telemetry.value.first().codeLabel)
+        InputBridge.releaseControl("btn_lmb", "LMB", lmb)
+        assertFalse("btn_lmb" in InputBridge.pressedControlIds.value)
+        assertEquals("MOUSE_UP", InputBridge.telemetry.value.first().actionName)
+
+        InputBridge.pressControl("btn_rmb", "RMB", rmb)
+        assertEquals("MOUSE_DOWN", InputBridge.telemetry.value.first().actionName)
+        assertEquals("RMB", InputBridge.telemetry.value.first().codeLabel)
+        InputBridge.releaseControl("btn_rmb", "RMB", rmb)
+        assertEquals("MOUSE_UP", InputBridge.telemetry.value.first().actionName)
+
+        InputBridge.pressControl("btn_mmb", "MMB", mmb)
+        assertEquals("MOUSE_DOWN", InputBridge.telemetry.value.first().actionName)
+        assertEquals("MMB", InputBridge.telemetry.value.first().codeLabel)
+        InputBridge.releaseControl("btn_mmb", "MMB", mmb)
+        assertEquals("MOUSE_UP", InputBridge.telemetry.value.first().actionName)
+
+        assertTrue("PointerGestureSink must not self-tap while app is in foreground", pointerCalls.isEmpty())
+    }
+
+    @Test
+    fun `continuous mouse touchpad streams unbroken swipe lifecycle without interrupting held keyboard keys`() {
+        val imeEvents = mutableListOf<KeyEvent>()
+        val swipeEvents = mutableListOf<String>()
+        InputBridge.attachImeSink { ev -> imeEvents += ev }
+        InputBridge.attachPointerSink(object : InputBridge.PointerGestureSink {
+            override fun onLeftButton(isDown: Boolean) = Unit
+            override fun onRightButton(isDown: Boolean) = Unit
+            override fun onMiddleClick() = Unit
+            override fun onScroll(scrollUp: Boolean) = Unit
+            override fun onMouseSwipeStart() {
+                swipeEvents += "START"
+            }
+            override fun onMouseSwipe(dxPx: Float, dyPx: Float) {
+                swipeEvents += "MOVE(${dxPx.toInt()},${dyPx.toInt()})"
+            }
+            override fun onMouseSwipeEnd() {
+                swipeEvents += "END"
+            }
+        })
+
+        // Hold W key while panning camera continuously with touchpad
+        val keyW = CommandCatalog.findById("key_w")
+        InputBridge.pressControl("btn_w", "W", keyW)
+        imeEvents.clear()
+
+        InputBridge.startTouchpadMouseMove()
+        InputBridge.updateTouchpadMouseMove(
+            controlId = "pad_1",
+            sourceLabel = "CAMERA",
+            axisPair = AxisPair.TOUCHPAD_ARROWS,
+            deltaXPx = 12f,
+            deltaYPx = -4f,
+            sensitivity = 1.0f,
+            invertY = false,
+            isFlickInertia = false,
+            active = true
+        )
+        InputBridge.updateTouchpadMouseMove(
+            controlId = "pad_1",
+            sourceLabel = "CAMERA",
+            axisPair = AxisPair.TOUCHPAD_ARROWS,
+            deltaXPx = 8f,
+            deltaYPx = 2f,
+            sensitivity = 1.0f,
+            invertY = false,
+            isFlickInertia = true,
+            active = true
+        )
+        InputBridge.endTouchpadMouseMove()
+
+        assertEquals(listOf("START", "MOVE(12,-4)", "MOVE(8,2)", "END"), swipeEvents)
+        assertTrue("Mouse trackpad must not emit KeyEvents that interrupt held W/Shift keys", imeEvents.isEmpty())
+        assertTrue("W must remain pressed throughout camera panning", "btn_w" in InputBridge.pressedControlIds.value)
+    }
+
+    @Test
+    fun `target platform mode switches cleanly and has localized strings`() {
+        InputBridge.setTargetMode(TargetPlatformMode.ANDROID_NATIVE)
+        assertEquals(TargetPlatformMode.ANDROID_NATIVE, InputBridge.targetMode.value)
+        assertEquals("Android", InputBridge.targetMode.value.shortLabel)
+
+        val en = AppLocalization.stringsFor(AppLanguage.ENGLISH)
+        val th = AppLocalization.stringsFor(AppLanguage.THAI)
+        assertTrue(en.targetModeAndroidTitle.contains("Roblox"))
+        assertTrue(th.targetModeAndroidTitle.contains("Roblox"))
     }
 }

@@ -65,6 +65,19 @@ enum class TouchpadMode(val displayName: String, val subtitle: String) {
     CONTROLLER("Controller (Analog)", "Hold-style right stick directional tilt")
 }
 
+enum class TargetPlatformMode(val displayName: String, val shortLabel: String, val subtitle: String) {
+    GEFORCE_NOW(
+        displayName = "GeForce NOW (Cloud PC)",
+        shortLabel = "GFN",
+        subtitle = "Linux evdev scan codes & center touch-to-mouse panning"
+    ),
+    ANDROID_NATIVE(
+        displayName = "Android Games (Roblox, Minecraft, etc.)",
+        shortLabel = "Android",
+        subtitle = "Standard Android keys, right-side camera pan & native clicks"
+    )
+}
+
 enum class GameGenre(val displayName: String) {
     FPS("FPS / Shooter"),
     ACTION_RPG("Action RPG"),

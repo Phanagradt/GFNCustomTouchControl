@@ -408,20 +408,23 @@ fun LayoutEditorScreen(
 
         // Play-test mini telemetry pill (top center, non-blocking)
         if (editorState.isPlayTestMode && !hideFloatingTools) {
+            val isHeld = pressedIds.isNotEmpty()
+            val accentColor = if (isHeld) GeForceLime else TacticalCyan
             Surface(
                 color = Color(0xCC0B0E14),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 60.dp)
-                    .border(1.dp, TacticalCyan.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+                    .border(1.dp, accentColor.copy(alpha = if (isHeld) 0.9f else 0.6f), RoundedCornerShape(16.dp))
             ) {
                 Text(
                     text = latestTelemetry?.let { "${it.codeLabel} • ${it.actionName}" }
                         ?: "MULTI-TOUCH TEST ACTIVE",
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 11.sp,
-                    color = TacticalCyan,
+                    fontWeight = if (isHeld) FontWeight.Bold else FontWeight.Medium,
+                    color = accentColor,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                 )
             }

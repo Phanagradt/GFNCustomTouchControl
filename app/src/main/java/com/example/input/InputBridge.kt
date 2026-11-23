@@ -7,6 +7,7 @@ import com.example.model.AxisPair
 import com.example.model.BindingDomain
 import com.example.model.InputBinding
 import com.example.model.StickState
+import com.example.model.TargetPlatformMode
 import com.example.model.TelemetryEvent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,7 +27,9 @@ object InputBridge {
         fun onRightButton(isDown: Boolean)
         fun onMiddleClick()
         fun onScroll(scrollUp: Boolean)
+        fun onMouseSwipeStart() {}
         fun onMouseSwipe(dxPx: Float, dyPx: Float) {}
+        fun onMouseSwipeEnd() {}
     }
 
     interface KeyboardTextSink {
@@ -61,6 +64,12 @@ object InputBridge {
     private val _isOverlayRunning = MutableStateFlow(false)
     val isOverlayRunning: StateFlow<Boolean> = _isOverlayRunning.asStateFlow()
 
+    private val _isAppInForeground = MutableStateFlow(false)
+    val isAppInForeground: StateFlow<Boolean> = _isAppInForeground.asStateFlow()
+
+    private val _targetMode = MutableStateFlow(TargetPlatformMode.GEFORCE_NOW)
+    val targetMode: StateFlow<TargetPlatformMode> = _targetMode.asStateFlow()
+
     private val _pressedControlIds = MutableStateFlow<Set<String>>(emptySet())
     val pressedControlIds: StateFlow<Set<String>> = _pressedControlIds.asStateFlow()
 
@@ -77,6 +86,7 @@ object InputBridge {
     val telemetry: StateFlow<List<TelemetryEvent>> = _telemetry.asStateFlow()
 
     private val _activeClusterDirections = MutableStateFlow<Map<String, Set<Int>>>(emptyMap())
+    private var lastSwipeTelemetryMs = 0L
 
     fun attachImeSink(sink: KeyEventSink?) {
         activeSink = sink
@@ -144,6 +154,14 @@ object InputBridge {
         _isOverlayRunning.value = running
     }
 
+    fun setAppForeground(inForeground: Boolean) {
+        _isAppInForeground.value = inForeground
+    }
+
+    fun setTargetMode(mode: TargetPlatformMode) {
+        _targetMode.value = mode
+    }
+
     fun pressControl(controlId: String, sourceLabel: String, binding: InputBinding) {
         _pressedControlIds.update { it + controlId }
         dispatchBindingAction(sourceLabel, binding, isDown = true)
@@ -171,10 +189,13 @@ object InputBridge {
     fun pulseTurbo(sourceLabel: String, binding: InputBinding) {
         dispatchBindingAction(sourceLabel, binding, isDown = true, actionOverride = "TURBO_HIT")
         if (binding.domain == BindingDomain.MOUSE) {
-            if (binding.id == "mouse_left" || binding.id == "mouse_m1") {
-                pointerSink?.onLeftButton(false)
-            } else if (binding.id == "mouse_right" || binding.id == "mouse_m2") {
-                pointerSink?.onRightButton(false)
+            val allowPointerGestures = !_isAppInForeground.value
+            if (allowPointerGestures) {
+                if (binding.id == "mouse_left" || binding.id == "mouse_m1") {
+                    pointerSink?.onLeftButton(false)
+                } else if (binding.id == "mouse_right" || binding.id == "mouse_m2") {
+                    pointerSink?.onRightButton(false)
+                }
             }
         } else {
             sendKeyToSink(binding.primaryKeyCode, KeyEvent.ACTION_UP, 0, binding.domain)
@@ -331,6 +352,19 @@ object InputBridge {
         }
     }
 
+    fun startTouchpadMouseMove() {
+        if (!_isAppInForeground.value) {
+            pointerSink?.onMouseSwipeStart()
+        }
+    }
+
+    fun endTouchpadMouseMove() {
+        _rightStick.value = StickState()
+        if (!_isAppInForeground.value) {
+            pointerSink?.onMouseSwipeEnd()
+        }
+    }
+
     fun updateTouchpadMouseMove(
         controlId: String,
         sourceLabel: String,
@@ -343,10 +377,7 @@ object InputBridge {
         active: Boolean
     ) {
         if (!active) {
-            _rightStick.value = StickState()
-            if (axisPair != AxisPair.TOUCHPAD_DIRECT_PASS) {
-                updateDirectionalCluster(controlId, sourceLabel, axisPair, 0f, 0f, active = false)
-            }
+            endTouchpadMouseMove()
             return
         }
 
@@ -354,42 +385,41 @@ object InputBridge {
         val scaledDx = deltaXScaled(deltaXPx, sensitivity)
         val scaledDy = deltaXScaled(effDy, sensitivity)
 
-        val normX = (scaledDx / 28f).coerceIn(-1f, 1f)
-        val normY = (scaledDy / 28f).coerceIn(-1f, 1f)
+        val normX = (scaledDx / 22f).coerceIn(-1f, 1f)
+        val normY = (scaledDy / 22f).coerceIn(-1f, 1f)
         _rightStick.value = StickState(x = normX, y = normY, active = true)
 
-        if (kotlin.math.abs(scaledDx) > 0.35f || kotlin.math.abs(scaledDy) > 0.35f) {
-            pointerSink?.onMouseSwipe(scaledDx, scaledDy)
-            if (axisPair != AxisPair.TOUCHPAD_DIRECT_PASS) {
-                updateDirectionalCluster(
-                    controlId = controlId,
+        if (kotlin.math.abs(scaledDx) > 0.05f || kotlin.math.abs(scaledDy) > 0.05f) {
+            if (!_isAppInForeground.value) {
+                pointerSink?.onMouseSwipe(scaledDx, scaledDy)
+            }
+            // Throttle telemetry writes during continuous drags/flicks to avoid 120Hz list allocations
+            val now = System.currentTimeMillis()
+            if (now - lastSwipeTelemetryMs >= 180L) {
+                lastSwipeTelemetryMs = now
+                recordTelemetry(
                     sourceLabel = sourceLabel,
-                    axisPair = axisPair,
-                    x = if (kotlin.math.abs(normX) > 0.14f) kotlin.math.sign(normX) * 0.85f else 0f,
-                    y = if (kotlin.math.abs(normY) > 0.14f) kotlin.math.sign(normY) * 0.85f else 0f,
-                    active = true
+                    codeLabel = if (isFlickInertia) "FLICK" else "MOUSE_PAD",
+                    actionName = if (isFlickInertia) "INERTIA" else "SWIPE",
+                    detail = "dx=%.1f  dy=%.1f (%s)".format(scaledDx, scaledDy, _targetMode.value.shortLabel),
+                    domain = BindingDomain.MOUSE
                 )
             }
-            recordTelemetry(
-                sourceLabel = sourceLabel,
-                codeLabel = if (isFlickInertia) "FLICK" else "MOUSE_PAD",
-                actionName = if (isFlickInertia) "INERTIA" else "SWIPE",
-                detail = "dx=%.1f  dy=%.1f".format(scaledDx, scaledDy),
-                domain = BindingDomain.MOUSE
-            )
         }
     }
 
     fun dispatchMouseTapClick(sourceLabel: String) {
         sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, KeyEvent.ACTION_DOWN, 0, BindingDomain.MOUSE)
         sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, KeyEvent.ACTION_UP, 0, BindingDomain.MOUSE)
-        pointerSink?.onLeftButton(true)
-        pointerSink?.onLeftButton(false)
+        if (!_isAppInForeground.value) {
+            pointerSink?.onLeftButton(true)
+            pointerSink?.onLeftButton(false)
+        }
         recordTelemetry(sourceLabel, "LMB", "TAP_CLICK", "Touchpad Tap", BindingDomain.MOUSE)
     }
 
     private fun deltaXScaled(rawPx: Float, sensitivity: Float): Float =
-        rawPx * sensitivity.coerceIn(0.4f, 3.0f)
+        rawPx * sensitivity.coerceIn(0.4f, 3.5f)
 
     fun recordPhysicalInput(keyCode: Int, actionName: String, detail: String, domain: BindingDomain) {
         recordTelemetry("Hardware", safeKeyCodeName(keyCode), actionName, detail, domain)
@@ -400,8 +430,11 @@ object InputBridge {
     }
 
     fun releaseAll() {
-        pointerSink?.onLeftButton(false)
-        pointerSink?.onRightButton(false)
+        if (!_isAppInForeground.value) {
+            pointerSink?.onMouseSwipeEnd()
+            pointerSink?.onLeftButton(false)
+            pointerSink?.onRightButton(false)
+        }
         val heldKeys = activeDownTimes.keys.toList()
         val nonModifierKeys = heldKeys.filter { modifierBitsForKeyCode(it) == 0 }
         val modifierKeys = (heldKeys.filter { modifierBitsForKeyCode(it) != 0 } + activeModifiers.keys).distinct()
@@ -472,42 +505,42 @@ object InputBridge {
         isDown: Boolean,
         actionOverride: String?
     ) {
-        val sink = pointerSink
+        // Never dispatch Accessibility touch gestures back onto NexusPad's own Play-Test / Sandbox windows,
+        // because injecting a system touch onto the foreground window sends ACTION_CANCEL to the held button.
+        val sink = if (_isAppInForeground.value) null else pointerSink
         val keyAction = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
+        val modeTag = _targetMode.value.shortLabel
 
-        // Dual-channel dispatch:
-        // 1) Dispatch genuine Linux evdev mouse KeyEvent (BTN_LEFT=272, BTN_RIGHT=273, BTN_MIDDLE=274) via IME
-        // 2) Dispatch Accessibility gesture fallback when Accessibility service is enabled
         val detail = when (binding.id) {
             "mouse_left", "mouse_m1" -> {
                 sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, keyAction, 0, BindingDomain.MOUSE)
                 sink?.onLeftButton(isDown)
-                if (sink != null) "LMB (Key scan=272 + Touch)" else "LMB KeyEvent (scan=272)"
+                if (sink != null) "LMB • $modeTag (scan=272 + Touch)" else "LMB • $modeTag (scan=272)"
             }
             "mouse_right", "mouse_m2" -> {
                 sendKeyToSink(KeyEvent.KEYCODE_BUTTON_2, keyAction, 0, BindingDomain.MOUSE)
                 sink?.onRightButton(isDown)
-                if (sink != null) "RMB (Key scan=273 + 2-Finger)" else "RMB KeyEvent (scan=273)"
+                if (sink != null) "RMB • $modeTag (scan=273 + Touch)" else "RMB • $modeTag (scan=273)"
             }
             "mouse_middle", "mouse_m3" -> {
                 sendKeyToSink(KeyEvent.KEYCODE_BUTTON_3, keyAction, 0, BindingDomain.MOUSE)
                 if (isDown) sink?.onMiddleClick()
-                if (sink != null) "MMB (Key scan=274 + 3-Finger)" else "MMB KeyEvent (scan=274)"
+                if (sink != null) "MMB • $modeTag (scan=274 + Touch)" else "MMB • $modeTag (scan=274)"
             }
             "mouse_scroll_up", "mouse_m5" -> {
                 sendKeyToSink(KeyEvent.KEYCODE_PAGE_UP, keyAction, 0, BindingDomain.MOUSE)
                 if (isDown) sink?.onScroll(scrollUp = true)
-                if (sink != null) "Scroll Up (Gesture + Key)" else "Scroll Up KeyEvent"
+                if (sink != null) "Scroll Up ($modeTag)" else "Scroll Up KeyEvent"
             }
             "mouse_scroll_down", "mouse_m4" -> {
                 sendKeyToSink(KeyEvent.KEYCODE_PAGE_DOWN, keyAction, 0, BindingDomain.MOUSE)
                 if (isDown) sink?.onScroll(scrollUp = false)
-                if (sink != null) "Scroll Down (Gesture + Key)" else "Scroll Down KeyEvent"
+                if (sink != null) "Scroll Down ($modeTag)" else "Scroll Down KeyEvent"
             }
             else -> {
                 sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, keyAction, 0, BindingDomain.MOUSE)
                 sink?.onLeftButton(isDown)
-                if (sink != null) "LMB (Key scan=272 + Touch)" else "LMB KeyEvent (scan=272)"
+                if (sink != null) "LMB • $modeTag (scan=272 + Touch)" else "LMB • $modeTag (scan=272)"
             }
         }
 

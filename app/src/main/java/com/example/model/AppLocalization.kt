@@ -59,7 +59,14 @@ data class NexusStrings(
     val crosshairCenterDot: String = "Center Dot",
     val crosshairUploadImage: String = "Upload Image",
     val crosshairReset: String = "Reset",
-    val crosshairSize: String = "Image Size"
+    val crosshairSize: String = "Image Size",
+    val targetModeCardTitle: String = "GAME COMPATIBILITY MODE",
+    val targetModeSubtitle: String = "Choose whether NexusPad targets GeForce NOW cloud PC or native Android games",
+    val targetModeGfnTitle: String = "GeForce NOW (Cloud PC)",
+    val targetModeGfnSubtitle: String = "Linux scan codes + center mouse camera & GFN touch gestures",
+    val targetModeAndroidTitle: String = "Android Games (Roblox, Minecraft, etc.)",
+    val targetModeAndroidSubtitle: String = "Standard Android key events + right-side 360° camera drag & native mouse clicks",
+    val menuTargetMode: String = "Mode"
 )
 
 object AppLocalization {
@@ -125,7 +132,14 @@ object AppLocalization {
                 crosshairCenterDot = "จุดตรงกลาง",
                 crosshairUploadImage = "อัปโหลดรูป",
                 crosshairReset = "รีเซ็ต",
-                crosshairSize = "ขนาดรูปเป้า"
+                crosshairSize = "ขนาดรูปเป้า",
+                targetModeCardTitle = "โหมดเกมเป้าหมาย (COMPATIBILITY MODE)",
+                targetModeSubtitle = "เลือกว่าจะใช้เลย์เอาต์กับ GeForce NOW หรือเกม Android อื่น ๆ",
+                targetModeGfnTitle = "GeForce NOW (เกมคลาวด์ PC)",
+                targetModeGfnSubtitle = "ใช้รหัสสแกนคีย์ Linux + เลื่อนเมาส์กลางจอและคำสั่งสัมผัสสำหรับ GFN",
+                targetModeAndroidTitle = "เกม Android (Roblox, Minecraft ฯลฯ)",
+                targetModeAndroidSubtitle = "ใช้คีย์ Android มาตรฐาน + เลื่อนมุมกล้องฝั่งขวาและคลิกเมาส์สำหรับเกมมือถือ",
+                menuTargetMode = "โหมดเกม"
             )
             AppLanguage.SPANISH -> NexusStrings(
                 navCockpit = "Panel",
@@ -172,7 +186,14 @@ object AppLocalization {
                 crosshairCenterDot = "Punto Central",
                 crosshairUploadImage = "Subir Imagen",
                 crosshairReset = "Reiniciar",
-                crosshairSize = "Tamaño"
+                crosshairSize = "Tamaño",
+                targetModeCardTitle = "MODO DE COMPATIBILIDAD",
+                targetModeSubtitle = "Elige entre GeForce NOW en la nube o juegos nativos de Android",
+                targetModeGfnTitle = "GeForce NOW (PC Cloud)",
+                targetModeGfnSubtitle = "Códigos Linux y cámara táctil central para GeForce NOW",
+                targetModeAndroidTitle = "Juegos Android (Roblox, Minecraft, etc.)",
+                targetModeAndroidSubtitle = "Teclas Android estándar y giro de cámara en zona derecha",
+                menuTargetMode = "Modo"
             )
             AppLanguage.JAPANESE -> NexusStrings(
                 navCockpit = "ホーム",
@@ -219,7 +240,14 @@ object AppLocalization {
                 crosshairCenterDot = "中央ドット",
                 crosshairUploadImage = "画像をアップロード",
                 crosshairReset = "リセット",
-                crosshairSize = "サイズ"
+                crosshairSize = "サイズ",
+                targetModeCardTitle = "互換モード (TARGET GAME MODE)",
+                targetModeSubtitle = "GeForce NOW 向けか Roblox・Minecraft などの Android ゲーム向けかを選択",
+                targetModeGfnTitle = "GeForce NOW (クラウドPC)",
+                targetModeGfnSubtitle = "Linux スキャンコード＋中央視点マウスジェスチャー",
+                targetModeAndroidTitle = "Android ゲーム (Roblox, Minecraft など)",
+                targetModeAndroidSubtitle = "標準 Android キー入力＋右画面カメラ操作・ネイティブクリック",
+                menuTargetMode = "モード"
             )
             AppLanguage.CHINESE -> NexusStrings(
                 navCockpit = "控制台",
@@ -266,7 +294,14 @@ object AppLocalization {
                 crosshairCenterDot = "中心点",
                 crosshairUploadImage = "上传图片",
                 crosshairReset = "重置",
-                crosshairSize = "图片大小"
+                crosshairSize = "图片大小",
+                targetModeCardTitle = "游戏兼容模式",
+                targetModeSubtitle = "选择适配 GeForce NOW 云端或 Roblox、Minecraft 等本地安卓游戏",
+                targetModeGfnTitle = "GeForce NOW (云端 PC)",
+                targetModeGfnSubtitle = "Linux 硬件扫描码 + 居中触控鼠标视角",
+                targetModeAndroidTitle = "安卓本地游戏 (Roblox / Minecraft 等)",
+                targetModeAndroidSubtitle = "标准安卓按键 + 右半屏 360° 视角滑动与原生点击",
+                menuTargetMode = "模式"
             )
             else -> NexusStrings()
         }
