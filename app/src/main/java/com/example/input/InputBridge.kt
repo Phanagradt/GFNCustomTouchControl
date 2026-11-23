@@ -26,15 +26,28 @@ object InputBridge {
         fun onRightButton(isDown: Boolean)
         fun onMiddleClick()
         fun onScroll(scrollUp: Boolean)
+        fun onMouseSwipe(dxPx: Float, dyPx: Float) {}
+    }
+
+    interface KeyboardTextSink {
+        fun commitText(text: String)
+        fun backspace()
+        fun enter()
     }
 
     fun interface KeyboardController {
         fun onShowKeyboard()
     }
 
+    fun interface FloatKeyboardHandler {
+        fun onRequestFloatingKeyboard()
+    }
+
     private var activeSink: KeyEventSink? = null
     private var pointerSink: PointerGestureSink? = null
+    private var textSink: KeyboardTextSink? = null
     private var keyboardController: KeyboardController? = null
+    private var floatKeyboardHandler: FloatKeyboardHandler? = null
     private val eventIdGen = AtomicLong(1L)
     private val activeDownTimes = ConcurrentHashMap<Int, Long>()
     private val activeModifiers = ConcurrentHashMap<Int, Int>()
@@ -75,14 +88,56 @@ object InputBridge {
         _isAccessibilityConnected.value = sink != null
     }
 
+    fun attachKeyboardTextSink(sink: KeyboardTextSink?) {
+        textSink = sink
+    }
+
     fun attachKeyboardController(controller: KeyboardController?) {
         keyboardController = controller
+    }
+
+    fun attachFloatKeyboardHandler(handler: FloatKeyboardHandler?) {
+        floatKeyboardHandler = handler
     }
 
     fun requestShowKeyboard(): Boolean {
         val controller = keyboardController ?: return false
         controller.onShowKeyboard()
         return true
+    }
+
+    fun requestFloatingKeyboard(): Boolean {
+        val handler = floatKeyboardHandler ?: return false
+        handler.onRequestFloatingKeyboard()
+        return true
+    }
+
+    fun dispatchCommitText(text: String) {
+        val sink = textSink
+        if (sink != null) {
+            sink.commitText(text)
+        }
+        recordTelemetry("Keyboard", text, "TEXT", "Floating KB", BindingDomain.KEYBOARD)
+    }
+
+    fun dispatchBackspace() {
+        val sink = textSink
+        if (sink != null) {
+            sink.backspace()
+        } else {
+            dispatchRawKey(KeyEvent.KEYCODE_DEL, KeyEvent.ACTION_DOWN)
+            dispatchRawKey(KeyEvent.KEYCODE_DEL, KeyEvent.ACTION_UP)
+        }
+    }
+
+    fun dispatchEnter() {
+        val sink = textSink
+        if (sink != null) {
+            sink.enter()
+        } else {
+            dispatchRawKey(KeyEvent.KEYCODE_ENTER, KeyEvent.ACTION_DOWN)
+            dispatchRawKey(KeyEvent.KEYCODE_ENTER, KeyEvent.ACTION_UP)
+        }
     }
 
     fun setOverlayRunning(running: Boolean) {
@@ -276,6 +331,66 @@ object InputBridge {
         }
     }
 
+    fun updateTouchpadMouseMove(
+        controlId: String,
+        sourceLabel: String,
+        axisPair: AxisPair,
+        deltaXPx: Float,
+        deltaYPx: Float,
+        sensitivity: Float,
+        invertY: Boolean,
+        isFlickInertia: Boolean,
+        active: Boolean
+    ) {
+        if (!active) {
+            _rightStick.value = StickState()
+            if (axisPair != AxisPair.TOUCHPAD_DIRECT_PASS) {
+                updateDirectionalCluster(controlId, sourceLabel, axisPair, 0f, 0f, active = false)
+            }
+            return
+        }
+
+        val effDy = if (invertY) -deltaYPx else deltaYPx
+        val scaledDx = deltaXScaled(deltaXPx, sensitivity)
+        val scaledDy = deltaXScaled(effDy, sensitivity)
+
+        val normX = (scaledDx / 28f).coerceIn(-1f, 1f)
+        val normY = (scaledDy / 28f).coerceIn(-1f, 1f)
+        _rightStick.value = StickState(x = normX, y = normY, active = true)
+
+        if (kotlin.math.abs(scaledDx) > 0.35f || kotlin.math.abs(scaledDy) > 0.35f) {
+            pointerSink?.onMouseSwipe(scaledDx, scaledDy)
+            if (axisPair != AxisPair.TOUCHPAD_DIRECT_PASS) {
+                updateDirectionalCluster(
+                    controlId = controlId,
+                    sourceLabel = sourceLabel,
+                    axisPair = axisPair,
+                    x = if (kotlin.math.abs(normX) > 0.14f) kotlin.math.sign(normX) * 0.85f else 0f,
+                    y = if (kotlin.math.abs(normY) > 0.14f) kotlin.math.sign(normY) * 0.85f else 0f,
+                    active = true
+                )
+            }
+            recordTelemetry(
+                sourceLabel = sourceLabel,
+                codeLabel = if (isFlickInertia) "FLICK" else "MOUSE_PAD",
+                actionName = if (isFlickInertia) "INERTIA" else "SWIPE",
+                detail = "dx=%.1f  dy=%.1f".format(scaledDx, scaledDy),
+                domain = BindingDomain.MOUSE
+            )
+        }
+    }
+
+    fun dispatchMouseTapClick(sourceLabel: String) {
+        sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, KeyEvent.ACTION_DOWN, 0, BindingDomain.MOUSE)
+        sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, KeyEvent.ACTION_UP, 0, BindingDomain.MOUSE)
+        pointerSink?.onLeftButton(true)
+        pointerSink?.onLeftButton(false)
+        recordTelemetry(sourceLabel, "LMB", "TAP_CLICK", "Touchpad Tap", BindingDomain.MOUSE)
+    }
+
+    private fun deltaXScaled(rawPx: Float, sensitivity: Float): Float =
+        rawPx * sensitivity.coerceIn(0.4f, 3.0f)
+
     fun recordPhysicalInput(keyCode: Int, actionName: String, detail: String, domain: BindingDomain) {
         recordTelemetry("Hardware", safeKeyCodeName(keyCode), actionName, detail, domain)
     }
@@ -358,30 +473,41 @@ object InputBridge {
         actionOverride: String?
     ) {
         val sink = pointerSink
+        val keyAction = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
+
+        // Dual-channel dispatch:
+        // 1) Dispatch genuine Linux evdev mouse KeyEvent (BTN_LEFT=272, BTN_RIGHT=273, BTN_MIDDLE=274) via IME
+        // 2) Dispatch Accessibility gesture fallback when Accessibility service is enabled
         val detail = when (binding.id) {
             "mouse_left", "mouse_m1" -> {
+                sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, keyAction, 0, BindingDomain.MOUSE)
                 sink?.onLeftButton(isDown)
-                if (sink != null) "Left Click Gesture" else "Enable Accessibility for Click"
+                if (sink != null) "LMB (Key scan=272 + Touch)" else "LMB KeyEvent (scan=272)"
             }
             "mouse_right", "mouse_m2" -> {
+                sendKeyToSink(KeyEvent.KEYCODE_BUTTON_2, keyAction, 0, BindingDomain.MOUSE)
                 sink?.onRightButton(isDown)
-                if (sink != null) "Right Click (2-Finger)" else "Enable Accessibility for Click"
+                if (sink != null) "RMB (Key scan=273 + 2-Finger)" else "RMB KeyEvent (scan=273)"
             }
             "mouse_middle", "mouse_m3" -> {
+                sendKeyToSink(KeyEvent.KEYCODE_BUTTON_3, keyAction, 0, BindingDomain.MOUSE)
                 if (isDown) sink?.onMiddleClick()
-                if (sink != null) "Middle Click (3-Finger)" else "Enable Accessibility for Click"
+                if (sink != null) "MMB (Key scan=274 + 3-Finger)" else "MMB KeyEvent (scan=274)"
             }
             "mouse_scroll_up", "mouse_m5" -> {
+                sendKeyToSink(KeyEvent.KEYCODE_PAGE_UP, keyAction, 0, BindingDomain.MOUSE)
                 if (isDown) sink?.onScroll(scrollUp = true)
-                if (sink != null) "Scroll Wheel Up" else "Enable Accessibility for Scroll"
+                if (sink != null) "Scroll Up (Gesture + Key)" else "Scroll Up KeyEvent"
             }
             "mouse_scroll_down", "mouse_m4" -> {
+                sendKeyToSink(KeyEvent.KEYCODE_PAGE_DOWN, keyAction, 0, BindingDomain.MOUSE)
                 if (isDown) sink?.onScroll(scrollUp = false)
-                if (sink != null) "Scroll Wheel Down" else "Enable Accessibility for Scroll"
+                if (sink != null) "Scroll Down (Gesture + Key)" else "Scroll Down KeyEvent"
             }
             else -> {
+                sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, keyAction, 0, BindingDomain.MOUSE)
                 sink?.onLeftButton(isDown)
-                if (sink != null) "Left Click Gesture" else "Enable Accessibility for Click"
+                if (sink != null) "LMB (Key scan=272 + Touch)" else "LMB KeyEvent (scan=272)"
             }
         }
 

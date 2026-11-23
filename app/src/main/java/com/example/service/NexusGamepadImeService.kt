@@ -10,6 +10,7 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import com.example.input.InputBridge
+import java.util.Locale
 
 class NexusGamepadImeService : InputMethodService() {
 
@@ -28,6 +29,19 @@ class NexusGamepadImeService : InputMethodService() {
                 }
             }
         }
+        InputBridge.attachKeyboardTextSink(object : InputBridge.KeyboardTextSink {
+            override fun commitText(text: String) {
+                mainHandler.post { handleCommitText(text) }
+            }
+
+            override fun backspace() {
+                mainHandler.post { handleBackspace() }
+            }
+
+            override fun enter() {
+                mainHandler.post { handleEnter() }
+            }
+        })
         InputBridge.attachKeyboardController {
             mainHandler.post {
                 @Suppress("DEPRECATION")
@@ -41,8 +55,15 @@ class NexusGamepadImeService : InputMethodService() {
     override fun onEvaluateFullscreenMode(): Boolean = false
 
     override fun onCreateInputView(): View {
+        val defaultLang = if (Locale.getDefault().language.equals("th", ignoreCase = true)) {
+            NexusVirtualKeyboardView.KeyboardLanguage.THAI
+        } else {
+            NexusVirtualKeyboardView.KeyboardLanguage.ENGLISH
+        }
         val view = NexusVirtualKeyboardView(
             context = this,
+            initialLanguage = defaultLang,
+            isFloatingMode = false,
             onCommitText = ::handleCommitText,
             onBackspace = ::handleBackspace,
             onEnter = ::handleEnter,
@@ -53,6 +74,12 @@ class NexusGamepadImeService : InputMethodService() {
             },
             onHideKeyboard = {
                 requestHideSelf(0)
+            },
+            onToggleFloating = {
+                requestHideSelf(0)
+                if (!InputBridge.requestFloatingKeyboard()) {
+                    OverlayControllerService.startFloatingKeyboard(this)
+                }
             }
         )
         keyboardView = view
@@ -85,7 +112,7 @@ class NexusGamepadImeService : InputMethodService() {
         val ic = currentInputConnection ?: return
         val info = currentInputEditorInfo
         val isRawTarget = info == null || info.inputType == InputType.TYPE_NULL
-        if (isRawTarget && text.length == 1) {
+        if (isRawTarget && text.length == 1 && text[0].code in 32..126) {
             val events = keyCharMap.getEvents(text.toCharArray())
             if (events != null && events.isNotEmpty()) {
                 events.forEach { ev ->
@@ -138,6 +165,7 @@ class NexusGamepadImeService : InputMethodService() {
 
     override fun onDestroy() {
         InputBridge.attachImeSink(null)
+        InputBridge.attachKeyboardTextSink(null)
         InputBridge.attachKeyboardController(null)
         keyboardView = null
         super.onDestroy()

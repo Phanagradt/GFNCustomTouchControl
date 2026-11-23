@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">NexusPad</string>
+    <string name="ime_service_label">Mando y Teclado NexusPad</string>
+    <string name="overlay_channel_name">Superposición de Mando Virtual</string>
+    <string name="overlay_channel_description">Controla el gamepad flotante, teclado y mira sobre juegos en la nube.</string>
+    <string name="accessibility_service_label">Gestos de Ratón NexusPad</string>
+    <string name="accessibility_service_description">Envía clics izquierdo, derecho, central y desplazamiento para los botones de NexusPad sin leer datos personales.</string>
+</resources>

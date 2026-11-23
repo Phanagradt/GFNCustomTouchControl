@@ -2,19 +2,26 @@ package com.example
 
 import android.view.KeyEvent
 import com.example.input.InputBridge
+import com.example.model.AppLanguage
+import com.example.model.AppLocalization
 import com.example.model.AxisPair
 import com.example.model.ColorMatrixBuilder
 import com.example.model.CommandCatalog
 import com.example.model.ControllerNotation
 import com.example.model.ControllerProfile
+import com.example.model.CrosshairPresets
+import com.example.model.CrosshairSettings
+import com.example.model.CrosshairStyle
 import com.example.model.FilterTintPreset
 import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
 import com.example.model.GameGenre
 import com.example.model.PresetProfiles
+import com.example.model.TouchpadMode
 import com.example.ui.components.computeOverlayDimAmount
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -26,10 +33,10 @@ class ExampleUnitTest {
 
     @Before
     fun setup() {
-        InputBridge.releaseAll()
-        InputBridge.clearTelemetry()
         InputBridge.attachImeSink(null)
         InputBridge.attachPointerSink(null)
+        InputBridge.releaseAll()
+        InputBridge.clearTelemetry()
     }
 
     @Test
@@ -388,5 +395,111 @@ class ExampleUnitTest {
 
         assertEquals(0f, computeOverlayDimAmount(liftedShadows), 0.001f)
         assertTrue(computeOverlayDimAmount(neutral.copy(brightness = -0.35f)) > 0.2f)
+    }
+
+    @Test
+    fun `crosshair settings presets apply cleanly and serialize round-trip`() {
+        val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        val adapter = moshi.adapter(CrosshairSettings::class.java)
+
+        val base = CrosshairSettings(enabled = true)
+        val haloPreset = CrosshairPresets.presets.first { it.id == "holo_ring" }
+        val styled = haloPreset.applyTo(base).copy(
+            gapDp = 8.5f,
+            thicknessDp = 3.5f,
+            outlineEnabled = true,
+            outlineThicknessDp = 2.0f
+        )
+
+        val decoded = adapter.fromJson(adapter.toJson(styled))
+        assertNotNull(decoded)
+        assertEquals(CrosshairStyle.CIRCLE_DOT, decoded?.style)
+        assertEquals(8.5f, decoded?.gapDp ?: 0f, 0.001f)
+        assertEquals(3.5f, decoded?.thicknessDp ?: 0f, 0.001f)
+        assertTrue(decoded?.outlineEnabled == true)
+    }
+
+    @Test
+    fun `app localization auto-detects Thai system locale and supports explicit override`() {
+        val thaiLocale = Locale.forLanguageTag("th-TH")
+        val spanishLocale = Locale.forLanguageTag("es-ES")
+        val autoThai = AppLocalization.resolveEffectiveLanguage(AppLanguage.SYSTEM, thaiLocale)
+        assertEquals(AppLanguage.THAI, autoThai)
+        val thaiStrings = AppLocalization.stringsFor(AppLanguage.SYSTEM, thaiLocale)
+        assertEquals("เป้าเล็ง", thaiStrings.menuCrosshair)
+        assertEquals("คีย์บอร์ดลอย", thaiStrings.menuFloatKb)
+
+        val autoSpanish = AppLocalization.resolveEffectiveLanguage(AppLanguage.SYSTEM, spanishLocale)
+        assertEquals(AppLanguage.SPANISH, autoSpanish)
+
+        val overrideEnglish = AppLocalization.stringsFor(AppLanguage.ENGLISH, thaiLocale)
+        assertEquals("Crosshair", overrideEnglish.menuCrosshair)
+    }
+
+    @Test
+    fun `mouse touchpad flick dispatches mouse swipe deltas and dual mouse KeyEvents`() {
+        val swipes = mutableListOf<Pair<Float, Float>>()
+        val pointerButtons = mutableListOf<String>()
+        val dispatchedEvents = mutableListOf<KeyEvent>()
+        InputBridge.attachImeSink { ev -> dispatchedEvents += ev }
+        InputBridge.attachPointerSink(object : InputBridge.PointerGestureSink {
+            override fun onLeftButton(isDown: Boolean) {
+                pointerButtons += if (isDown) "LMB_DOWN" else "LMB_UP"
+            }
+            override fun onRightButton(isDown: Boolean) {
+                pointerButtons += if (isDown) "RMB_DOWN" else "RMB_UP"
+            }
+            override fun onMiddleClick() {
+                pointerButtons += "MMB_CLICK"
+            }
+            override fun onScroll(scrollUp: Boolean) = Unit
+            override fun onMouseSwipe(dxPx: Float, dyPx: Float) {
+                swipes += dxPx to dyPx
+            }
+        })
+
+        // Verify mouse touchpad defaults to TouchpadMode.MOUSE
+        val mouseProfile = PresetProfiles.createProfileFromTemplate(
+            name = "Flick Test",
+            gameTitle = "CS2",
+            genre = GameGenre.FPS,
+            template = com.example.model.ProfileTemplate.PC_MOUSE_WASD
+        )
+        val pad = mouseProfile.controls.first { it.controlType == com.example.model.ControlType.TOUCHPAD }
+        assertEquals(TouchpadMode.MOUSE, pad.touchpadMode)
+
+        InputBridge.updateTouchpadMouseMove(
+            controlId = pad.id,
+            sourceLabel = pad.label,
+            axisPair = pad.binding.axisPair,
+            deltaXPx = 24f,
+            deltaYPx = -10f,
+            sensitivity = 1.5f,
+            invertY = false,
+            isFlickInertia = true,
+            active = true
+        )
+        assertEquals(1, swipes.size)
+        assertEquals(36f, swipes[0].first, 0.01f)
+        assertEquals(-15f, swipes[0].second, 0.01f)
+
+        val lmb = CommandCatalog.findById("mouse_left")
+        val rmb = CommandCatalog.findById("mouse_right")
+        val mmb = CommandCatalog.findById("mouse_middle")
+        InputBridge.clearTelemetry()
+        dispatchedEvents.clear()
+        InputBridge.pressControl("m1", "LMB", lmb)
+        InputBridge.pressControl("m2", "RMB", rmb)
+        InputBridge.pressControl("m3", "MMB", mmb)
+
+        assertEquals(3, dispatchedEvents.size)
+        assertEquals(listOf("LMB_DOWN", "RMB_DOWN", "MMB_CLICK"), pointerButtons)
+        val telemetryDetails = InputBridge.telemetry.value.map { it.detail }
+        assertTrue(telemetryDetails.any { it.contains("scan=272") })
+        assertTrue(telemetryDetails.any { it.contains("scan=273") })
+        assertTrue(telemetryDetails.any { it.contains("scan=274") })
+        assertEquals(272, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_1, com.example.model.BindingDomain.MOUSE))
+        assertEquals(273, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_2, com.example.model.BindingDomain.MOUSE))
+        assertEquals(274, InputBridge.resolveLinuxScanCode(KeyEvent.KEYCODE_BUTTON_3, com.example.model.BindingDomain.MOUSE))
     }
 }

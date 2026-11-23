@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -37,7 +38,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -55,13 +58,16 @@ import com.example.model.CommandCatalog
 import com.example.model.ControlShape
 import com.example.model.ControlType
 import com.example.model.ControllerNotation
+import com.example.model.TouchpadMode
 import com.example.model.TriggerBehavior
 import com.example.model.VirtualControl
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.SpaceGroteskFontFamily
 import com.example.util.ButtonImageCodec
 import com.example.util.SystemIntegrations
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -125,26 +131,7 @@ fun VirtualControlCanvasItem(
         modifier = modifier
             .size(width = widthDp, height = heightDp)
             .alpha(if (isEditMode) 0.96f else effectiveAlpha)
-            .testTag("virtual_control_${control.id}")
-            .then(
-                if (isEditMode) {
-                    Modifier
-                        .pointerInput(control.id) {
-                            detectTapGestures(onTap = { onSelect() })
-                        }
-                        .pointerInput(control.id) {
-                            detectDragGestures(
-                                onDragStart = { onSelect() },
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    onDragDelta(dragAmount.x, dragAmount.y)
-                                }
-                            )
-                        }
-                } else {
-                    Modifier
-                }
-            ),
+            .testTag("virtual_control_${control.id}"),
         contentAlignment = Alignment.Center
     ) {
         when (control.controlType) {
@@ -849,12 +836,16 @@ private fun TouchpadSurface(
     isSelected: Boolean
 ) {
     val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
     val isPassThrough = control.binding.axisPair == AxisPair.TOUCHPAD_DIRECT_PASS
+    val isMouseFlickMode = control.touchpadMode == TouchpadMode.MOUSE
     var isSwiping by remember(control.id) { mutableStateOf(false) }
+    var isCoasting by remember(control.id) { mutableStateOf(false) }
     var fingerPos by remember(control.id) { mutableStateOf(Offset.Zero) }
     var anchorPos by remember(control.id) { mutableStateOf(Offset.Zero) }
     var normX by remember(control.id) { mutableFloatStateOf(0f) }
     var normY by remember(control.id) { mutableFloatStateOf(0f) }
+    var flickJob by remember(control.id) { mutableStateOf<Job?>(null) }
 
     val maxOffsetPx = with(density) { (36.dp / control.sensitivity.coerceIn(0.5f, 2.2f)).toPx() }
         .coerceAtLeast(14f)
@@ -863,10 +854,149 @@ private fun TouchpadSurface(
         modifier = Modifier
             .fillMaxSize()
             .then(
-                if (!isEditMode && !isPassThrough) {
+                if (!isEditMode && !isPassThrough && isMouseFlickMode) {
                     Modifier.pointerInput(
                         control.id,
                         control.binding.axisPair,
+                        control.touchpadMode,
+                        control.deadzone,
+                        control.sensitivity,
+                        control.invertY
+                    ) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val pointerId = down.id
+                            down.consume()
+                            flickJob?.cancel()
+                            isCoasting = false
+                            isSwiping = true
+                            anchorPos = down.position
+                            fingerPos = down.position
+
+                            val velocityTracker = VelocityTracker().apply {
+                                addPosition(down.uptimeMillis, down.position)
+                            }
+                            var prevPos = down.position
+                            var totalTravel = 0f
+                            val touchSlop = viewConfiguration.touchSlop
+                            val downTime = down.uptimeMillis
+
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val pointer = event.changes.firstOrNull { it.id == pointerId }
+                                    if (pointer == null || !pointer.pressed) {
+                                        break
+                                    }
+                                    pointer.consume()
+                                    val dx = pointer.position.x - prevPos.x
+                                    val dy = pointer.position.y - prevPos.y
+                                    prevPos = pointer.position
+                                    fingerPos = pointer.position
+                                    totalTravel += hypot(dx, dy)
+                                    velocityTracker.addPosition(pointer.uptimeMillis, pointer.position)
+
+                                    normX = (dx / 18f).coerceIn(-1f, 1f)
+                                    normY = (dy / 18f).coerceIn(-1f, 1f)
+                                    InputBridge.updateTouchpadMouseMove(
+                                        controlId = control.id,
+                                        sourceLabel = control.label,
+                                        axisPair = control.binding.axisPair,
+                                        deltaXPx = dx,
+                                        deltaYPx = dy,
+                                        sensitivity = control.sensitivity,
+                                        invertY = control.invertY,
+                                        isFlickInertia = false,
+                                        active = true
+                                    )
+                                }
+                            } finally {
+                                isSwiping = false
+                                val elapsed = android.os.SystemClock.uptimeMillis() - downTime
+                                val vel = velocityTracker.calculateVelocity()
+                                var vx = vel.x
+                                var vy = vel.y
+                                val speed = hypot(vx, vy)
+
+                                if (totalTravel < touchSlop && elapsed < 240L) {
+                                    InputBridge.updateTouchpadMouseMove(
+                                        controlId = control.id,
+                                        sourceLabel = control.label,
+                                        axisPair = control.binding.axisPair,
+                                        deltaXPx = 0f,
+                                        deltaYPx = 0f,
+                                        sensitivity = control.sensitivity,
+                                        invertY = control.invertY,
+                                        isFlickInertia = false,
+                                        active = false
+                                    )
+                                    InputBridge.dispatchMouseTapClick(control.label)
+                                    normX = 0f
+                                    normY = 0f
+                                } else if (speed > 240f) {
+                                    isCoasting = true
+                                    flickJob = scope.launch {
+                                        try {
+                                            while (hypot(vx, vy) > 45f) {
+                                                val stepX = vx * 0.016f
+                                                val stepY = vy * 0.016f
+                                                normX = (stepX / 18f).coerceIn(-1f, 1f)
+                                                normY = (stepY / 18f).coerceIn(-1f, 1f)
+                                                InputBridge.updateTouchpadMouseMove(
+                                                    controlId = control.id,
+                                                    sourceLabel = control.label,
+                                                    axisPair = control.binding.axisPair,
+                                                    deltaXPx = stepX,
+                                                    deltaYPx = stepY,
+                                                    sensitivity = control.sensitivity,
+                                                    invertY = control.invertY,
+                                                    isFlickInertia = true,
+                                                    active = true
+                                                )
+                                                vx *= 0.87f
+                                                vy *= 0.87f
+                                                delay(16L)
+                                            }
+                                        } finally {
+                                            isCoasting = false
+                                            normX = 0f
+                                            normY = 0f
+                                            InputBridge.updateTouchpadMouseMove(
+                                                controlId = control.id,
+                                                sourceLabel = control.label,
+                                                axisPair = control.binding.axisPair,
+                                                deltaXPx = 0f,
+                                                deltaYPx = 0f,
+                                                sensitivity = control.sensitivity,
+                                                invertY = control.invertY,
+                                                isFlickInertia = false,
+                                                active = false
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    normX = 0f
+                                    normY = 0f
+                                    InputBridge.updateTouchpadMouseMove(
+                                        controlId = control.id,
+                                        sourceLabel = control.label,
+                                        axisPair = control.binding.axisPair,
+                                        deltaXPx = 0f,
+                                        deltaYPx = 0f,
+                                        sensitivity = control.sensitivity,
+                                        invertY = control.invertY,
+                                        isFlickInertia = false,
+                                        active = false
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else if (!isEditMode && !isPassThrough) {
+                    Modifier.pointerInput(
+                        control.id,
+                        control.binding.axisPair,
+                        control.touchpadMode,
                         control.deadzone,
                         control.sensitivity,
                         control.invertY
@@ -943,10 +1073,11 @@ private fun TouchpadSurface(
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val corner = CornerRadius(18.dp.toPx(), 18.dp.toPx())
-            val strokePx = if (isSwiping || isSelected) 2.2.dp.toPx() else 1.2.dp.toPx()
+            val activeGlow = isSwiping || isCoasting
+            val strokePx = if (activeGlow || isSelected) 2.2.dp.toPx() else 1.2.dp.toPx()
             val bgAlpha = when {
                 isPassThrough && !isEditMode -> 0.14f
-                isSwiping -> 0.42f
+                activeGlow -> 0.42f
                 else -> 0.28f
             }
 
@@ -957,7 +1088,7 @@ private fun TouchpadSurface(
                 cornerRadius = corner
             )
             drawRoundRect(
-                color = accentColor.copy(alpha = if (isSwiping || isSelected) 0.78f else 0.42f),
+                color = accentColor.copy(alpha = if (activeGlow || isSelected) 0.78f else 0.42f),
                 topLeft = Offset(strokePx, strokePx),
                 size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
                 cornerRadius = corner,
@@ -981,20 +1112,22 @@ private fun TouchpadSurface(
             )
 
             if (isSwiping && !isPassThrough) {
-                drawLine(
-                    color = accentColor.copy(alpha = 0.65f),
-                    start = anchorPos,
-                    end = fingerPos,
-                    strokeWidth = 2.dp.toPx()
-                )
+                if (!isMouseFlickMode) {
+                    drawLine(
+                        color = accentColor.copy(alpha = 0.65f),
+                        start = anchorPos,
+                        end = fingerPos,
+                        strokeWidth = 2.dp.toPx()
+                    )
+                }
                 drawCircle(
-                    color = accentColor.copy(alpha = 0.3f),
+                    color = accentColor.copy(alpha = 0.26f),
                     radius = 22.dp.toPx(),
                     center = fingerPos
                 )
                 drawCircle(
                     color = accentColor,
-                    radius = 12.dp.toPx(),
+                    radius = 11.dp.toPx(),
                     center = fingerPos,
                     style = Stroke(width = 2.dp.toPx())
                 )
@@ -1007,23 +1140,28 @@ private fun TouchpadSurface(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 8.dp)
         ) {
+            val modeSuffix = when {
+                isPassThrough -> "PASS"
+                isMouseFlickMode -> if (isCoasting) "FLICK" else "MOUSE"
+                else -> "STICK"
+            }
             Text(
-                text = if (isSwiping) {
+                text = if (isSwiping || isCoasting) {
                     val dirH = when {
-                        normX > 0.25f -> "▶"
-                        normX < -0.25f -> "◀"
+                        normX > 0.22f -> "▶"
+                        normX < -0.22f -> "◀"
                         else -> ""
                     }
                     val dirV = when {
-                        normY > 0.25f -> "▼"
-                        normY < -0.25f -> "▲"
+                        normY > 0.22f -> "▼"
+                        normY < -0.22f -> "▲"
                         else -> ""
                     }
-                    "${control.label} $dirH$dirV".trim()
+                    "${control.label} • $modeSuffix $dirH$dirV".trim()
                 } else {
-                    control.label
+                    "${control.label} • $modeSuffix"
                 },
-                color = Color(0xFFF0F4FA).copy(alpha = if (isEditMode || isSwiping) 0.9f else 0.55f),
+                color = Color(0xFFF0F4FA).copy(alpha = if (isEditMode || isSwiping || isCoasting) 0.9f else 0.55f),
                 fontFamily = JetBrainsMonoFontFamily,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold
@@ -1072,7 +1210,8 @@ fun PositionedVirtualControl(
     isPressed: Boolean,
     isToggled: Boolean,
     onSelect: () -> Unit,
-    onDragDelta: (dxPx: Float, dyPx: Float) -> Unit
+    onDragDelta: (dxPx: Float, dyPx: Float) -> Unit = { _, _ -> },
+    onCommitPercent: (xPercent: Float, yPercent: Float) -> Unit = { _, _ -> }
 ) {
     val density = LocalDensity.current
     val widthDp = when (control.shape) {
@@ -1092,13 +1231,75 @@ fun PositionedVirtualControl(
     val wPx = with(density) { widthDp.dp.toPx() }
     val hPx = with(density) { heightDp.dp.toPx() }
 
-    val xPx = (control.xPercent * containerWidthPx - wPx / 2f)
-        .coerceIn(0f, (containerWidthPx - wPx).coerceAtLeast(0f))
-    val yPx = (control.yPercent * containerHeightPx - hPx / 2f)
-        .coerceIn(0f, (containerHeightPx - hPx).coerceAtLeast(0f))
+    val maxTopLeftX = (containerWidthPx - wPx).coerceAtLeast(0f)
+    val maxTopLeftY = (containerHeightPx - hPx).coerceAtLeast(0f)
+    val xPx = (control.xPercent * containerWidthPx - wPx / 2f).coerceIn(0f, maxTopLeftX)
+    val yPx = (control.yPercent * containerHeightPx - hPx / 2f).coerceIn(0f, maxTopLeftY)
+
+    var dragDeltaX by remember(control.id) { mutableFloatStateOf(0f) }
+    var dragDeltaY by remember(control.id) { mutableFloatStateOf(0f) }
+    val latestXPx by rememberUpdatedState(xPx)
+    val latestYPx by rememberUpdatedState(yPx)
+    val latestOnSelect by rememberUpdatedState(onSelect)
+    val latestOnCommit by rememberUpdatedState(onCommitPercent)
 
     Box(
-        modifier = Modifier.offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
+        modifier = Modifier
+            .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
+            .then(
+                if (isEditMode) {
+                    Modifier.pointerInput(control.id, containerWidthPx, containerHeightPx, wPx, hPx) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val pointerId = down.id
+                            down.consume()
+                            latestOnSelect()
+
+                            var prevPos = down.position
+                            var totalTravel = 0f
+                            val touchSlop = viewConfiguration.touchSlop
+                            var didDrag = false
+
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val pointer = event.changes.firstOrNull { it.id == pointerId }
+                                    if (pointer == null || !pointer.pressed) {
+                                        break
+                                    }
+                                    val dx = pointer.position.x - prevPos.x
+                                    val dy = pointer.position.y - prevPos.y
+                                    prevPos = pointer.position
+                                    totalTravel += hypot(dx, dy)
+                                    if (totalTravel > touchSlop) {
+                                        didDrag = true
+                                    }
+                                    if (didDrag) {
+                                        pointer.consume()
+                                        dragDeltaX = (dragDeltaX + dx).coerceIn(-latestXPx, maxTopLeftX - latestXPx)
+                                        dragDeltaY = (dragDeltaY + dy).coerceIn(-latestYPx, maxTopLeftY - latestYPx)
+                                    }
+                                }
+                            } finally {
+                                if (didDrag && containerWidthPx > 0f && containerHeightPx > 0f) {
+                                    val finalTopLeftX = (latestXPx + dragDeltaX).coerceIn(0f, maxTopLeftX)
+                                    val finalTopLeftY = (latestYPx + dragDeltaY).coerceIn(0f, maxTopLeftY)
+                                    val centerXPercent = ((finalTopLeftX + wPx / 2f) / containerWidthPx)
+                                    val centerYPercent = ((finalTopLeftY + hPx / 2f) / containerHeightPx)
+                                    dragDeltaX = 0f
+                                    dragDeltaY = 0f
+                                    latestOnCommit(centerXPercent, centerYPercent)
+                                } else {
+                                    dragDeltaX = 0f
+                                    dragDeltaY = 0f
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Modifier
+                }
+            )
     ) {
         VirtualControlCanvasItem(
             control = control,
@@ -1110,7 +1311,15 @@ fun PositionedVirtualControl(
             isPressed = isPressed,
             isToggled = isToggled,
             onSelect = onSelect,
-            onDragDelta = onDragDelta
+            onDragDelta = onDragDelta,
+            modifier = if (isEditMode) {
+                Modifier.graphicsLayer {
+                    translationX = dragDeltaX
+                    translationY = dragDeltaY
+                }
+            } else {
+                Modifier
+            }
         )
     }
 }

@@ -62,6 +62,7 @@ import com.example.model.ColorMatrixBuilder
 import com.example.model.ControllerProfile
 import com.example.model.StickState
 import com.example.model.TelemetryEvent
+import com.example.ui.components.CrosshairOverlayCanvas
 import com.example.ui.components.PositionedVirtualControl
 import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.JetBrainsMonoFontFamily
@@ -222,6 +223,8 @@ fun TestArenaScreen(
                     center = reticle
                 )
             }
+
+            CrosshairOverlayCanvas(settings = settings.crosshair)
 
             // Live stick readouts top bar
             Row(

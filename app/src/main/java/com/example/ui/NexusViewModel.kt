@@ -10,12 +10,16 @@ import com.example.data.PreferencesRepository
 import com.example.data.ProfileRepository
 import com.example.data.VibrationMode
 import com.example.input.InputBridge
+import com.example.model.AppLanguage
 import com.example.model.BindingDomain
 import com.example.model.ControlAccent
 import com.example.model.ControlShape
 import com.example.model.ControlType
 import com.example.model.ControllerNotation
 import com.example.model.ControllerProfile
+import com.example.model.CrosshairPreset
+import com.example.model.CrosshairSettings
+import com.example.model.CrosshairStyle
 import com.example.model.GameFilterStyle
 import com.example.model.GameGenre
 import com.example.model.InputBinding
@@ -173,7 +177,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
 
     fun applyCustomButtonImage(controlId: String, imageUri: Uri) {
         viewModelScope.launch {
-            ButtonImageCodec.encodeUriToBase64(getApplication(), imageUri)
+            ButtonImageCodec.encodeUriToBase64(getApplication(), imageUri, cropSquare = true)
                 .onSuccess { encoded ->
                     mutateEditorProfile(selectId = controlId) { current ->
                         current.copy(
@@ -185,7 +189,25 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                     _snackbarMessage.value = "Custom button image applied — tap Save to keep"
                 }
                 .onFailure { err ->
-                    _snackbarMessage.value = "Failed to load image: ${err.localizedMessage ?: "Invalid file"}"
+                    _snackbarMessage.value = "Failed to load image: ${err.localizedMessage ?: "Unsupported file"}"
+                }
+        }
+    }
+
+    fun applyCrosshairCustomImage(imageUri: Uri) {
+        viewModelScope.launch {
+            ButtonImageCodec.encodeUriToBase64(getApplication(), imageUri, cropSquare = false)
+                .onSuccess { encoded ->
+                    val next = settings.value.crosshair.copy(
+                        enabled = true,
+                        style = CrosshairStyle.CUSTOM_IMAGE,
+                        customImageBase64 = encoded
+                    )
+                    prefsRepo.updateCrosshair(next)
+                    _snackbarMessage.value = "Custom crosshair image applied"
+                }
+                .onFailure { err ->
+                    _snackbarMessage.value = "Failed to load crosshair: ${err.localizedMessage ?: "Unsupported file"}"
                 }
         }
     }
@@ -195,10 +217,28 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { prefsRepo.setVibrationMode(mode) }
     fun setGlobalOpacity(opacity: Float) = viewModelScope.launch { prefsRepo.setGlobalOpacity(opacity) }
     fun setGridSnapEnabled(enabled: Boolean) = viewModelScope.launch { prefsRepo.setGridSnapEnabled(enabled) }
+    fun setGridDivisions(divisions: Int) = viewModelScope.launch { prefsRepo.setGridDivisions(divisions) }
     fun setControllerNotation(notation: ControllerNotation) = viewModelScope.launch { prefsRepo.setControllerNotation(notation) }
     fun setDarkTheme(dark: Boolean) = viewModelScope.launch { prefsRepo.setDarkTheme(dark) }
     fun setShowTelemetryOverlay(show: Boolean) = viewModelScope.launch { prefsRepo.setShowTelemetryOverlay(show) }
     fun setAutoLaunchGeForceNow(enabled: Boolean) = viewModelScope.launch { prefsRepo.setAutoLaunchGeForceNow(enabled) }
+    fun setFloatingKeyboardDefault(enabled: Boolean) = viewModelScope.launch { prefsRepo.setFloatingKeyboardDefault(enabled) }
+    fun setAppLanguage(language: AppLanguage) = viewModelScope.launch { prefsRepo.setAppLanguage(language) }
+
+    // Crosshair HUD
+    fun updateCrosshair(crosshair: CrosshairSettings) = viewModelScope.launch {
+        prefsRepo.updateCrosshair(crosshair)
+    }
+
+    fun selectCrosshairPreset(preset: CrosshairPreset) = viewModelScope.launch {
+        val next = preset.applyTo(settings.value.crosshair)
+        prefsRepo.updateCrosshair(next)
+    }
+
+    fun resetCrosshair() = viewModelScope.launch {
+        prefsRepo.updateCrosshair(CrosshairSettings(enabled = settings.value.crosshair.enabled))
+        _snackbarMessage.value = "Crosshair reset to default"
+    }
 
     // GeForce Experience Style Game Filters
     fun selectFilterSlot(slot: Int) = viewModelScope.launch {
@@ -239,6 +279,29 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         _editorState.update { it.copy(isPlayTestMode = !it.isPlayTestMode) }
     }
 
+    fun moveControlToPercent(
+        controlId: String,
+        rawXPercent: Float,
+        rawYPercent: Float,
+        snapToGrid: Boolean,
+        gridDivisions: Int
+    ) {
+        val divs = gridDivisions.coerceIn(4, 32).toFloat()
+        val aspectDivsY = (divs * 0.66f).roundToInt().coerceIn(4, 24).toFloat()
+        val clampedX = rawXPercent.coerceIn(0.02f, 0.98f)
+        val clampedY = rawYPercent.coerceIn(0.03f, 0.97f)
+        val finalX = if (snapToGrid) ((clampedX * divs).roundToInt() / divs).coerceIn(0.02f, 0.98f) else clampedX
+        val finalY = if (snapToGrid) ((clampedY * aspectDivsY).roundToInt() / aspectDivsY).coerceIn(0.03f, 0.97f) else clampedY
+
+        mutateEditorProfile(selectId = controlId) { current ->
+            current.copy(
+                controls = current.controls.map { ctrl ->
+                    if (ctrl.id == controlId) ctrl.copy(xPercent = finalX, yPercent = finalY) else ctrl
+                }
+            )
+        }
+    }
+
     fun moveControlByDelta(
         controlId: String,
         dxPx: Float,
@@ -254,11 +317,9 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                 if (ctrl.id != controlId) {
                     ctrl
                 } else {
-                    val rawX = (ctrl.xPercent + dxPx / canvasWidthPx).coerceIn(0.05f, 0.95f)
-                    val rawY = (ctrl.yPercent + dyPx / canvasHeightPx).coerceIn(0.08f, 0.92f)
-                    val snappedX = if (snapToGrid) ((rawX * 50f).roundToInt() / 50f) else rawX
-                    val snappedY = if (snapToGrid) ((rawY * 50f).roundToInt() / 50f) else rawY
-                    ctrl.copy(xPercent = snappedX, yPercent = snappedY)
+                    val rawX = (ctrl.xPercent + dxPx / canvasWidthPx).coerceIn(0.02f, 0.98f)
+                    val rawY = (ctrl.yPercent + dyPx / canvasHeightPx).coerceIn(0.03f, 0.97f)
+                    ctrl.copy(xPercent = rawX, yPercent = rawY)
                 }
             }
             state.copy(

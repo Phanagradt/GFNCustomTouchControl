@@ -8,18 +8,19 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.Settings
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,13 +40,16 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Lock
@@ -58,9 +62,11 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -69,21 +75,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -103,12 +105,18 @@ import com.example.data.OverlaySettings
 import com.example.data.PreferencesRepository
 import com.example.data.ProfileRepository
 import com.example.input.InputBridge
+import com.example.model.AppLanguage
+import com.example.model.AppLocalization
 import com.example.model.AxisPair
 import com.example.model.ControlShape
 import com.example.model.ControllerProfile
+import com.example.model.CrosshairPresets
+import com.example.model.CrosshairSettings
 import com.example.model.GameFilterState
-import com.example.model.GameFilterStyle
+import com.example.model.LocalNexusStrings
 import com.example.model.VirtualControl
+import com.example.ui.components.CrosshairOverlayCanvas
+import com.example.ui.components.CrosshairPanelContent
 import com.example.ui.components.GeForceFilterPanelContent
 import com.example.ui.components.ScreenFilterOverlayCanvas
 import com.example.ui.components.VirtualControlCanvasItem
@@ -131,11 +139,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlin.math.PI
-import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 class OverlayControllerService : Service() {
 
@@ -143,10 +148,24 @@ class OverlayControllerService : Service() {
         private const val CHANNEL_ID = "nexuspad_overlay_channel"
         private const val NOTIFICATION_ID = 4107
         const val ACTION_STOP_OVERLAY = "com.example.action.STOP_OVERLAY"
+        const val ACTION_OPEN_FLOATING_KB = "com.example.action.OPEN_FLOATING_KB"
+        const val EXTRA_VISUALS_TAB = "extra_visuals_tab"
 
         fun start(context: Context) {
             if (!Settings.canDrawOverlays(context)) return
             val intent = Intent(context, OverlayControllerService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+
+        fun startFloatingKeyboard(context: Context) {
+            if (!Settings.canDrawOverlays(context)) return
+            val intent = Intent(context, OverlayControllerService::class.java).apply {
+                action = ACTION_OPEN_FLOATING_KB
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -164,20 +183,37 @@ class OverlayControllerService : Service() {
     private lateinit var lifecycleOwner: OverlayLifecycleOwner
     private val controlViews = mutableListOf<ComposeView>()
     private val controlViewParams = mutableListOf<WindowManager.LayoutParams>()
+
     private var filterOverlayView: ComposeView? = null
     private var filterOverlayParams: WindowManager.LayoutParams? = null
+    private var crosshairOverlayView: ComposeView? = null
+    private var crosshairOverlayParams: WindowManager.LayoutParams? = null
+    private var floatingKeyboardView: ComposeView? = null
+    private var floatingKeyboardParams: WindowManager.LayoutParams? = null
     private var floatingBubbleView: ComposeView? = null
     private var bubbleParams: WindowManager.LayoutParams? = null
-    private var menuWheelView: ComposeView? = null
+
+    private var leftMenuView: ComposeView? = null
     private var filterPanelView: ComposeView? = null
+    private var crosshairPanelView: ComposeView? = null
 
     private val buttonsVisible = MutableStateFlow(true)
     private val bubbleLocked = MutableStateFlow(false)
-    private val menuWheelOpen = MutableStateFlow(false)
+    private val leftMenuOpen = MutableStateFlow(false)
     private val filterPanelOpen = MutableStateFlow(false)
+    private val crosshairPanelOpen = MutableStateFlow(false)
+    private val floatingKeyboardOpen = MutableStateFlow(false)
+    private val floatingKeyboardDefaultFlow = MutableStateFlow(false)
+
     private val filterStateFlow = MutableStateFlow(GameFilterState.default())
+    private val crosshairFlow = MutableStateFlow(CrosshairSettings())
+    private val appLanguageFlow = MutableStateFlow(AppLanguage.SYSTEM)
     private val activeProfileName = MutableStateFlow("NexusPad")
     private val allProfilesFlow = MutableStateFlow<List<ControllerProfile>>(emptyList())
+
+    private var lastRenderedProfile: ControllerProfile? = null
+    private var lastRenderedSettings: OverlaySettings = OverlaySettings()
+
     private var profileRepoRef: ProfileRepository? = null
     private var prefsRepoRef: PreferencesRepository? = null
     private var collectorJob: Job? = null
@@ -207,18 +243,86 @@ class OverlayControllerService : Service() {
         }
 
         InputBridge.setOverlayRunning(true)
+        InputBridge.attachFloatKeyboardHandler {
+            serviceScope.launch {
+                floatingKeyboardOpen.value = true
+            }
+        }
         attachFloatingBubble()
         observeActiveProfile()
-        observeMenuWheelState()
+        observeLeftMenuState()
         observeFilterPanelState()
+        observeCrosshairPanelState()
+        observeFloatingKeyboardState()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP_OVERLAY) {
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP_OVERLAY -> {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_OPEN_FLOATING_KB -> {
+                floatingKeyboardOpen.value = true
+            }
         }
         return START_STICKY
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val (screenW, screenH) = realScreenSize()
+
+        // Clamp floating bubble inside updated landscape/portrait screen bounds
+        floatingBubbleView?.let { bubble ->
+            val bp = bubbleParams ?: return@let
+            bp.x = bp.x.coerceIn(0, (screenW - bp.width).coerceAtLeast(0))
+            bp.y = bp.y.coerceIn(0, (screenH - bp.height).coerceAtLeast(0))
+            runCatching { windowManager.updateViewLayout(bubble, bp) }
+        }
+
+        // Re-layout virtual controls edge-to-edge across the new orientation dimensions
+        clearControlWindows()
+        val profile = lastRenderedProfile
+        if (buttonsVisible.value && profile != null) {
+            renderControlWindows(profile, lastRenderedSettings)
+        }
+        if (floatingKeyboardOpen.value) {
+            dismissFloatingKeyboardOverlay()
+            showFloatingKeyboardOverlay()
+        }
+        ensureFloatingChromeOnTop()
+    }
+
+    private fun realScreenSize(): Pair<Int, Int> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = windowManager.maximumWindowMetrics.bounds
+            if (bounds.width() > 0 && bounds.height() > 0) {
+                return bounds.width() to bounds.height()
+            }
+        }
+        val pt = Point()
+        @Suppress("DEPRECATION")
+        runCatching { windowManager.defaultDisplay?.getRealSize(pt) }
+        return if (pt.x > 0 && pt.y > 0) {
+            pt.x to pt.y
+        } else {
+            val dm = resources.displayMetrics
+            dm.widthPixels to dm.heightPixels
+        }
+    }
+
+    private fun applyFullScreenOverlayFlags(params: WindowManager.LayoutParams) {
+        params.flags = params.flags or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            params.layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            } else {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
     }
 
     private fun observeActiveProfile() {
@@ -244,9 +348,30 @@ class OverlayControllerService : Service() {
                         applyLiveFilterState(filterState)
                     }
             }
+            launch {
+                prefsRepo.settingsFlow
+                    .map { it.crosshair }
+                    .distinctUntilChanged()
+                    .collect { crosshair ->
+                        applyLiveCrosshairState(crosshair)
+                    }
+            }
+            launch {
+                prefsRepo.settingsFlow
+                    .map { it.appLanguage to it.floatingKeyboardDefault }
+                    .distinctUntilChanged()
+                    .collect { (lang, floatKb) ->
+                        appLanguageFlow.value = lang
+                        floatingKeyboardDefaultFlow.value = floatKb
+                    }
+            }
+
             val controlSettingsFlow = prefsRepo.settingsFlow
                 .map { s ->
-                    s.copy(gameFilter = GameFilterState.default())
+                    s.copy(
+                        gameFilter = GameFilterState.default(),
+                        crosshair = CrosshairSettings()
+                    )
                 }
                 .distinctUntilChanged()
 
@@ -257,6 +382,8 @@ class OverlayControllerService : Service() {
             ) { profile, settings, visible ->
                 Triple(profile, settings, visible)
             }.collect { (profile, settings, visible) ->
+                lastRenderedProfile = profile
+                lastRenderedSettings = settings
                 activeProfileName.value = profile?.name ?: "NexusPad"
                 clearControlWindows()
                 InputBridge.releaseAll()
@@ -268,14 +395,15 @@ class OverlayControllerService : Service() {
         }
     }
 
-    private fun observeMenuWheelState() {
+    private fun observeLeftMenuState() {
         serviceScope.launch {
-            menuWheelOpen.collect { open ->
+            leftMenuOpen.collect { open ->
                 if (open) {
                     filterPanelOpen.value = false
-                    showMenuWheelOverlay()
+                    crosshairPanelOpen.value = false
+                    showLeftMenuOverlay()
                 } else {
-                    dismissMenuWheelOverlay()
+                    dismissLeftMenuOverlay()
                 }
             }
         }
@@ -285,10 +413,37 @@ class OverlayControllerService : Service() {
         serviceScope.launch {
             filterPanelOpen.collect { open ->
                 if (open) {
-                    menuWheelOpen.value = false
+                    leftMenuOpen.value = false
+                    crosshairPanelOpen.value = false
                     showFloatingFilterPanel()
                 } else {
                     dismissFloatingFilterPanel()
+                }
+            }
+        }
+    }
+
+    private fun observeCrosshairPanelState() {
+        serviceScope.launch {
+            crosshairPanelOpen.collect { open ->
+                if (open) {
+                    leftMenuOpen.value = false
+                    filterPanelOpen.value = false
+                    showFloatingCrosshairPanel()
+                } else {
+                    dismissFloatingCrosshairPanel()
+                }
+            }
+        }
+    }
+
+    private fun observeFloatingKeyboardState() {
+        serviceScope.launch {
+            floatingKeyboardOpen.collect { open ->
+                if (open) {
+                    showFloatingKeyboardOverlay()
+                } else {
+                    dismissFloatingKeyboardOverlay()
                 }
             }
         }
@@ -305,37 +460,47 @@ class OverlayControllerService : Service() {
         }
     }
 
-    private fun openMainApp() {
-        menuWheelOpen.value = false
+    private fun openMainApp(openCrosshairTab: Boolean = false) {
+        leftMenuOpen.value = false
+        filterPanelOpen.value = false
+        crosshairPanelOpen.value = false
         val intent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            if (openCrosshairTab) {
+                putExtra(EXTRA_VISUALS_TAB, "crosshair")
+            }
         }
         runCatching { startActivity(intent) }
     }
 
-    private fun openKeyboardFromWheel() {
-        menuWheelOpen.value = false
+    private fun openKeyboardFromMenu() {
+        leftMenuOpen.value = false
+        if (floatingKeyboardDefaultFlow.value) {
+            floatingKeyboardOpen.value = true
+            return
+        }
         val shown = InputBridge.requestShowKeyboard()
         if (!shown) {
-            SystemIntegrations.showInputMethodPicker(this)
+            floatingKeyboardOpen.value = true
         }
     }
 
     private fun attachFloatingBubble() {
-        val dm = resources.displayMetrics
-        val bubblePx = (56 * dm.density).roundToInt()
+        val (screenW, screenH) = realScreenSize()
+        val density = resources.displayMetrics.density
+        val bubblePx = (56 * density).roundToInt()
         val params = WindowManager.LayoutParams(
             bubblePx,
             bubblePx,
             overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_SPLIT_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = (dm.widthPixels - bubblePx - (18 * dm.density).roundToInt()).coerceAtLeast(0)
-            y = (dm.heightPixels * 0.14f).roundToInt()
+            x = (18 * density).roundToInt()
+            y = (screenH * 0.14f).roundToInt().coerceIn(0, (screenH - bubblePx).coerceAtLeast(0))
+            applyFullScreenOverlayFlags(this)
         }
         bubbleParams = params
 
@@ -344,11 +509,14 @@ class OverlayControllerService : Service() {
             setContent {
                 val visible by buttonsVisible.collectAsState()
                 val locked by bubbleLocked.collectAsState()
-                val wheelOpen by menuWheelOpen.collectAsState()
+                val menuOpen by leftMenuOpen.collectAsState()
+                val filterOpen by filterPanelOpen.collectAsState()
+                val crossOpen by crosshairPanelOpen.collectAsState()
+                val anyPanelOpen = menuOpen || filterOpen || crossOpen
 
                 NexusPadTheme {
                     val accent = when {
-                        wheelOpen -> TacticalCyan
+                        anyPanelOpen -> TacticalCyan
                         locked -> TurboAmber
                         !visible -> Color(0xFF9FB0C7)
                         else -> GeForceLime
@@ -373,8 +541,7 @@ class OverlayControllerService : Service() {
                                     var prevPos = down.position
                                     var totalMoved = 0f
                                     var didDrag = false
-                                    val screenW = resources.displayMetrics.widthPixels
-                                    val screenH = resources.displayMetrics.heightPixels
+                                    val (curW, curH) = realScreenSize()
 
                                     while (true) {
                                         val event = awaitPointerEvent()
@@ -392,19 +559,20 @@ class OverlayControllerService : Service() {
                                             if (!bubbleLocked.value) {
                                                 change.consume()
                                                 params.x = (params.x + dx.roundToInt())
-                                                    .coerceIn(0, (screenW - params.width).coerceAtLeast(0))
+                                                    .coerceIn(0, (curW - params.width).coerceAtLeast(0))
                                                 params.y = (params.y + dy.roundToInt())
-                                                    .coerceIn(0, (screenH - params.height).coerceAtLeast(0))
+                                                    .coerceIn(0, (curH - params.height).coerceAtLeast(0))
                                                 runCatching { windowManager.updateViewLayout(this@apply, params) }
                                             }
                                         }
                                     }
 
                                     if (!didDrag) {
-                                        if (filterPanelOpen.value) {
+                                        if (filterPanelOpen.value || crosshairPanelOpen.value) {
                                             filterPanelOpen.value = false
+                                            crosshairPanelOpen.value = false
                                         } else {
-                                            menuWheelOpen.value = !menuWheelOpen.value
+                                            leftMenuOpen.value = !leftMenuOpen.value
                                         }
                                     }
                                 }
@@ -412,16 +580,12 @@ class OverlayControllerService : Service() {
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (wheelOpen || filterPanelOpen.collectAsState().value) {
-                                Icons.Default.Close
-                            } else {
-                                Icons.Default.Gamepad
-                            },
-                            contentDescription = "Open NexusPad Menu Wheel",
+                            imageVector = if (anyPanelOpen) Icons.Default.Close else Icons.Default.Gamepad,
+                            contentDescription = "Open NexusPad Menu",
                             tint = accent,
                             modifier = Modifier.size(25.dp)
                         )
-                        if (locked && !wheelOpen) {
+                        if (locked && !anyPanelOpen) {
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
@@ -430,7 +594,7 @@ class OverlayControllerService : Service() {
                                     .clip(CircleShape)
                                     .background(TurboAmber)
                             )
-                        } else if (!visible && !wheelOpen) {
+                        } else if (!visible && !anyPanelOpen) {
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
@@ -460,14 +624,13 @@ class OverlayControllerService : Service() {
         val dim = computeOverlayDimAmount(activeStyle)
         val baseFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             if (dim > 0.005f) WindowManager.LayoutParams.FLAG_DIM_BEHIND else 0
 
         val existingView = filterOverlayView
         val existingParams = filterOverlayParams
         if (existingView != null && existingParams != null) {
             existingParams.flags = baseFlags
+            applyFullScreenOverlayFlags(existingParams)
             existingParams.dimAmount = dim
             runCatching { windowManager.updateViewLayout(existingView, existingParams) }
         } else {
@@ -480,6 +643,7 @@ class OverlayControllerService : Service() {
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
                 dimAmount = dim
+                applyFullScreenOverlayFlags(this)
             }
             val view = ComposeView(this).apply {
                 attachLifecycle(this)
@@ -494,8 +658,7 @@ class OverlayControllerService : Service() {
             filterOverlayView = view
             filterOverlayParams = params
             runCatching { windowManager.addView(view, params) }
-            // Keep screen filter strictly underneath all virtual buttons, bubble, wheel & panel
-            bringControlsAndChromeAboveFilter()
+            reStackAllLayers()
         }
     }
 
@@ -507,7 +670,53 @@ class OverlayControllerService : Service() {
         filterOverlayParams = null
     }
 
-    private fun bringControlsAndChromeAboveFilter() {
+    private fun applyLiveCrosshairState(crosshair: CrosshairSettings) {
+        crosshairFlow.value = crosshair
+        if (!crosshair.enabled) {
+            removeCrosshairOverlay()
+            return
+        }
+
+        if (crosshairOverlayView == null) {
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                overlayWindowType(),
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                applyFullScreenOverlayFlags(this)
+            }
+            val view = ComposeView(this).apply {
+                attachLifecycle(this)
+                setContent {
+                    val current by crosshairFlow.collectAsState()
+                    CrosshairOverlayCanvas(settings = current)
+                }
+            }
+            crosshairOverlayView = view
+            crosshairOverlayParams = params
+            runCatching { windowManager.addView(view, params) }
+            reStackAllLayers()
+        }
+    }
+
+    private fun removeCrosshairOverlay() {
+        crosshairOverlayView?.let { view ->
+            runCatching { windowManager.removeViewImmediate(view) }
+        }
+        crosshairOverlayView = null
+        crosshairOverlayParams = null
+    }
+
+    private fun reStackAllLayers() {
+        crosshairOverlayView?.let { v ->
+            val p = crosshairOverlayParams ?: return@let
+            runCatching { windowManager.removeViewImmediate(v) }
+            runCatching { windowManager.addView(v, p) }
+        }
         val snapshot = controlViews.zip(controlViewParams)
         snapshot.forEach { (view, _) ->
             runCatching { windowManager.removeViewImmediate(view) }
@@ -518,21 +727,21 @@ class OverlayControllerService : Service() {
         ensureFloatingChromeOnTop()
     }
 
-    private fun showMenuWheelOverlay() {
-        if (menuWheelView != null) return
+    private fun showLeftMenuOverlay() {
+        if (leftMenuView != null) return
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.CENTER
+            gravity = Gravity.TOP or Gravity.START
+            applyFullScreenOverlayFlags(this)
         }
 
-        val wheelView = ComposeView(this).apply {
+        val view = ComposeView(this).apply {
             attachLifecycle(this)
             setContent {
                 val visible by buttonsVisible.collectAsState()
@@ -540,57 +749,63 @@ class OverlayControllerService : Service() {
                 val profileName by activeProfileName.collectAsState()
                 val profileCount = allProfilesFlow.collectAsState().value.size
                 val filterState by filterStateFlow.collectAsState()
+                val crosshair by crosshairFlow.collectAsState()
+                val appLang by appLanguageFlow.collectAsState()
+                val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
 
-                NexusPadTheme {
-                    RadialMenuWheelOverlay(
-                        profileName = profileName,
-                        buttonsVisible = visible,
-                        bubbleLocked = locked,
-                        canSwitchProfile = profileCount > 1,
-                        activeFilterSlot = filterState.activeSlot,
-                        onDismiss = { menuWheelOpen.value = false },
-                        onToggleButtons = {
-                            buttonsVisible.value = !visible
-                            menuWheelOpen.value = false
-                        },
-                        onSwitchProfile = {
-                            cycleNextProfile()
-                        },
-                        onOpenKeyboard = {
-                            openKeyboardFromWheel()
-                        },
-                        onOpenFilters = {
-                            menuWheelOpen.value = false
-                            filterPanelOpen.value = true
-                        },
-                        onReleaseAll = {
-                            InputBridge.releaseAll()
-                            menuWheelOpen.value = false
-                        },
-                        onToggleLock = {
-                            bubbleLocked.value = !locked
-                            menuWheelOpen.value = false
-                        },
-                        onStopOverlay = {
-                            menuWheelOpen.value = false
-                            stopSelf()
-                        },
-                        onOpenApp = {
-                            openMainApp()
-                        }
-                    )
+                CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
+                    NexusPadTheme(darkTheme = true) {
+                        LeftSideOverlayMenu(
+                            profileName = profileName,
+                            buttonsVisible = visible,
+                            bubbleLocked = locked,
+                            canSwitchProfile = profileCount > 1,
+                            activeFilterSlot = filterState.activeSlot,
+                            crosshairEnabled = crosshair.enabled,
+                            onDismiss = { leftMenuOpen.value = false },
+                            onToggleButtons = {
+                                buttonsVisible.value = !visible
+                                leftMenuOpen.value = false
+                            },
+                            onSwitchProfile = { cycleNextProfile() },
+                            onOpenFilters = {
+                                leftMenuOpen.value = false
+                                filterPanelOpen.value = true
+                            },
+                            onOpenCrosshair = {
+                                leftMenuOpen.value = false
+                                crosshairPanelOpen.value = true
+                            },
+                            onOpenKeyboard = { openKeyboardFromMenu() },
+                            onOpenFloatingKeyboard = {
+                                leftMenuOpen.value = false
+                                floatingKeyboardOpen.value = !floatingKeyboardOpen.value
+                            },
+                            onReleaseAll = {
+                                InputBridge.releaseAll()
+                                leftMenuOpen.value = false
+                            },
+                            onToggleLock = {
+                                bubbleLocked.value = !locked
+                                leftMenuOpen.value = false
+                            },
+                            onStopOverlay = {
+                                leftMenuOpen.value = false
+                                stopSelf()
+                            },
+                            onOpenApp = { openMainApp(openCrosshairTab = false) }
+                        )
+                    }
                 }
             }
         }
-        menuWheelView = wheelView
-        runCatching { windowManager.addView(wheelView, params) }
+        leftMenuView = view
+        runCatching { windowManager.addView(view, params) }
     }
 
-    private fun dismissMenuWheelOverlay() {
-        menuWheelView?.let { view ->
-            runCatching { windowManager.removeViewImmediate(view) }
-        }
-        menuWheelView = null
+    private fun dismissLeftMenuOverlay() {
+        leftMenuView?.let { runCatching { windowManager.removeViewImmediate(it) } }
+        leftMenuView = null
     }
 
     private fun showFloatingFilterPanel() {
@@ -600,42 +815,24 @@ class OverlayControllerService : Service() {
             WindowManager.LayoutParams.MATCH_PARENT,
             overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.CENTER
+            gravity = Gravity.TOP or Gravity.START
+            applyFullScreenOverlayFlags(this)
         }
 
         val panel = ComposeView(this).apply {
             attachLifecycle(this)
             setContent {
                 val filterState by filterStateFlow.collectAsState()
+                val appLang by appLanguageFlow.collectAsState()
+                val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
 
-                NexusPadTheme(darkTheme = true) {
-                    BoxWithConstraints(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Transparent)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = { filterPanelOpen.value = false }
-                            )
-                            .padding(horizontal = 16.dp, vertical = 20.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val maxPanelHeight = (maxHeight * 0.82f).coerceAtLeast(320.dp)
-                        Box(
-                            modifier = Modifier
-                                .widthIn(max = 368.dp)
-                                .heightIn(max = maxPanelHeight)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                    onClick = {}
-                                )
-                                .verticalScroll(rememberScrollState())
+                CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
+                    NexusPadTheme(darkTheme = true) {
+                        LeftDockedPanelWrapper(
+                            onDismiss = { filterPanelOpen.value = false }
                         ) {
                             GeForceFilterPanelContent(
                                 filterState = filterState,
@@ -677,33 +874,250 @@ class OverlayControllerService : Service() {
     }
 
     private fun dismissFloatingFilterPanel() {
-        filterPanelView?.let { view ->
-            runCatching { windowManager.removeViewImmediate(view) }
-        }
+        filterPanelView?.let { runCatching { windowManager.removeViewImmediate(it) } }
         filterPanelView = null
     }
 
+    private fun showFloatingCrosshairPanel() {
+        if (crosshairPanelView != null) return
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            overlayWindowType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            applyFullScreenOverlayFlags(this)
+        }
+
+        val panel = ComposeView(this).apply {
+            attachLifecycle(this)
+            setContent {
+                val crosshair by crosshairFlow.collectAsState()
+                val appLang by appLanguageFlow.collectAsState()
+                val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
+
+                CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
+                    NexusPadTheme(darkTheme = true) {
+                        LeftDockedPanelWrapper(
+                            onDismiss = { crosshairPanelOpen.value = false }
+                        ) {
+                            CrosshairPanelContent(
+                                crosshair = crosshair,
+                                compactMode = true,
+                                onUpdate = { next ->
+                                    applyLiveCrosshairState(next)
+                                    serviceScope.launch {
+                                        prefsRepoRef?.updateCrosshair(next)
+                                    }
+                                },
+                                onSelectPreset = { preset ->
+                                    val next = preset.applyTo(crosshair)
+                                    applyLiveCrosshairState(next)
+                                    serviceScope.launch {
+                                        prefsRepoRef?.updateCrosshair(next)
+                                    }
+                                },
+                                onReset = {
+                                    val reset = CrosshairSettings(enabled = crosshair.enabled)
+                                    applyLiveCrosshairState(reset)
+                                    serviceScope.launch {
+                                        prefsRepoRef?.updateCrosshair(reset)
+                                    }
+                                },
+                                onUploadCustomImageClick = {
+                                    openMainApp(openCrosshairTab = true)
+                                },
+                                onClose = { crosshairPanelOpen.value = false }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        crosshairPanelView = panel
+        runCatching { windowManager.addView(panel, params) }
+    }
+
+    private fun dismissFloatingCrosshairPanel() {
+        crosshairPanelView?.let { runCatching { windowManager.removeViewImmediate(it) } }
+        crosshairPanelView = null
+    }
+
+    private fun showFloatingKeyboardOverlay() {
+        if (floatingKeyboardView != null) return
+        val (screenW, screenH) = realScreenSize()
+        val density = resources.displayMetrics.density
+        val kbWidthPx = ((screenW - (24 * density).roundToInt()).coerceAtMost((540 * density).roundToInt()))
+            .coerceAtLeast((280 * density).roundToInt())
+        val estKbHeightPx = (290 * density).roundToInt()
+
+        val params = WindowManager.LayoutParams(
+            kbWidthPx,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayWindowType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_SPLIT_TOUCH,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = ((screenW - kbWidthPx) / 2).coerceAtLeast(0)
+            y = (screenH - estKbHeightPx - (24 * density).roundToInt()).coerceAtLeast((20 * density).roundToInt())
+            applyFullScreenOverlayFlags(this)
+        }
+        floatingKeyboardParams = params
+
+        val initialKbLang = when (AppLocalization.resolveEffectiveLanguage(appLanguageFlow.value)) {
+            AppLanguage.THAI -> NexusVirtualKeyboardView.KeyboardLanguage.THAI
+            else -> NexusVirtualKeyboardView.KeyboardLanguage.ENGLISH
+        }
+
+        val view = ComposeView(this).apply {
+            attachLifecycle(this)
+            setContent {
+                NexusPadTheme(darkTheme = true) {
+                    Surface(
+                        color = Color(0xF20B0E14),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.5.dp, GeForceLime.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            // Draggable Header Bar (so user can position keyboard freely above taskbar)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFF141B26))
+                                    .pointerInput(Unit) {
+                                        awaitEachGesture {
+                                            val down = awaitFirstDown(requireUnconsumed = false)
+                                            val pointerId = down.id
+                                            down.consume()
+                                            var prev = down.position
+                                            val (curW, curH) = realScreenSize()
+                                            while (true) {
+                                                val ev = awaitPointerEvent()
+                                                val ch = ev.changes.firstOrNull { it.id == pointerId }
+                                                if (ch == null || !ch.pressed) break
+                                                val dx = ch.position.x - prev.x
+                                                val dy = ch.position.y - prev.y
+                                                prev = ch.position
+                                                ch.consume()
+                                                params.x = (params.x + dx.roundToInt())
+                                                    .coerceIn(0, (curW - params.width).coerceAtLeast(0))
+                                                params.y = (params.y + dy.roundToInt())
+                                                    .coerceIn(0, (curH - (140 * density).roundToInt()).coerceAtLeast(0))
+                                                runCatching { windowManager.updateViewLayout(this@apply, params) }
+                                            }
+                                        }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DragHandle,
+                                        contentDescription = "Drag Floating Keyboard",
+                                        tint = GeForceLime,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = "DRAG KEYBOARD ABOVE TASKBAR",
+                                        color = Color(0xFFD5E1F0),
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { floatingKeyboardOpen.value = false },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Close Floating Keyboard",
+                                        tint = Color(0xFFD5E1F0),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+
+                            AndroidView(
+                                factory = { ctx ->
+                                    NexusVirtualKeyboardView(
+                                        context = ctx,
+                                        initialLanguage = initialKbLang,
+                                        isFloatingMode = true,
+                                        onCommitText = { InputBridge.dispatchCommitText(it) },
+                                        onBackspace = { InputBridge.dispatchBackspace() },
+                                        onEnter = { InputBridge.dispatchEnter() },
+                                        onSpecialKey = { keyCode ->
+                                            InputBridge.dispatchRawKey(keyCode, KeyEvent.ACTION_DOWN)
+                                            InputBridge.dispatchRawKey(keyCode, KeyEvent.ACTION_UP)
+                                        },
+                                        onSwitchIme = { SystemIntegrations.showInputMethodPicker(ctx) },
+                                        onHideKeyboard = { floatingKeyboardOpen.value = false },
+                                        onToggleFloating = {
+                                            floatingKeyboardOpen.value = false
+                                            InputBridge.requestShowKeyboard()
+                                        }
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        floatingKeyboardView = view
+        runCatching { windowManager.addView(view, params) }
+    }
+
+    private fun dismissFloatingKeyboardOverlay() {
+        floatingKeyboardView?.let { runCatching { windowManager.removeViewImmediate(it) } }
+        floatingKeyboardView = null
+        floatingKeyboardParams = null
+    }
+
     private fun ensureFloatingChromeOnTop() {
+        if (floatingKeyboardOpen.value) {
+            floatingKeyboardView?.let { kb ->
+                val kp = floatingKeyboardParams ?: return@let
+                runCatching { windowManager.removeViewImmediate(kb) }
+                runCatching { windowManager.addView(kb, kp) }
+            }
+        }
         floatingBubbleView?.let { bubble ->
             val params = bubbleParams ?: return@let
             runCatching { windowManager.removeViewImmediate(bubble) }
             runCatching { windowManager.addView(bubble, params) }
         }
-        if (menuWheelOpen.value) {
-            dismissMenuWheelOverlay()
-            showMenuWheelOverlay()
+        if (leftMenuOpen.value) {
+            dismissLeftMenuOverlay()
+            showLeftMenuOverlay()
         }
         if (filterPanelOpen.value) {
             dismissFloatingFilterPanel()
             showFloatingFilterPanel()
         }
+        if (crosshairPanelOpen.value) {
+            dismissFloatingCrosshairPanel()
+            showFloatingCrosshairPanel()
+        }
     }
 
     private fun renderControlWindows(profile: ControllerProfile, settings: OverlaySettings) {
-        val dm = resources.displayMetrics
-        val screenW = dm.widthPixels
-        val screenH = dm.heightPixels
-        val density = dm.density
+        val (screenW, screenH) = realScreenSize()
+        val density = resources.displayMetrics.density
 
         profile.controls.forEach { control ->
             val widthDp = controlWidthDp(control)
@@ -721,7 +1135,6 @@ class OverlayControllerService : Service() {
             val isPassThroughPad = control.binding.axisPair == AxisPair.TOUCHPAD_DIRECT_PASS
             val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_SPLIT_TOUCH or
                 if (isPassThroughPad) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0
 
@@ -735,6 +1148,7 @@ class OverlayControllerService : Service() {
                 gravity = Gravity.TOP or Gravity.START
                 x = xPx
                 y = yPx
+                applyFullScreenOverlayFlags(this)
             }
 
             val view = ComposeView(this).apply {
@@ -836,7 +1250,7 @@ class OverlayControllerService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("NexusPad Floating Bubble Active")
-            .setContentText("Tap the floating bubble anytime to open the Menu Wheel.")
+            .setContentText("Tap the floating bubble anytime to open the Left HUD Menu.")
             .setOngoing(true)
             .setContentIntent(openAppIntent)
             .addAction(0, "Stop Overlay", stopIntent)
@@ -845,9 +1259,13 @@ class OverlayControllerService : Service() {
 
     override fun onDestroy() {
         collectorJob?.cancel()
+        InputBridge.attachFloatKeyboardHandler(null)
+        dismissFloatingKeyboardOverlay()
+        dismissFloatingCrosshairPanel()
         dismissFloatingFilterPanel()
-        dismissMenuWheelOverlay()
+        dismissLeftMenuOverlay()
         clearControlWindows()
+        removeCrosshairOverlay()
         removeScreenFilterOverlay()
         floatingBubbleView?.let { runCatching { windowManager.removeViewImmediate(it) } }
         floatingBubbleView = null
@@ -885,8 +1303,41 @@ class OverlayControllerService : Service() {
     }
 }
 
-private data class WheelActionNode(
-    val angleDeg: Float,
+@Composable
+private fun LeftDockedPanelWrapper(
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Transparent)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss
+            )
+            .padding(start = 10.dp, top = 12.dp, bottom = 12.dp, end = 16.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        val maxPanelHeight = (maxHeight * 0.88f).coerceAtLeast(280.dp)
+        Box(
+            modifier = Modifier
+                .widthIn(max = 316.dp)
+                .heightIn(max = maxPanelHeight)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                )
+                .verticalScroll(rememberScrollState())
+        ) {
+            content()
+        }
+    }
+}
+
+private data class DockActionItem(
     val label: String,
     val icon: ImageVector,
     val tint: Color,
@@ -895,272 +1346,245 @@ private data class WheelActionNode(
 )
 
 @Composable
-private fun RadialMenuWheelOverlay(
+private fun LeftSideOverlayMenu(
     profileName: String,
     buttonsVisible: Boolean,
     bubbleLocked: Boolean,
     canSwitchProfile: Boolean,
     activeFilterSlot: Int,
+    crosshairEnabled: Boolean,
     onDismiss: () -> Unit,
     onToggleButtons: () -> Unit,
     onSwitchProfile: () -> Unit,
-    onOpenKeyboard: () -> Unit,
     onOpenFilters: () -> Unit,
+    onOpenCrosshair: () -> Unit,
+    onOpenKeyboard: () -> Unit,
+    onOpenFloatingKeyboard: () -> Unit,
     onReleaseAll: () -> Unit,
     onToggleLock: () -> Unit,
     onStopOverlay: () -> Unit,
     onOpenApp: () -> Unit
 ) {
-    val scaleAnim = remember { Animatable(0.76f) }
+    val strings = LocalNexusStrings.current
+    val slideX = remember { Animatable(-28f) }
     val alphaAnim = remember { Animatable(0f) }
 
     LaunchedEffect(Unit) {
         launch {
-            scaleAnim.animateTo(
-                targetValue = 1f,
-                animationSpec = spring(dampingRatio = 0.72f, stiffness = 460f)
-            )
+            slideX.animateTo(0f, tween(durationMillis = 170, easing = FastOutSlowInEasing))
         }
         launch {
-            alphaAnim.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)
-            )
+            alphaAnim.animateTo(1f, tween(durationMillis = 150, easing = FastOutSlowInEasing))
         }
     }
 
-    val sectorStep = 360f / 7f
-    val nodes = listOf(
-        WheelActionNode(
-            angleDeg = -90f,
-            label = if (buttonsVisible) "Hide Pad" else "Show Pad",
+    val actions = listOf(
+        DockActionItem(
+            label = if (buttonsVisible) strings.menuHidePad else strings.menuShowPad,
             icon = if (buttonsVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
             tint = TacticalCyan,
             onClick = onToggleButtons
         ),
-        WheelActionNode(
-            angleDeg = -90f + sectorStep,
-            label = "Switch",
+        DockActionItem(
+            label = strings.menuSwitch,
             icon = Icons.Default.SwapHoriz,
             tint = if (canSwitchProfile) GeForceLime else Color(0xFF607087),
             enabled = canSwitchProfile,
             onClick = onSwitchProfile
         ),
-        WheelActionNode(
-            angleDeg = -90f + sectorStep * 2f,
-            label = if (activeFilterSlot in 1..3) "Filter S$activeFilterSlot" else "Filter",
+        DockActionItem(
+            label = if (activeFilterSlot in 1..3) "${strings.menuFilter} S$activeFilterSlot" else strings.menuFilter,
             icon = Icons.Default.Tune,
             tint = if (activeFilterSlot in 1..3) GeForceLime else TacticalCyan,
             onClick = onOpenFilters
         ),
-        WheelActionNode(
-            angleDeg = -90f + sectorStep * 3f,
-            label = "Keyboard",
+        DockActionItem(
+            label = strings.menuCrosshair,
+            icon = Icons.Default.CenterFocusStrong,
+            tint = if (crosshairEnabled) GeForceLime else TacticalCyan,
+            onClick = onOpenCrosshair
+        ),
+        DockActionItem(
+            label = strings.menuKeyboard,
             icon = Icons.Default.Keyboard,
             tint = TacticalCyan,
             onClick = onOpenKeyboard
         ),
-        WheelActionNode(
-            angleDeg = -90f + sectorStep * 4f,
-            label = "Stop",
-            icon = Icons.Default.PowerSettingsNew,
-            tint = MacroCoral,
-            onClick = onStopOverlay
+        DockActionItem(
+            label = strings.menuFloatKb,
+            icon = Icons.Default.Keyboard,
+            tint = GeForceLime,
+            onClick = onOpenFloatingKeyboard
         ),
-        WheelActionNode(
-            angleDeg = -90f + sectorStep * 5f,
-            label = "Unstick",
+        DockActionItem(
+            label = strings.menuUnstick,
             icon = Icons.Default.RestartAlt,
             tint = TurboAmber,
             onClick = onReleaseAll
         ),
-        WheelActionNode(
-            angleDeg = -90f + sectorStep * 6f,
-            label = if (bubbleLocked) "Unlock" else "Lock",
+        DockActionItem(
+            label = if (bubbleLocked) strings.menuUnlock else strings.menuLock,
             icon = if (bubbleLocked) Icons.Default.LockOpen else Icons.Default.Lock,
             tint = TurboAmber,
             onClick = onToggleLock
         )
     )
 
-    val density = LocalDensity.current
-
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0x9905070B))
-            .alpha(alphaAnim.value)
+            .background(Color(0x5204060A))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onDismiss
-            ),
-        contentAlignment = Alignment.Center
+            )
+            .padding(start = 10.dp, top = 12.dp, bottom = 12.dp),
+        contentAlignment = Alignment.CenterStart
     ) {
-        val minDimDp = minOf(maxWidth, maxHeight)
-        val wheelDiameterDp = (minDimDp * 0.80f).coerceIn(264.dp, 316.dp)
-        val orbitRadiusDp = wheelDiameterDp * 0.35f
-        val nodeSizeDp = 60.dp
-        val hubSizeDp = 82.dp
-
-        val orbitRadiusPx = with(density) { orbitRadiusDp.toPx() }
-
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.scale(scaleAnim.value)
+        val maxH = (maxHeight * 0.90f).coerceAtLeast(260.dp)
+        Surface(
+            color = Color(0xF00D121A),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier
+                .width(248.dp)
+                .heightIn(max = maxH)
+                .offset { IntOffset(slideX.value.roundToInt(), 0) }
+                .alpha(alphaAnim.value)
+                .border(1.2.dp, Color(0xFF2B384C), RoundedCornerShape(18.dp))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                )
         ) {
-            Box(
+            Column(
                 modifier = Modifier
-                    .size(wheelDiameterDp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {}
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val c = Offset(size.width / 2f, size.height / 2f)
-                    val outerR = (size.minDimension / 2f) - 4.dp.toPx()
-                    val innerR = with(density) { (hubSizeDp / 2f).toPx() }
-
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(Color(0xEB151D2B), Color(0xEC0A0E16)),
-                            center = c,
-                            radius = outerR
-                        ),
-                        radius = outerR
-                    )
-                    drawCircle(
-                        color = GeForceLime.copy(alpha = 0.45f),
-                        radius = outerR,
-                        style = Stroke(width = 1.6.dp.toPx())
-                    )
-                    drawCircle(
-                        color = TacticalCyan.copy(alpha = 0.20f),
-                        radius = outerR * 0.72f,
-                        style = Stroke(width = 1.dp.toPx())
-                    )
-
-                    // 7 crisp sector spokes between wheel segments
-                    for (i in 0 until 7) {
-                        val spokeDeg = -90f + sectorStep / 2f + i * sectorStep
-                        val rad = spokeDeg * PI / 180.0
-                        val sx = c.x + (innerR + 6.dp.toPx()) * cos(rad).toFloat()
-                        val sy = c.y + (innerR + 6.dp.toPx()) * sin(rad).toFloat()
-                        val ex = c.x + (outerR - 6.dp.toPx()) * cos(rad).toFloat()
-                        val ey = c.y + (outerR - 6.dp.toPx()) * sin(rad).toFloat()
-                        drawLine(
-                            color = Color(0xFF2B394F),
-                            start = Offset(sx, sy),
-                            end = Offset(ex, ey),
-                            strokeWidth = 1.dp.toPx()
-                        )
-                    }
-                }
-
-                // 6 Orbital Radial Menu Nodes
-                nodes.forEach { node ->
-                    val rad = node.angleDeg * PI / 180.0
-                    val ox = (orbitRadiusPx * cos(rad)).roundToInt()
-                    val oy = (orbitRadiusPx * sin(rad)).roundToInt()
-
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                        modifier = Modifier
-                            .offset { IntOffset(ox, oy) }
-                            .size(nodeSizeDp)
-                            .clip(CircleShape)
-                            .background(Color(0xCC121A26))
-                            .border(1.2.dp, node.tint.copy(alpha = if (node.enabled) 0.75f else 0.25f), CircleShape)
-                            .clickable(enabled = node.enabled, onClick = node.onClick)
-                            .padding(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = node.icon,
-                            contentDescription = node.label,
-                            tint = node.tint,
-                            modifier = Modifier.size(21.dp)
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            text = node.label,
-                            color = if (node.enabled) Color.White else Color(0xFF7B8B9E),
-                            fontFamily = SpaceGroteskFontFamily,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-
-                // Center Hub (Active profile + Close)
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .size(hubSizeDp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(Color(0xFF1D293B), Color(0xFF0E141E))
-                            )
-                        )
-                        .border(2.dp, GeForceLime, CircleShape)
-                        .clickable(onClick = onDismiss)
-                        .padding(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close Menu Wheel",
-                        tint = GeForceLime,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text(
-                        text = profileName.take(10),
-                        color = Color.White,
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            Surface(
-                color = Color(0xE6101622),
-                shape = RoundedCornerShape(20.dp),
-                modifier = Modifier
-                    .border(1.dp, TacticalCyan.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable(onClick = onOpenApp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "NEXUSPAD HUD",
+                            color = GeForceLime,
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp
+                        )
+                        Text(
+                            text = profileName,
+                            color = Color.White,
+                            fontFamily = SpaceGroteskFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close Menu", tint = Color(0xFFA2B3C9))
+                    }
+                }
+
+                // 2-column action grid docked neatly on left side of screen
+                actions.chunked(2).forEach { pair ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        pair.forEach { item ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFF151C28))
+                                    .border(
+                                        1.dp,
+                                        item.tint.copy(alpha = if (item.enabled) 0.45f else 0.16f),
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .clickable(enabled = item.enabled, onClick = item.onClick)
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = item.icon,
+                                    contentDescription = item.label,
+                                    tint = item.tint,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = item.label,
+                                    color = if (item.enabled) Color.White else Color(0xFF6B7B91),
+                                    fontFamily = SpaceGroteskFontFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.OpenInNew,
-                        contentDescription = null,
-                        tint = TacticalCyan,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = "Open NexusPad App",
-                        color = Color.White,
-                        fontFamily = SpaceGroteskFontFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 44.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF151C28))
+                            .border(1.dp, TacticalCyan.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                            .clickable(onClick = onOpenApp)
+                            .padding(horizontal = 8.dp)
+                    ) {
+                        Icon(Icons.Default.OpenInNew, contentDescription = null, tint = TacticalCyan, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            text = strings.menuOpenApp,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF28121A))
+                            .border(1.dp, MacroCoral.copy(alpha = 0.65f), RoundedCornerShape(10.dp))
+                            .clickable(onClick = onStopOverlay)
+                            .padding(horizontal = 10.dp)
+                    ) {
+                        Icon(Icons.Default.PowerSettingsNew, contentDescription = strings.menuStop, tint = MacroCoral, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = strings.menuStop,
+                            color = MacroCoral,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }

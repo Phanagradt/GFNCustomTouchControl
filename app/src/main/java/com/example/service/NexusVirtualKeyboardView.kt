@@ -18,20 +18,30 @@ import android.widget.TextView
 @SuppressLint("ViewConstructor")
 class NexusVirtualKeyboardView(
     context: Context,
+    private val initialLanguage: KeyboardLanguage = KeyboardLanguage.ENGLISH,
+    private val isFloatingMode: Boolean = false,
     private val onCommitText: (String) -> Unit,
     private val onBackspace: () -> Unit,
     private val onEnter: () -> Unit,
     private val onSpecialKey: (Int) -> Unit,
     private val onSwitchIme: () -> Unit,
-    private val onHideKeyboard: () -> Unit
+    private val onHideKeyboard: () -> Unit,
+    private val onToggleFloating: (() -> Unit)? = null
 ) : LinearLayout(context) {
+
+    enum class KeyboardLanguage(val badge: String) {
+        ENGLISH("EN"),
+        THAI("ไทย")
+    }
 
     private enum class KeyboardPage { LETTERS, SYMBOLS }
     private enum class ShiftMode { OFF, ONCE, CAPS }
 
+    private var currentLanguage = initialLanguage
     private var currentPage = KeyboardPage.LETTERS
     private var shiftMode = ShiftMode.ONCE
     private var enterLabel = "ENTER"
+    private lateinit var langChipView: TextView
     private val keyContainer: LinearLayout
     private val repeatHandler = Handler(Looper.getMainLooper())
     private var isRepeatingBackspace = false
@@ -52,13 +62,14 @@ class NexusVirtualKeyboardView(
         setBackgroundColor(Color.parseColor("#0B0E14"))
         val padH = dp(6)
         val padV = dp(6)
-        setPadding(padH, padV, padH, dp(10))
+        val bottomPad = if (isFloatingMode) dp(8) else dp(18)
+        setPadding(padH, padV, padH, bottomPad)
         layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
 
-        // Top tactical bar: Brand + quick TAB / ESC + Switch IME + Hide Keyboard
+        // Top tactical bar sits on top of the virtual keyboard: Language + FLOAT + ESC + TAB + IME + HIDE
         addView(buildTopUtilityBar())
 
         keyContainer = LinearLayout(context).apply {
@@ -69,10 +80,20 @@ class NexusVirtualKeyboardView(
         rebuildRows()
     }
 
+    fun setLanguage(language: KeyboardLanguage) {
+        currentLanguage = language
+        if (::langChipView.isInitialized) {
+            langChipView.text = "🌐 ${currentLanguage.badge}"
+        }
+        rebuildRows()
+    }
+
     fun updateEditorActionLabel(label: String, shouldCapitalizeInitially: Boolean) {
         enterLabel = label
-        if (currentPage == KeyboardPage.LETTERS && shiftMode != ShiftMode.CAPS) {
+        if (currentPage == KeyboardPage.LETTERS && currentLanguage == KeyboardLanguage.ENGLISH && shiftMode != ShiftMode.CAPS) {
             shiftMode = if (shouldCapitalizeInitially) ShiftMode.ONCE else ShiftMode.OFF
+        } else if (currentLanguage == KeyboardLanguage.THAI && shiftMode == ShiftMode.ONCE) {
+            shiftMode = ShiftMode.OFF
         }
         rebuildRows()
     }
@@ -85,7 +106,7 @@ class NexusVirtualKeyboardView(
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
 
             val brand = TextView(context).apply {
-                text = "NEXUSPAD KEYBOARD"
+                text = if (isFloatingMode) "FLOATING KB" else "NEXUSPAD KB"
                 setTextColor(Color.parseColor("#8CE000"))
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
                 paint.isFakeBoldText = true
@@ -93,24 +114,58 @@ class NexusVirtualKeyboardView(
             }
             addView(brand)
 
+            langChipView = createUtilityChip("🌐 ${currentLanguage.badge}", "#8CE000") {
+                currentLanguage = if (currentLanguage == KeyboardLanguage.ENGLISH) {
+                    KeyboardLanguage.THAI
+                } else {
+                    KeyboardLanguage.ENGLISH
+                }
+                if (currentLanguage == KeyboardLanguage.THAI && shiftMode == ShiftMode.ONCE) {
+                    shiftMode = ShiftMode.OFF
+                }
+                langChipView.text = "🌐 ${currentLanguage.badge}"
+                currentPage = KeyboardPage.LETTERS
+                rebuildRows()
+            }
+            addView(langChipView)
+
+            if (onToggleFloating != null) {
+                addView(
+                    createUtilityChip(
+                        label = if (isFloatingMode) "DOCK" else "FLOAT",
+                        textHex = "#00E5FF",
+                        bgHex = "#0E2533",
+                        strokeHex = "#00E5FF"
+                    ) { onToggleFloating.invoke() }
+                )
+            }
+
             addView(createUtilityChip("ESC", "#00E5FF") { onSpecialKey(KeyEvent.KEYCODE_ESCAPE) })
             addView(createUtilityChip("TAB", "#00E5FF") { onSpecialKey(KeyEvent.KEYCODE_TAB) })
-            addView(createUtilityChip("IME", "#9FB0C7") { onSwitchIme() })
-            addView(createUtilityChip("HIDE", "#FFB300") { onHideKeyboard() })
+            if (!isFloatingMode) {
+                addView(createUtilityChip("IME", "#9FB0C7") { onSwitchIme() })
+            }
+            addView(createUtilityChip(if (isFloatingMode) "✕" else "HIDE", "#FFB300") { onHideKeyboard() })
         }
     }
 
-    private fun createUtilityChip(label: String, textHex: String, onClick: () -> Unit): TextView {
+    private fun createUtilityChip(
+        label: String,
+        textHex: String,
+        bgHex: String = "#151C28",
+        strokeHex: String = "#2B384E",
+        onClick: () -> Unit
+    ): TextView {
         return TextView(context).apply {
             text = label
             setTextColor(Color.parseColor(textHex))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             paint.isFakeBoldText = true
             gravity = Gravity.CENTER
-            background = keyDrawable("#151C28", "#2B384E", radiusDp = 8f)
-            setPadding(dp(10), dp(5), dp(10), dp(5))
+            background = keyDrawable(bgHex, strokeHex, radiusDp = 8f)
+            setPadding(dp(8), dp(5), dp(8), dp(5))
             val lp = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
-            lp.marginStart = dp(6)
+            lp.marginStart = dp(5)
             layoutParams = lp
             setOnClickListener {
                 performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
@@ -121,7 +176,23 @@ class NexusVirtualKeyboardView(
 
     private fun rebuildRows() {
         keyContainer.removeAllViews()
-        if (currentPage == KeyboardPage.LETTERS) {
+        if (currentPage == KeyboardPage.SYMBOLS) {
+            val row1 = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
+            val row2 = listOf("@", "#", "$", "_", "&", "-", "+", "(", ")", "/")
+            val row3 = listOf("*", "\"", "'", ":", ";", "!", "?", "~", "`")
+            val row4 = listOf("=", "\\", "<", ">", "[", "]", "{", "}")
+
+            keyContainer.addView(buildCharRow(row1, compactHeight = true))
+            keyContainer.addView(buildCharRow(row2))
+            keyContainer.addView(buildCharRow(row3, sidePadWeight = 0.3f))
+            keyContainer.addView(buildSymbolDeleteRow(row4))
+            keyContainer.addView(buildBottomRow(modeToggleLabel = currentLanguage.badge))
+            return
+        }
+
+        if (currentLanguage == KeyboardLanguage.THAI) {
+            rebuildThaiKedmaneeRows()
+        } else {
             val row1 = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
             val row2 = listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")
             val row3 = listOf("a", "s", "d", "f", "g", "h", "j", "k", "l")
@@ -132,29 +203,53 @@ class NexusVirtualKeyboardView(
             keyContainer.addView(buildCharRow(row3.map { cased(it) }, sidePadWeight = 0.45f))
             keyContainer.addView(buildShiftRow(row4.map { cased(it) }))
             keyContainer.addView(buildBottomRow(modeToggleLabel = "?123"))
-        } else {
-            val row1 = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
-            val row2 = listOf("@", "#", "$", "_", "&", "-", "+", "(", ")", "/")
-            val row3 = listOf("*", "\"", "'", ":", ";", "!", "?", "~", "`")
-            val row4 = listOf("=", "\\", "<", ">", "[", "]", "{", "}")
-
-            keyContainer.addView(buildCharRow(row1, compactHeight = true))
-            keyContainer.addView(buildCharRow(row2))
-            keyContainer.addView(buildCharRow(row3, sidePadWeight = 0.3f))
-            keyContainer.addView(buildSymbolDeleteRow(row4))
-            keyContainer.addView(buildBottomRow(modeToggleLabel = "ABC"))
         }
+    }
+
+    private fun rebuildThaiKedmaneeRows() {
+        val shifted = shiftMode != ShiftMode.OFF
+        val row1 = if (!shifted) {
+            listOf("ๅ", "/", "_", "ภ", "ถ", "ุ", "ึ", "ค", "ต", "จ", "ข", "ช")
+        } else {
+            listOf("+", "๑", "๒", "๓", "๔", "ู", "฿", "๕", "๖", "๗", "๘", "๙")
+        }
+        val row2 = if (!shifted) {
+            listOf("ๆ", "ไ", "ำ", "พ", "ะ", "ั", "ี", "ร", "น", "ย", "บ", "ล")
+        } else {
+            listOf("๐", "\"", "ฎ", "ฑ", "ธ", "ํ", "๊", "ณ", "ฯ", "ญ", "ฐ", ",")
+        }
+        val row3 = if (!shifted) {
+            listOf("ฟ", "ห", "ก", "ด", "เ", "้", "่", "า", "ส", "ว", "ง")
+        } else {
+            listOf("ฤ", "ฆ", "ฏ", "โ", "ฌ", "็", "๋", "ษ", "ศ", "ซ", ".")
+        }
+        val row4 = if (!shifted) {
+            listOf("ผ", "ป", "แ", "อ", "ิ", "ื", "ท", "ม", "ใ", "ฝ")
+        } else {
+            listOf("(", ")", "ฉ", "ฮ", "ฺ", "์", "?", "ฒ", "ฬ", "ฦ")
+        }
+
+        keyContainer.addView(buildCharRow(row1, compactHeight = true, smallText = true))
+        keyContainer.addView(buildCharRow(row2, smallText = true))
+        keyContainer.addView(buildCharRow(row3, sidePadWeight = 0.2f, smallText = true))
+        keyContainer.addView(buildShiftRow(row4, smallText = true))
+        keyContainer.addView(buildBottomRow(modeToggleLabel = "?123"))
     }
 
     private fun cased(ch: String): String =
         if (shiftMode == ShiftMode.OFF) ch else ch.uppercase()
 
-    private fun buildCharRow(keys: List<String>, sidePadWeight: Float = 0f, compactHeight: Boolean = false): LinearLayout {
+    private fun buildCharRow(
+        keys: List<String>,
+        sidePadWeight: Float = 0f,
+        compactHeight: Boolean = false,
+        smallText: Boolean = false
+    ): LinearLayout {
         return LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(5)
+                bottomMargin = dp(4)
             }
             if (sidePadWeight > 0f) {
                 addView(android.view.View(context), LayoutParams(0, 1, sidePadWeight))
@@ -164,8 +259,9 @@ class NexusVirtualKeyboardView(
                     createKeyButton(
                         label = key,
                         weight = 1f,
-                        heightDp = if (compactHeight) 36 else 44,
-                        bgHex = if (compactHeight) "#111722" else "#182130"
+                        heightDp = if (compactHeight) 35 else 42,
+                        bgHex = if (compactHeight) "#111722" else "#182130",
+                        forceSmallText = smallText
                     ) {
                         onCommitText(key)
                         if (currentPage == KeyboardPage.LETTERS && shiftMode == ShiftMode.ONCE) {
@@ -181,12 +277,12 @@ class NexusVirtualKeyboardView(
         }
     }
 
-    private fun buildShiftRow(keys: List<String>): LinearLayout {
+    private fun buildShiftRow(keys: List<String>, smallText: Boolean = false): LinearLayout {
         return LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(5)
+                bottomMargin = dp(4)
             }
 
             val shiftLabel = when (shiftMode) {
@@ -201,7 +297,8 @@ class NexusVirtualKeyboardView(
             addView(
                 createKeyButton(
                     label = shiftLabel,
-                    weight = 1.45f,
+                    weight = 1.35f,
+                    heightDp = 42,
                     bgHex = shiftBg,
                     strokeHex = shiftStroke,
                     textHex = shiftText
@@ -216,16 +313,23 @@ class NexusVirtualKeyboardView(
             )
 
             keys.forEach { key ->
-                addView(createKeyButton(label = key, weight = 1f) {
-                    onCommitText(key)
-                    if (shiftMode == ShiftMode.ONCE) {
-                        shiftMode = ShiftMode.OFF
-                        rebuildRows()
+                addView(
+                    createKeyButton(
+                        label = key,
+                        weight = 1f,
+                        heightDp = 42,
+                        forceSmallText = smallText
+                    ) {
+                        onCommitText(key)
+                        if (shiftMode == ShiftMode.ONCE) {
+                            shiftMode = ShiftMode.OFF
+                            rebuildRows()
+                        }
                     }
-                })
+                )
             }
 
-            addView(createBackspaceButton(weight = 1.45f))
+            addView(createBackspaceButton(weight = 1.35f, heightDp = 42))
         }
     }
 
@@ -234,12 +338,12 @@ class NexusVirtualKeyboardView(
             orientation = HORIZONTAL
             gravity = Gravity.CENTER
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(5)
+                bottomMargin = dp(4)
             }
             keys.forEach { key ->
-                addView(createKeyButton(label = key, weight = 1f) { onCommitText(key) })
+                addView(createKeyButton(label = key, weight = 1f, heightDp = 42) { onCommitText(key) })
             }
-            addView(createBackspaceButton(weight = 1.5f))
+            addView(createBackspaceButton(weight = 1.5f, heightDp = 42))
         }
     }
 
@@ -252,7 +356,8 @@ class NexusVirtualKeyboardView(
             addView(
                 createKeyButton(
                     label = modeToggleLabel,
-                    weight = 1.4f,
+                    weight = 1.35f,
+                    heightDp = 42,
                     bgHex = "#131A26",
                     textHex = "#00E5FF"
                 ) {
@@ -265,15 +370,25 @@ class NexusVirtualKeyboardView(
                 }
             )
 
-            addView(createKeyButton(label = ",", weight = 0.9f, bgHex = "#131A26") { onCommitText(",") })
-            addView(createKeyButton(label = "SPACE", weight = 4.2f, bgHex = "#1B2536", textHex = "#C8D6E8") {
-                onCommitText(" ")
-            })
-            addView(createKeyButton(label = ".", weight = 0.9f, bgHex = "#131A26") { onCommitText(".") })
+            addView(createKeyButton(label = ",", weight = 0.85f, heightDp = 42, bgHex = "#131A26") { onCommitText(",") })
+            addView(
+                createKeyButton(
+                    label = if (currentLanguage == KeyboardLanguage.THAI) "วรรค (SPACE)" else "SPACE",
+                    weight = 4.0f,
+                    heightDp = 42,
+                    bgHex = "#1B2536",
+                    textHex = "#C8D6E8",
+                    forceSmallText = true
+                ) {
+                    onCommitText(" ")
+                }
+            )
+            addView(createKeyButton(label = ".", weight = 0.85f, heightDp = 42, bgHex = "#131A26") { onCommitText(".") })
             addView(
                 createKeyButton(
                     label = enterLabel,
                     weight = 1.7f,
+                    heightDp = 42,
                     bgHex = "#243A10",
                     strokeHex = "#8CE000",
                     textHex = "#8CE000"
@@ -285,7 +400,7 @@ class NexusVirtualKeyboardView(
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun createBackspaceButton(weight: Float): TextView {
+    private fun createBackspaceButton(weight: Float, heightDp: Int = 44): TextView {
         return TextView(context).apply {
             text = "⌫"
             setTextColor(Color.parseColor("#FF5277"))
@@ -293,9 +408,9 @@ class NexusVirtualKeyboardView(
             paint.isFakeBoldText = true
             gravity = Gravity.CENTER
             background = keyDrawable("#1E1520", "#4A2735")
-            layoutParams = LayoutParams(0, dp(44), weight).apply {
-                marginStart = dp(2)
-                marginEnd = dp(2)
+            layoutParams = LayoutParams(0, dp(heightDp), weight).apply {
+                marginStart = dp(1)
+                marginEnd = dp(1)
             }
             setOnTouchListener { v, event ->
                 when (event.actionMasked) {
@@ -327,18 +442,25 @@ class NexusVirtualKeyboardView(
         bgHex: String = "#182130",
         strokeHex: String = "#2A364B",
         textHex: String = "#F0F4FA",
+        forceSmallText: Boolean = false,
         onClick: () -> Unit
     ): TextView {
         return TextView(context).apply {
             text = label
             setTextColor(Color.parseColor(textHex))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, if (label.length > 2) 12f else 16f)
+            val textSp = when {
+                label.length > 3 -> 11f
+                label.length > 1 -> 12.5f
+                forceSmallText -> 13.5f
+                else -> 16f
+            }
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, textSp)
             paint.isFakeBoldText = true
             gravity = Gravity.CENTER
             background = keyDrawable(bgHex, strokeHex)
             layoutParams = LayoutParams(0, dp(heightDp), weight).apply {
-                marginStart = dp(2)
-                marginEnd = dp(2)
+                marginStart = dp(1)
+                marginEnd = dp(1)
             }
             setOnClickListener {
                 performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
@@ -347,7 +469,7 @@ class NexusVirtualKeyboardView(
         }
     }
 
-    private fun keyDrawable(bgHex: String, strokeHex: String, radiusDp: Float = 9f): GradientDrawable {
+    private fun keyDrawable(bgHex: String, strokeHex: String, radiusDp: Float = 8f): GradientDrawable {
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = radiusDp * density

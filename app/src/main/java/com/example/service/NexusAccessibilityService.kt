@@ -6,14 +6,19 @@ import android.graphics.Path
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.DisplayMetrics
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import com.example.input.InputBridge
+import kotlin.math.hypot
 
 class NexusAccessibilityService : AccessibilityService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var activeLeftStroke: GestureDescription.StrokeDescription? = null
-    private var activeRightStrokes: Pair<GestureDescription.StrokeDescription, GestureDescription.StrokeDescription>? = null
+    private var leftGestureInFlight = false
+    private var pendingLeftRelease = false
+    private var lastSwipeTimestamp = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -23,7 +28,11 @@ class NexusAccessibilityService : AccessibilityService() {
             }
 
             override fun onRightButton(isDown: Boolean) {
-                runOnMain { dispatchRightButton(isDown) }
+                runOnMain {
+                    if (isDown) {
+                        dispatchRightTap()
+                    }
+                }
             }
 
             override fun onMiddleClick() {
@@ -32,6 +41,10 @@ class NexusAccessibilityService : AccessibilityService() {
 
             override fun onScroll(scrollUp: Boolean) {
                 runOnMain { dispatchTwoFingerScroll(scrollUp) }
+            }
+
+            override fun onMouseSwipe(dxPx: Float, dyPx: Float) {
+                runOnMain { dispatchMouseSwipeDelta(dxPx, dyPx) }
             }
         })
     }
@@ -43,7 +56,8 @@ class NexusAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         InputBridge.attachPointerSink(null)
         activeLeftStroke = null
-        activeRightStrokes = null
+        leftGestureInFlight = false
+        pendingLeftRelease = false
         super.onDestroy()
     }
 
@@ -55,28 +69,54 @@ class NexusAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun screenCenter(): Pair<Float, Float> {
-        val dm = resources.displayMetrics
-        return (dm.widthPixels * 0.5f) to (dm.heightPixels * 0.5f)
+    private fun screenCenterAndDensity(): Triple<Float, Float, Float> {
+        val wm = getSystemService(WINDOW_SERVICE) as? WindowManager
+        val density = resources.displayMetrics.density
+        if (wm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = wm.maximumWindowMetrics.bounds
+            return Triple(bounds.width() * 0.5f, bounds.height() * 0.5f, density)
+        }
+        val realDm = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm?.defaultDisplay?.getRealMetrics(realDm)
+        val w = if (realDm.widthPixels > 0) realDm.widthPixels else resources.displayMetrics.widthPixels
+        val h = if (realDm.heightPixels > 0) realDm.heightPixels else resources.displayMetrics.heightPixels
+        return Triple(w * 0.5f, h * 0.5f, density)
     }
 
     private fun dispatchLeftButton(isDown: Boolean) {
-        val (cx, cy) = screenCenter()
+        val (cx, cy, _) = screenCenterAndDensity()
         val path = Path().apply { moveTo(cx, cy) }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (isDown) {
+                pendingLeftRelease = false
+                leftGestureInFlight = true
                 val stroke = GestureDescription.StrokeDescription(path, 0, 45L, true)
                 activeLeftStroke = stroke
                 val gesture = GestureDescription.Builder().addStroke(stroke).build()
-                runCatching { dispatchGesture(gesture, null, null) }
+                runCatching {
+                    dispatchGesture(gesture, object : GestureResultCallback() {
+                        override fun onCompleted(gestureDescription: GestureDescription?) {
+                            leftGestureInFlight = false
+                            if (pendingLeftRelease) {
+                                pendingLeftRelease = false
+                                finishLeftStroke(cx, cy)
+                            }
+                        }
+
+                        override fun onCancelled(gestureDescription: GestureDescription?) {
+                            leftGestureInFlight = false
+                            pendingLeftRelease = false
+                            activeLeftStroke = null
+                        }
+                    }, mainHandler)
+                }
             } else {
-                val prev = activeLeftStroke
-                activeLeftStroke = null
-                if (prev != null) {
-                    val releaseStroke = prev.continueStroke(path, 0, 20L, false)
-                    val gesture = GestureDescription.Builder().addStroke(releaseStroke).build()
-                    runCatching { dispatchGesture(gesture, null, null) }
+                if (leftGestureInFlight) {
+                    pendingLeftRelease = true
+                } else {
+                    finishLeftStroke(cx, cy)
                 }
             }
         } else if (isDown) {
@@ -86,56 +126,46 @@ class NexusAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun dispatchRightButton(isDown: Boolean) {
-        val (cx, cy) = screenCenter()
-        val offset = 46f * resources.displayMetrics.density / 2f
+    private fun finishLeftStroke(cx: Float, cy: Float) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val prev = activeLeftStroke ?: return
+        activeLeftStroke = null
+        val path = Path().apply { moveTo(cx, cy) }
+        val releaseStroke = prev.continueStroke(path, 0, 20L, false)
+        val gesture = GestureDescription.Builder().addStroke(releaseStroke).build()
+        runCatching { dispatchGesture(gesture, null, null) }
+    }
+
+    private fun dispatchRightTap() {
+        val (cx, cy, density) = screenCenterAndDensity()
+        val offset = 28f * density
         val leftPath = Path().apply { moveTo(cx - offset, cy) }
         val rightPath = Path().apply { moveTo(cx + offset, cy) }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (isDown) {
-                val s1 = GestureDescription.StrokeDescription(leftPath, 0, 45L, true)
-                val s2 = GestureDescription.StrokeDescription(rightPath, 0, 45L, true)
-                activeRightStrokes = s1 to s2
-                val gesture = GestureDescription.Builder().addStroke(s1).addStroke(s2).build()
-                runCatching { dispatchGesture(gesture, null, null) }
-            } else {
-                val prev = activeRightStrokes
-                activeRightStrokes = null
-                if (prev != null) {
-                    val r1 = prev.first.continueStroke(leftPath, 0, 20L, false)
-                    val r2 = prev.second.continueStroke(rightPath, 0, 20L, false)
-                    val gesture = GestureDescription.Builder().addStroke(r1).addStroke(r2).build()
-                    runCatching { dispatchGesture(gesture, null, null) }
-                }
-            }
-        } else if (isDown) {
-            val s1 = GestureDescription.StrokeDescription(leftPath, 0, 60L)
-            val s2 = GestureDescription.StrokeDescription(rightPath, 0, 60L)
-            val gesture = GestureDescription.Builder().addStroke(s1).addStroke(s2).build()
-            runCatching { dispatchGesture(gesture, null, null) }
-        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(leftPath, 0, 60L))
+            .addStroke(GestureDescription.StrokeDescription(rightPath, 0, 60L))
+            .build()
+        runCatching { dispatchGesture(gesture, null, null) }
     }
 
     private fun dispatchMiddleTap() {
-        val (cx, cy) = screenCenter()
-        val offset = 40f * resources.displayMetrics.density
+        val (cx, cy, density) = screenCenterAndDensity()
+        val offset = 36f * density
         val p1 = Path().apply { moveTo(cx - offset, cy) }
         val p2 = Path().apply { moveTo(cx, cy) }
         val p3 = Path().apply { moveTo(cx + offset, cy) }
         val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(p1, 0, 60L))
-            .addStroke(GestureDescription.StrokeDescription(p2, 0, 60L))
-            .addStroke(GestureDescription.StrokeDescription(p3, 0, 60L))
+            .addStroke(GestureDescription.StrokeDescription(p1, 0, 65L))
+            .addStroke(GestureDescription.StrokeDescription(p2, 0, 65L))
+            .addStroke(GestureDescription.StrokeDescription(p3, 0, 65L))
             .build()
         runCatching { dispatchGesture(gesture, null, null) }
     }
 
     private fun dispatchTwoFingerScroll(scrollUp: Boolean) {
-        val (cx, cy) = screenCenter()
-        val density = resources.displayMetrics.density
+        val (cx, cy, density) = screenCenterAndDensity()
         val offset = 28f * density
-        val travel = 88f * density
+        val travel = 96f * density
         val startY = if (scrollUp) cy - travel * 0.5f else cy + travel * 0.5f
         val endY = if (scrollUp) cy + travel * 0.5f else cy - travel * 0.5f
 
@@ -150,6 +180,26 @@ class NexusAccessibilityService : AccessibilityService() {
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(p1, 0, 140L))
             .addStroke(GestureDescription.StrokeDescription(p2, 0, 140L))
+            .build()
+        runCatching { dispatchGesture(gesture, null, null) }
+    }
+
+    private fun dispatchMouseSwipeDelta(dxPx: Float, dyPx: Float) {
+        val now = System.currentTimeMillis()
+        if (now - lastSwipeTimestamp < 42L) return
+        val dist = hypot(dxPx, dyPx)
+        if (dist < 4f) return
+        lastSwipeTimestamp = now
+
+        val (cx, cy, _) = screenCenterAndDensity()
+        val clampX = dxPx.coerceIn(-cx * 0.6f, cx * 0.6f)
+        val clampY = dyPx.coerceIn(-cy * 0.6f, cy * 0.6f)
+        val swipePath = Path().apply {
+            moveTo(cx, cy)
+            lineTo(cx + clampX, cy + clampY)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(swipePath, 0, 32L))
             .build()
         runCatching { dispatchGesture(gesture, null, null) }
     }

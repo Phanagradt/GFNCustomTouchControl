@@ -1,6 +1,7 @@
 package com.example
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.InputDevice
@@ -51,9 +52,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -76,8 +79,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.input.InputBridge
+import com.example.model.AppLocalization
 import com.example.model.BindingDomain
 import com.example.model.ControllerProfile
+import com.example.model.LocalNexusStrings
 import com.example.service.OverlayControllerService
 import com.example.ui.NexusViewModel
 import com.example.ui.screens.CockpitScreen
@@ -109,26 +114,45 @@ private data class NavTab(
     val testTag: String
 )
 
-private val PrimaryTabs = listOf(
-    NavTab(NexusRoutes.COCKPIT, "Cockpit", Icons.Filled.Dashboard, Icons.Outlined.Dashboard, "nav_cockpit"),
-    NavTab(NexusRoutes.PROFILES, "Profiles", Icons.Filled.FolderCopy, Icons.Outlined.FolderCopy, "nav_profiles"),
-    NavTab(NexusRoutes.FILTERS, "Filters", Icons.Filled.Tune, Icons.Outlined.Tune, "nav_filters"),
-    NavTab(NexusRoutes.SANDBOX, "Sandbox", Icons.Filled.TouchApp, Icons.Outlined.TouchApp, "nav_sandbox"),
-    NavTab(NexusRoutes.SETUP, "Setup", Icons.Filled.Settings, Icons.Outlined.Settings, "nav_setup")
-)
-
 class MainActivity : ComponentActivity() {
+
+    private var visualsInitialTab by mutableIntStateOf(0)
+    private var openVisualsTrigger by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        consumeIntentExtras(intent)
         setContent {
             val viewModel: NexusViewModel = viewModel()
             val settings by viewModel.settings.collectAsStateWithLifecycle()
-
-            NexusPadTheme(darkTheme = settings.darkTheme) {
-                NexusPadAppShell(viewModel = viewModel)
+            val localizedStrings = remember(settings.appLanguage) {
+                AppLocalization.stringsFor(settings.appLanguage)
             }
+
+            CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
+                NexusPadTheme(darkTheme = settings.darkTheme) {
+                    NexusPadAppShell(
+                        viewModel = viewModel,
+                        visualsInitialSection = visualsInitialTab,
+                        openVisualsTrigger = openVisualsTrigger
+                    )
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeIntentExtras(intent)
+    }
+
+    private fun consumeIntentExtras(intent: Intent?) {
+        if (intent?.getStringExtra(OverlayControllerService.EXTRA_VISUALS_TAB) == "crosshair") {
+            visualsInitialTab = 1
+            openVisualsTrigger++
+            intent.removeExtra(OverlayControllerService.EXTRA_VISUALS_TAB)
         }
     }
 
@@ -152,11 +176,37 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NexusPadAppShell(viewModel: NexusViewModel) {
+private fun NexusPadAppShell(
+    viewModel: NexusViewModel,
+    visualsInitialSection: Int,
+    openVisualsTrigger: Int
+) {
+    val strings = LocalNexusStrings.current
+    val primaryTabs = remember(strings) {
+        listOf(
+            NavTab(NexusRoutes.COCKPIT, strings.navCockpit, Icons.Filled.Dashboard, Icons.Outlined.Dashboard, "nav_cockpit"),
+            NavTab(NexusRoutes.PROFILES, strings.navProfiles, Icons.Filled.FolderCopy, Icons.Outlined.FolderCopy, "nav_profiles"),
+            NavTab(NexusRoutes.FILTERS, strings.navVisuals, Icons.Filled.Tune, Icons.Outlined.Tune, "nav_filters"),
+            NavTab(NexusRoutes.SANDBOX, strings.navSandbox, Icons.Filled.TouchApp, Icons.Outlined.TouchApp, "nav_sandbox"),
+            NavTab(NexusRoutes.SETUP, strings.navSetup, Icons.Filled.Settings, Icons.Outlined.Settings, "nav_setup")
+        )
+    }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(openVisualsTrigger) {
+        if (openVisualsTrigger > 0) {
+            navController.navigate(NexusRoutes.FILTERS) {
+                popUpTo(navController.graph.findStartDestination().id) {
+                    saveState = true
+                }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
 
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
@@ -262,7 +312,7 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
 
         Scaffold(
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-            contentWindowInsets = WindowInsets.safeDrawing,
+            contentWindowInsets = if (isInEditor) WindowInsets(0) else WindowInsets.safeDrawing,
             topBar = {
                 if (!isInEditor) {
                     TopAppBar(
@@ -293,7 +343,7 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
             bottomBar = {
                 if (!isInEditor && !useRail) {
                     NavigationBar(windowInsets = WindowInsets.navigationBars) {
-                        PrimaryTabs.forEach { tab ->
+                        primaryTabs.forEach { tab ->
                             val selected = currentRoute == tab.route
                             NavigationBarItem(
                                 selected = selected,
@@ -333,7 +383,7 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                             .fillMaxHeight()
                             .statusBarsPadding()
                     ) {
-                        PrimaryTabs.forEach { tab ->
+                        primaryTabs.forEach { tab ->
                             val selected = currentRoute == tab.route
                             NavigationRailItem(
                                 selected = selected,
@@ -444,10 +494,16 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                         composable(NexusRoutes.FILTERS) {
                             GameFilterScreen(
                                 filterState = settings.gameFilter,
+                                crosshair = settings.crosshair,
                                 isOverlayRunning = isOverlayRunning,
+                                initialSection = visualsInitialSection,
                                 onSelectSlot = viewModel::selectFilterSlot,
                                 onUpdateStyle = viewModel::updateFilterStyle,
                                 onResetSlot = viewModel::resetActiveFilterSlot,
+                                onUpdateCrosshair = viewModel::updateCrosshair,
+                                onSelectCrosshairPreset = viewModel::selectCrosshairPreset,
+                                onResetCrosshair = viewModel::resetCrosshair,
+                                onPickCrosshairImage = viewModel::applyCrosshairCustomImage,
                                 onToggleOverlay = toggleOverlayAction
                             )
                         }
@@ -480,10 +536,20 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                                 onVibrationModeChange = viewModel::setVibrationMode,
                                 onOpacityChange = viewModel::setGlobalOpacity,
                                 onGridSnapChange = viewModel::setGridSnapEnabled,
+                                onGridDivisionsChange = viewModel::setGridDivisions,
                                 onNotationChange = viewModel::setControllerNotation,
                                 onDarkThemeChange = viewModel::setDarkTheme,
                                 onShowTelemetryChange = viewModel::setShowTelemetryOverlay,
                                 onAutoLaunchChange = viewModel::setAutoLaunchGeForceNow,
+                                onFloatingKeyboardDefaultChange = viewModel::setFloatingKeyboardDefault,
+                                onOpenFloatingKeyboard = {
+                                    if (!SystemIntegrations.canDrawOverlays(context)) {
+                                        showOverlayPermissionDialog = true
+                                    } else {
+                                        OverlayControllerService.startFloatingKeyboard(context)
+                                    }
+                                },
+                                onAppLanguageChange = viewModel::setAppLanguage,
                                 onRequestOverlayPermission = {
                                     SystemIntegrations.openOverlayPermissionSettings(context)
                                 },
@@ -521,16 +587,17 @@ private fun NexusPadAppShell(viewModel: NexusViewModel) {
                                 toggledIds = toggledIds,
                                 latestTelemetry = telemetry.firstOrNull(),
                                 onSelectControl = viewModel::selectControl,
-                                onMoveControl = { id, dx, dy, w, h ->
-                                    viewModel.moveControlByDelta(
+                                onCommitControlPercent = { id, xPct, yPct ->
+                                    viewModel.moveControlToPercent(
                                         controlId = id,
-                                        dxPx = dx,
-                                        dyPx = dy,
-                                        canvasWidthPx = w,
-                                        canvasHeightPx = h,
-                                        snapToGrid = settings.gridSnapEnabled
+                                        rawXPercent = xPct,
+                                        rawYPercent = yPct,
+                                        snapToGrid = settings.gridSnapEnabled,
+                                        gridDivisions = settings.gridDivisions
                                     )
                                 },
+                                onGridSnapChange = viewModel::setGridSnapEnabled,
+                                onGridDivisionsChange = viewModel::setGridDivisions,
                                 onUpdateControl = viewModel::updateControl,
                                 onPickCustomImage = viewModel::applyCustomButtonImage,
                                 onAddControl = viewModel::addControl,

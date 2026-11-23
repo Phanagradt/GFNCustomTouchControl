@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,13 +25,16 @@ import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -46,13 +51,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.OverlaySettings
 import com.example.data.VibrationMode
+import com.example.model.AppLanguage
 import com.example.model.ControllerNotation
+import com.example.model.LocalNexusStrings
 import com.example.ui.SystemReadiness
 import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TurboAmber
 import kotlin.math.roundToInt
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SetupScreen(
     settings: OverlaySettings,
@@ -60,10 +68,14 @@ fun SetupScreen(
     onVibrationModeChange: (VibrationMode) -> Unit,
     onOpacityChange: (Float) -> Unit,
     onGridSnapChange: (Boolean) -> Unit,
+    onGridDivisionsChange: (Int) -> Unit,
     onNotationChange: (ControllerNotation) -> Unit,
     onDarkThemeChange: (Boolean) -> Unit,
     onShowTelemetryChange: (Boolean) -> Unit,
     onAutoLaunchChange: (Boolean) -> Unit,
+    onFloatingKeyboardDefaultChange: (Boolean) -> Unit,
+    onOpenFloatingKeyboard: () -> Unit,
+    onAppLanguageChange: (AppLanguage) -> Unit,
     onRequestOverlayPermission: () -> Unit,
     onOpenImeSettings: () -> Unit,
     onShowImePicker: () -> Unit,
@@ -71,6 +83,7 @@ fun SetupScreen(
     onRequestNotificationPermission: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = LocalNexusStrings.current
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
@@ -84,14 +97,61 @@ fun SetupScreen(
         ) {
             item {
                 Text(
-                    text = "Overlay & System Setup",
+                    text = strings.setupTitle,
                     style = MaterialTheme.typography.headlineSmall
                 )
                 Text(
-                    text = "Configure vibration, button notation, and GeForce NOW input permissions.",
+                    text = strings.setupSubtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            item {
+                Card(
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.large)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Language, contentDescription = null, tint = TacticalCyan)
+                            Column {
+                                Text(
+                                    text = strings.languageCardTitle,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = TacticalCyan
+                                )
+                                Text(
+                                    text = strings.languageSubtitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            AppLanguage.entries.forEach { lang ->
+                                FilterChip(
+                                    selected = settings.appLanguage == lang,
+                                    onClick = { onAppLanguageChange(lang) },
+                                    label = { Text(lang.nativeLabel) },
+                                    modifier = Modifier.testTag("setup_language_${lang.name.lowercase()}")
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             item {
@@ -217,6 +277,27 @@ fun SetupScreen(
                                 Text(if (readiness.hasNotificationPermission) "Alerts Ready" else "Allow Alerts")
                             }
                         }
+
+                        PreferenceSwitchRow(
+                            icon = Icons.Default.Keyboard,
+                            title = strings.floatingKeyboardTitle,
+                            subtitle = strings.floatingKeyboardSubtitle,
+                            checked = settings.floatingKeyboardDefault,
+                            onCheckedChange = onFloatingKeyboardDefaultChange,
+                            testTag = "setup_floating_kb_switch"
+                        )
+
+                        OutlinedButton(
+                            onClick = onOpenFloatingKeyboard,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("setup_open_floating_kb_button")
+                        ) {
+                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(strings.openFloatingKeyboard)
+                        }
                     }
                 }
             }
@@ -301,12 +382,34 @@ fun SetupScreen(
 
                         PreferenceSwitchRow(
                             icon = Icons.Default.GridOn,
-                            title = "Snap Controls to Grid",
-                            subtitle = "Align buttons cleanly in the Layout Studio",
+                            title = strings.snapToGridTitle,
+                            subtitle = strings.snapToGridSubtitle,
                             checked = settings.gridSnapEnabled,
                             onCheckedChange = onGridSnapChange,
                             testTag = "setup_gridsnap_switch"
                         )
+                        Column {
+                            val divsX = settings.gridDivisions.coerceIn(4, 32)
+                            val divsY = (divsX * 0.66f).roundToInt().coerceIn(4, 24)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(strings.gridSizeTitle, style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    text = "${divsX} × ${divsY}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Slider(
+                                value = divsX.toFloat(),
+                                onValueChange = { onGridDivisionsChange(it.roundToInt()) },
+                                valueRange = 4f..32f,
+                                steps = 27,
+                                modifier = Modifier.testTag("setup_grid_size_slider")
+                            )
+                        }
                         PreferenceSwitchRow(
                             icon = Icons.Default.Gamepad,
                             title = "Show Telemetry HUD",

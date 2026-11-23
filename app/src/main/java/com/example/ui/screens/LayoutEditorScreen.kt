@@ -1,5 +1,8 @@
 package com.example.ui.screens
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -21,10 +24,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flip
+import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -69,6 +71,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,13 +83,18 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.example.R
 import com.example.data.OverlaySettings
 import com.example.model.AxisPair
@@ -98,6 +106,7 @@ import com.example.model.ControlType
 import com.example.model.GameGenre
 import com.example.model.InputBinding
 import com.example.model.TelemetryEvent
+import com.example.model.TouchpadMode
 import com.example.model.TriggerBehavior
 import com.example.model.VirtualControl
 import com.example.ui.EditorUiState
@@ -109,6 +118,12 @@ import com.example.ui.theme.TurboAmber
 import com.example.util.ButtonImageCodec
 import kotlin.math.roundToInt
 
+private tailrec fun Context.findEditorActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findEditorActivity()
+    else -> null
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LayoutEditorScreen(
@@ -118,7 +133,9 @@ fun LayoutEditorScreen(
     toggledIds: Set<String>,
     latestTelemetry: TelemetryEvent?,
     onSelectControl: (String?) -> Unit,
-    onMoveControl: (controlId: String, dxPx: Float, dyPx: Float, widthPx: Float, heightPx: Float) -> Unit,
+    onCommitControlPercent: (controlId: String, xPercent: Float, yPercent: Float) -> Unit,
+    onGridSnapChange: (Boolean) -> Unit,
+    onGridDivisionsChange: (Int) -> Unit,
     onUpdateControl: (VirtualControl) -> Unit,
     onPickCustomImage: (controlId: String, uri: Uri) -> Unit,
     onAddControl: (ControlType, InputBinding) -> Unit,
@@ -132,10 +149,25 @@ fun LayoutEditorScreen(
     onUpdateProfileMeta: (name: String, gameTitle: String, genre: GameGenre) -> Unit,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val window = context.findEditorActivity()?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+        controller?.apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose {
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
     val profile = editorState.profile
     var showAddControlSheet by remember { mutableStateOf(false) }
     var showInspectorSheet by remember { mutableStateOf(false) }
     var showCommandRebindSheet by remember { mutableStateOf(false) }
+    var showGridDialog by remember { mutableStateOf(false) }
     var showMetaDialog by remember { mutableStateOf(false) }
     var showUnsavedDialog by remember { mutableStateOf(false) }
     var hideFloatingTools by remember { mutableStateOf(false) }
@@ -189,31 +221,35 @@ fun LayoutEditorScreen(
                 )
         )
 
-        // Snap grid overlay
+        // Configurable snap grid overlay
         if (!editorState.isPlayTestMode && settings.gridSnapEnabled && !hideFloatingTools) {
+            val divsX = settings.gridDivisions.coerceIn(4, 32)
+            val divsY = (divsX * 0.66f).roundToInt().coerceIn(4, 24)
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val stepX = size.width / 10f
-                val stepY = size.height / 8f
-                for (i in 1 until 10) {
+                val stepX = size.width / divsX.toFloat()
+                val stepY = size.height / divsY.toFloat()
+                for (i in 1 until divsX) {
+                    val isCenter = i == divsX / 2
                     drawLine(
-                        color = Color.White.copy(alpha = if (i == 5) 0.16f else 0.06f),
+                        color = Color.White.copy(alpha = if (isCenter) 0.20f else 0.08f),
                         start = Offset(i * stepX, 0f),
                         end = Offset(i * stepX, size.height),
-                        strokeWidth = if (i == 5) 1.5.dp.toPx() else 1.dp.toPx()
+                        strokeWidth = if (isCenter) 1.5.dp.toPx() else 1.dp.toPx()
                     )
                 }
-                for (j in 1 until 8) {
+                for (j in 1 until divsY) {
+                    val isCenter = j == divsY / 2
                     drawLine(
-                        color = Color.White.copy(alpha = if (j == 4) 0.16f else 0.06f),
+                        color = Color.White.copy(alpha = if (isCenter) 0.20f else 0.08f),
                         start = Offset(0f, j * stepY),
                         end = Offset(size.width, j * stepY),
-                        strokeWidth = if (j == 4) 1.5.dp.toPx() else 1.dp.toPx()
+                        strokeWidth = if (isCenter) 1.5.dp.toPx() else 1.dp.toPx()
                     )
                 }
             }
         }
 
-        // Virtual controls positioned across 100% of full screen
+        // Virtual controls positioned across 100% of true fullscreen canvas
         profile.controls.forEach { control ->
             PositionedVirtualControl(
                 control = control,
@@ -227,19 +263,18 @@ fun LayoutEditorScreen(
                 isPressed = control.id in pressedIds,
                 isToggled = control.id in toggledIds,
                 onSelect = { onSelectControl(control.id) },
-                onDragDelta = { dx, dy ->
-                    onMoveControl(control.id, dx, dy, widthPx, heightPx)
+                onCommitPercent = { xPct, yPct ->
+                    onCommitControlPercent(control.id, xPct, yPct)
                 }
             )
         }
 
-        // TOP-LEFT CORNER: Back + Save button (compact pill, never interrupts center/edges)
+        // TOP-LEFT CORNER: Back + Save button
         Surface(
             color = Color(0xD90B0E14),
             shape = RoundedCornerShape(24.dp),
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .statusBarsPadding()
                 .padding(start = 10.dp, top = 10.dp)
                 .border(
                     width = 1.dp,
@@ -293,7 +328,6 @@ fun LayoutEditorScreen(
             shape = RoundedCornerShape(24.dp),
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .statusBarsPadding()
                 .padding(end = 10.dp, top = 10.dp)
                 .border(1.dp, Color(0xFF314057), RoundedCornerShape(24.dp))
         ) {
@@ -310,6 +344,18 @@ fun LayoutEditorScreen(
                                 .testTag("editor_add_control_button")
                         ) {
                             Icon(Icons.Default.Add, contentDescription = "Add Control", tint = GeForceLime)
+                        }
+                        IconButton(
+                            onClick = { showGridDialog = true },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .testTag("editor_grid_settings_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GridOn,
+                                contentDescription = "Grid Settings",
+                                tint = if (settings.gridSnapEnabled) GeForceLime else Color(0xFF9FB0C7)
+                            )
                         }
                         if (editorState.undoStack.isNotEmpty()) {
                             IconButton(
@@ -367,7 +413,6 @@ fun LayoutEditorScreen(
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .statusBarsPadding()
                     .padding(top = 60.dp)
                     .border(1.dp, TacticalCyan.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
             ) {
@@ -392,9 +437,9 @@ fun LayoutEditorScreen(
                 Alignment.BottomCenter
             }
             val extraPaddingModifier = if (selected.yPercent >= 0.52f) {
-                Modifier.statusBarsPadding().padding(top = 62.dp, start = 12.dp, end = 12.dp)
+                Modifier.padding(top = 62.dp, start = 12.dp, end = 12.dp)
             } else {
-                Modifier.navigationBarsPadding().padding(bottom = 14.dp, start = 12.dp, end = 12.dp)
+                Modifier.padding(bottom = 14.dp, start = 12.dp, end = 12.dp)
             }
 
             Surface(
@@ -576,6 +621,72 @@ fun LayoutEditorScreen(
                 onClose = { showInspectorSheet = false }
             )
         }
+    }
+
+    if (showGridDialog) {
+        val divsX = settings.gridDivisions.coerceIn(4, 32)
+        val divsY = (divsX * 0.66f).roundToInt().coerceIn(4, 24)
+        AlertDialog(
+            onDismissRequest = { showGridDialog = false },
+            title = { Text("Layout Grid Settings") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Show & Snap Grid", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                text = "Buttons snap smoothly when released",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = settings.gridSnapEnabled,
+                            onCheckedChange = onGridSnapChange,
+                            modifier = Modifier.testTag("editor_grid_snap_switch")
+                        )
+                    }
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Grid Density", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                text = "${divsX} × ${divsY} cells",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                color = GeForceLime,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Slider(
+                            value = divsX.toFloat(),
+                            onValueChange = { onGridDivisionsChange(it.roundToInt()) },
+                            valueRange = 4f..32f,
+                            steps = 27,
+                            modifier = Modifier.testTag("editor_grid_size_slider")
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Large (Coarse)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Small (Fine)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showGridDialog = false }) {
+                    Text("Done")
+                }
+            }
+        )
     }
 
     if (showMetaDialog) {
@@ -814,6 +925,13 @@ private fun ControlInspectorSheetContent(
             onPickCustomImage(uri)
         }
     }
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            onPickCustomImage(uri)
+        }
+    }
     val customBitmap = remember(control.customImageBase64) {
         ButtonImageCodec.decodeBase64ToImageBitmap(control.customImageBase64)
     }
@@ -908,6 +1026,17 @@ private fun ControlInspectorSheetContent(
                                     .testTag("inspector_upload_image_button")
                             ) {
                                 Text(if (customBitmap != null) "Change" else "Upload", fontSize = 12.sp)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    documentPickerLauncher.launch(arrayOf("image/*"))
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp),
+                                modifier = Modifier
+                                    .height(42.dp)
+                                    .testTag("inspector_upload_file_button")
+                            ) {
+                                Text("Files", fontSize = 11.sp)
                             }
                             if (customBitmap != null) {
                                 IconButton(
@@ -1079,6 +1208,38 @@ private fun ControlInspectorSheetContent(
         }
 
         if (control.controlType == ControlType.ANALOG_STICK || control.controlType == ControlType.TOUCHPAD) {
+            if (control.controlType == ControlType.TOUCHPAD) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Trackpad Behavior", style = MaterialTheme.typography.titleSmall)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TouchpadMode.entries.forEach { mode ->
+                                FilterChip(
+                                    selected = control.touchpadMode == mode,
+                                    onClick = { onChange(control.copy(touchpadMode = mode)) },
+                                    label = { Text(mode.displayName, fontSize = 12.sp) },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("inspector_touchpad_${mode.name.lowercase()}")
+                                )
+                            }
+                        }
+                        Text(
+                            text = if (control.touchpadMode == TouchpadMode.MOUSE) {
+                                "Flickable Mouse: swipes & quick flicks glide with inertia, tap clicks LMB."
+                            } else {
+                                "Controller Analog: swipe acts like a virtual right thumbstick."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(

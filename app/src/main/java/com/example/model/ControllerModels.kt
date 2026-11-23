@@ -60,6 +60,11 @@ enum class AxisPair(val displayName: String) {
     TOUCHPAD_DIRECT_PASS("Look Zone • Direct Screen Pass-Through")
 }
 
+enum class TouchpadMode(val displayName: String, val subtitle: String) {
+    MOUSE("Mouse (Flickable)", "1:1 relative cursor swipe with momentum flick"),
+    CONTROLLER("Controller (Analog)", "Hold-style right stick directional tilt")
+}
+
 enum class GameGenre(val displayName: String) {
     FPS("FPS / Shooter"),
     ACTION_RPG("Action RPG"),
@@ -103,6 +108,7 @@ data class VirtualControl(
     val sensitivity: Float = 1.0f,
     val hapticOnPress: Boolean = true,
     val invertY: Boolean = false,
+    val touchpadMode: TouchpadMode = TouchpadMode.MOUSE,
     val customImageBase64: String? = null,
     val binding: InputBinding
 )
