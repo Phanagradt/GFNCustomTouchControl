@@ -1131,6 +1131,11 @@ private fun GitHubUpdateCard(
 
                 is UpdateUiState.UpdateAvailable -> {
                     val release = updateState.release
+                    val latestReleasePageUrl = release.htmlUrl.ifBlank {
+                        GitHubUpdateManager.normalizeRepoSlug(effectiveSaved)
+                            ?.let { "https://github.com/$it/releases/latest" }
+                            ?: ""
+                    }
                     Surface(
                         color = primary.copy(alpha = 0.10f),
                         shape = RoundedCornerShape(12.dp),
@@ -1148,11 +1153,12 @@ private fun GitHubUpdateCard(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "${strings.updatesNewAvailable}: ${release.tagName}",
+                                    text = "${strings.updatesNewAvailable} (${release.tagName})",
                                     fontFamily = JetBrainsMonoFontFamily,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
-                                    color = primary
+                                    color = primary,
+                                    modifier = Modifier.weight(1f)
                                 )
                                 if (release.apkSizeBytes > 0L) {
                                     Text(
@@ -1183,38 +1189,21 @@ private fun GitHubUpdateCard(
                                 }
                             }
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                if (release.apkDownloadUrl != null) {
-                                    Button(
-                                        onClick = onDownloadUpdate,
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = primary,
-                                            contentColor = MaterialTheme.colorScheme.onPrimary
-                                        ),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(48.dp)
-                                            .testTag("setup_download_update_button")
-                                    ) {
-                                        Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(strings.updatesDownloadAndUpdate, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                                if (release.htmlUrl.isNotBlank()) {
-                                    OutlinedButton(
-                                        onClick = { onOpenReleaseUrl(release.htmlUrl) },
-                                        modifier = Modifier
-                                            .height(48.dp)
-                                            .testTag("setup_open_release_button")
-                                    ) {
-                                        Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("GitHub")
-                                    }
+                            if (latestReleasePageUrl.isNotBlank()) {
+                                Button(
+                                    onClick = { onOpenReleaseUrl(latestReleasePageUrl) },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .testTag("setup_open_release_button")
+                                ) {
+                                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(strings.updatesDownloadAndUpdate, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }

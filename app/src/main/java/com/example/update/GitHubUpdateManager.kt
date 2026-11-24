@@ -444,12 +444,13 @@ object GitHubUpdateManager {
         if (info == null) return null
         val sigBytes: ByteArray? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val signingInfo = info.signingInfo
-            val sigs = if (signingInfo?.hasMultipleSigners() == true) {
-                signingInfo.apkContentsSigners
+            val sig = if (signingInfo?.hasMultipleSigners() == true) {
+                signingInfo.apkContentsSigners?.firstOrNull()
             } else {
-                signingInfo?.signingCertificateHistory
+                signingInfo?.signingCertificateHistory?.firstOrNull()
+                    ?: signingInfo?.apkContentsSigners?.firstOrNull()
             }
-            sigs?.firstOrNull()?.toByteArray()
+            sig?.toByteArray() ?: info.signatures?.firstOrNull()?.toByteArray()
         } else {
             info.signatures?.firstOrNull()?.toByteArray()
         }
