@@ -53,8 +53,8 @@ jobs:
             echo "Using committed debug.keystore.base64 for consistent in-place updates"
             tr -d '\r\n ' < debug.keystore.base64 | base64 -d > debug.keystore
           else
-            echo "::error::Missing debug.keystore.base64 and NEXUSPAD_KEYSTORE_BASE64 secret! Generating a random keystore breaks Android in-place updates ('package appears to be invalid'). Commit debug.keystore.base64 from the project root."
-            exit 1
+            echo "::notice::Using deterministic repo-scoped CI debug signing key so every GitHub Release updates cleanly in-place. (Optional: set NEXUSPAD_KEYSTORE_BASE64 secret for a private release key.)"
+            python3 .github/scripts/generate_deterministic_debug_keystore.py "${{ github.repository }}" debug.keystore
           fi
           keytool -list -v -keystore debug.keystore -storepass android -alias androiddebugkey | grep -E "Alias|SHA256|Valid"
 
