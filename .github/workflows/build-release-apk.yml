@@ -58,6 +58,23 @@ jobs:
           fi
           keytool -list -v -keystore debug.keystore -storepass android -alias androiddebugkey | grep -E "Alias|SHA256|Valid"
 
+      - name: Restore Firebase google-services.json (optional, enables Cloud Save in GitHub APKs)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON_BASE64" ]; then
+            echo "Restoring app/google-services.json from GOOGLE_SERVICES_JSON_BASE64 secret"
+            printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | tr -d '\r\n ' | base64 -d > app/google-services.json
+          elif [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "Restoring app/google-services.json from GOOGLE_SERVICES_JSON secret"
+            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          elif [ -f app/google-services.json ]; then
+            echo "Using committed app/google-services.json"
+          else
+            echo "::notice::app/google-services.json not found. Building APK without Firebase config (add GOOGLE_SERVICES_JSON secret to enable Google Cloud Save in GitHub APKs)."
+          fi
+
       - name: Compute release version & APK metadata
         id: meta
         run: |
