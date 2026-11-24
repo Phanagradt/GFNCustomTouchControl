@@ -90,6 +90,7 @@ import com.example.model.LocalNexusStrings
 import com.example.service.OverlayControllerService
 import com.example.service.ScreenCaptureService
 import com.example.ui.NexusViewModel
+import com.example.ui.components.WhatsNewDialog
 import com.example.ui.screens.CockpitScreen
 import com.example.ui.screens.GalleryScreen
 import com.example.ui.screens.GameFilterScreen
@@ -97,7 +98,6 @@ import com.example.ui.screens.LayoutEditorScreen
 import com.example.ui.screens.ProfilesScreen
 import com.example.ui.screens.SetupScreen
 import com.example.ui.screens.TestArenaScreen
-import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.NexusPadTheme
 import com.example.update.UpdateUiState
 import com.example.util.SystemIntegrations
@@ -139,7 +139,11 @@ class MainActivity : ComponentActivity() {
             }
 
             CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
-                NexusPadTheme(darkTheme = settings.darkTheme) {
+                NexusPadTheme(
+                    darkTheme = settings.darkTheme,
+                    colorSchemeConfig = settings.colorScheme,
+                    fontConfig = settings.fontConfig
+                ) {
                     NexusPadAppShell(
                         viewModel = viewModel,
                         visualsInitialSection = visualsInitialTab,
@@ -227,6 +231,7 @@ private fun NexusPadAppShell(
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val hasLoadedSettings by viewModel.hasLoadedSettings.collectAsStateWithLifecycle()
     val liveFilterState by viewModel.liveFilterState.collectAsStateWithLifecycle()
     val isGpuShaderActive by viewModel.isGpuShaderActive.collectAsStateWithLifecycle()
     val readiness by viewModel.readiness.collectAsStateWithLifecycle()
@@ -242,7 +247,16 @@ private fun NexusPadAppShell(
     val hasUpdateBadge = updateState is UpdateUiState.UpdateAvailable || updateState is UpdateUiState.ReadyToInstall
 
     var showOverlayPermissionDialog by remember { mutableStateOf(false) }
+    var showWhatsNewDialog by remember { mutableStateOf(false) }
+    var didTriggerAutoWhatsNew by remember { mutableStateOf(false) }
     var pendingExportProfile by remember { mutableStateOf<ControllerProfile?>(null) }
+
+    LaunchedEffect(hasLoadedSettings, settings.lastSeenWhatsNewVersionCode) {
+        if (hasLoadedSettings && !didTriggerAutoWhatsNew && settings.lastSeenWhatsNewVersionCode < BuildConfig.VERSION_CODE) {
+            didTriggerAutoWhatsNew = true
+            showWhatsNewDialog = true
+        }
+    }
 
     val notificationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -353,7 +367,7 @@ private fun NexusPadAppShell(
                                 Icon(
                                     imageVector = Icons.Default.Gamepad,
                                     contentDescription = null,
-                                    tint = GeForceLime,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(24.dp)
                                 )
                                 Spacer(Modifier.size(8.dp))
@@ -389,7 +403,7 @@ private fun NexusPadAppShell(
                                 icon = {
                                     if (tab.route == NexusRoutes.SETUP && hasUpdateBadge) {
                                         BadgedBox(
-                                            badge = { Badge(containerColor = GeForceLime) }
+                                            badge = { Badge(containerColor = MaterialTheme.colorScheme.primary) }
                                         ) {
                                             Icon(
                                                 imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
@@ -440,7 +454,7 @@ private fun NexusPadAppShell(
                                 icon = {
                                     if (tab.route == NexusRoutes.SETUP && hasUpdateBadge) {
                                         BadgedBox(
-                                            badge = { Badge(containerColor = GeForceLime) }
+                                            badge = { Badge(containerColor = MaterialTheme.colorScheme.primary) }
                                         ) {
                                             Icon(
                                                 imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
@@ -609,7 +623,9 @@ private fun NexusPadAppShell(
                                     navController.navigate(NexusRoutes.editor(id))
                                 },
                                 onToggleOverlay = toggleOverlayAction,
-                                onClearTelemetry = viewModel::clearTelemetry
+                                onClearTelemetry = viewModel::clearTelemetry,
+                                onPickCustomBg = viewModel::importCustomTestBackground,
+                                onResetCustomBg = viewModel::clearCustomTestBackground
                             )
                         }
 
@@ -624,6 +640,12 @@ private fun NexusPadAppShell(
                                 onGridDivisionsChange = viewModel::setGridDivisions,
                                 onNotationChange = viewModel::setControllerNotation,
                                 onDarkThemeChange = viewModel::setDarkTheme,
+                                onColorSchemeChange = viewModel::updateColorScheme,
+                                onFontConfigChange = viewModel::updateFontConfig,
+                                onPickCustomFont = viewModel::importCustomFont,
+                                onFloatingBubbleChange = viewModel::updateFloatingBubble,
+                                onPickCustomBubbleIcon = viewModel::importCustomBubbleIcon,
+                                onOpenWhatsNew = { showWhatsNewDialog = true },
                                 onShowTelemetryChange = viewModel::setShowTelemetryOverlay,
                                 onAutoLaunchChange = viewModel::setAutoLaunchGeForceNow,
                                 onFloatingKeyboardDefaultChange = viewModel::setFloatingKeyboardDefault,
@@ -715,24 +737,29 @@ private fun NexusPadAppShell(
     if (showOverlayPermissionDialog) {
         AlertDialog(
             onDismissRequest = { showOverlayPermissionDialog = false },
-            title = { Text("Enable Floating Game Overlay") },
-            text = {
-                Text(
-                    "To display your custom virtual controller buttons and keyboard hotkeys on top of GeForce NOW, grant NexusPad the \"Display over other apps\" permission in Android Settings."
-                )
-            },
+            title = { Text(strings.permDialogTitle) },
+            text = { Text(strings.permDialogBody) },
             confirmButton = {
                 Button(onClick = {
                     showOverlayPermissionDialog = false
                     SystemIntegrations.openOverlayPermissionSettings(context)
                 }) {
-                    Text("Open Settings")
+                    Text(strings.commonOpenSettings)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showOverlayPermissionDialog = false }) {
-                    Text("Not Now")
+                    Text(strings.commonNotNow)
                 }
+            }
+        )
+    }
+
+    if (showWhatsNewDialog) {
+        WhatsNewDialog(
+            onDismiss = {
+                showWhatsNewDialog = false
+                viewModel.markWhatsNewSeen(BuildConfig.VERSION_CODE)
             }
         )
     }

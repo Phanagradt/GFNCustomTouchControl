@@ -12,6 +12,9 @@ import com.example.data.ProfileRepository
 import com.example.data.VibrationMode
 import com.example.filter.GameFilterBridge
 import com.example.input.InputBridge
+import com.example.model.AppColorSchemeConfig
+import com.example.model.AppFontConfig
+import com.example.model.AppFontPreset
 import com.example.model.AppLanguage
 import com.example.model.BindingDomain
 import com.example.model.ControlAccent
@@ -22,6 +25,9 @@ import com.example.model.ControllerProfile
 import com.example.model.CrosshairPreset
 import com.example.model.CrosshairSettings
 import com.example.model.CrosshairStyle
+import com.example.model.CustomAssetStorage
+import com.example.model.FloatingBubbleConfig
+import com.example.model.FloatingBubbleStyle
 import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
 import com.example.model.GameGenre
@@ -36,12 +42,15 @@ import com.example.model.TargetPlatformMode
 import com.example.model.TelemetryEvent
 import com.example.model.TriggerBehavior
 import com.example.model.VirtualControl
+import com.example.update.ApkUpgradeCompatibility
 import com.example.update.GitHubUpdateManager
 import com.example.update.UpdateUiState
 import com.example.util.ButtonImageCodec
 import com.example.util.SystemIntegrations
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -110,6 +119,9 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
     val updateState: StateFlow<UpdateUiState> = _updateState.asStateFlow()
 
+    private val _hasLoadedSettings = MutableStateFlow(false)
+    val hasLoadedSettings: StateFlow<Boolean> = _hasLoadedSettings.asStateFlow()
+
     private var updateJob: Job? = null
     private var didAutoCheckUpdates = false
 
@@ -119,6 +131,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             prefsRepo.settingsFlow.collect { s ->
+                _hasLoadedSettings.value = true
                 InputBridge.setTargetMode(s.targetMode)
                 CaptureBridge.setReplayDurationSec(s.instantReplayDurationSec)
                 CaptureBridge.setRecordingResolution(s.recordingResolution)
@@ -287,6 +300,86 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { prefsRepo.setAutoCheckUpdates(enabled) }
     }
 
+    // Personalization: App Color Scheme, Custom Fonts, Floating Bubble, Custom Test BG, What's New
+    fun updateColorScheme(config: AppColorSchemeConfig) {
+        viewModelScope.launch { prefsRepo.updateColorScheme(config) }
+    }
+
+    fun updateFontConfig(config: AppFontConfig) {
+        viewModelScope.launch { prefsRepo.updateFontConfig(config) }
+    }
+
+    fun importCustomFont(uri: Uri) {
+        viewModelScope.launch {
+            val res = withContext(Dispatchers.IO) {
+                CustomAssetStorage.saveCustomFontFromUri(getApplication(), uri)
+            }
+            res.onSuccess { (path, fontName) ->
+                prefsRepo.updateFontConfig(
+                    AppFontConfig(
+                        preset = AppFontPreset.CUSTOM_UPLOAD,
+                        customFontPath = path,
+                        customFontName = fontName
+                    )
+                )
+                _snackbarMessage.value = "Applied custom font: $fontName"
+            }.onFailure { err ->
+                _snackbarMessage.value = err.localizedMessage ?: "Unsupported font file (.ttf / .otf)"
+            }
+        }
+    }
+
+    fun updateFloatingBubble(config: FloatingBubbleConfig) {
+        viewModelScope.launch { prefsRepo.updateFloatingBubble(config) }
+    }
+
+    fun importCustomBubbleIcon(uri: Uri) {
+        viewModelScope.launch {
+            val res = withContext(Dispatchers.IO) {
+                CustomAssetStorage.saveCustomBubbleIconFromUri(getApplication(), uri)
+            }
+            res.onSuccess { path ->
+                val current = settings.value.floatingBubble
+                prefsRepo.updateFloatingBubble(
+                    current.copy(
+                        style = FloatingBubbleStyle.CUSTOM_IMAGE,
+                        customIconPath = path
+                    )
+                )
+                _snackbarMessage.value = "Custom floating bubble icon applied"
+            }.onFailure { err ->
+                _snackbarMessage.value = err.localizedMessage ?: "Could not load bubble icon"
+            }
+        }
+    }
+
+    fun importCustomTestBackground(uri: Uri) {
+        viewModelScope.launch {
+            val res = withContext(Dispatchers.IO) {
+                CustomAssetStorage.saveCustomTestBackgroundFromUri(getApplication(), uri)
+            }
+            res.onSuccess { path ->
+                prefsRepo.setCustomTestBgPath(path)
+                _snackbarMessage.value = "Custom test background applied"
+            }.onFailure { err ->
+                _snackbarMessage.value = err.localizedMessage ?: "Could not load background image"
+            }
+        }
+    }
+
+    fun clearCustomTestBackground() {
+        viewModelScope.launch {
+            prefsRepo.setCustomTestBgPath("")
+            _snackbarMessage.value = "Restored default test background"
+        }
+    }
+
+    fun markWhatsNewSeen(versionCode: Int) {
+        viewModelScope.launch {
+            prefsRepo.setLastSeenWhatsNewVersionCode(versionCode)
+        }
+    }
+
     // GitHub Releases In-App Updater
     fun checkForUpdates(explicitRepoInput: String? = null, silent: Boolean = false) {
         val rawRepo = (explicitRepoInput ?: settings.value.githubRepoSlug)
@@ -369,8 +462,17 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             ).onSuccess { apkFile ->
-                _updateState.value = UpdateUiState.ReadyToInstall(release = release, apkFile = apkFile)
-                installDownloadedUpdate()
+                val compatibility = withContext(Dispatchers.IO) {
+                    GitHubUpdateManager.verifyApkUpgradeCompatibility(getApplication(), apkFile)
+                }
+                _updateState.value = UpdateUiState.ReadyToInstall(
+                    release = release,
+                    apkFile = apkFile,
+                    compatibility = compatibility
+                )
+                if (compatibility is ApkUpgradeCompatibility.Compatible) {
+                    installDownloadedUpdate()
+                }
             }.onFailure { err ->
                 if (err is CancellationException) {
                     _updateState.value = UpdateUiState.UpdateAvailable(

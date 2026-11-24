@@ -2,6 +2,8 @@ package com.example.update
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -19,6 +21,7 @@ import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.security.MessageDigest
 import kotlin.coroutines.coroutineContext
 
 data class GitHubReleaseInfo(
@@ -32,6 +35,25 @@ data class GitHubReleaseInfo(
     val apkSizeBytes: Long,
     val publishedAt: String
 )
+
+sealed class ApkUpgradeCompatibility {
+    data class Compatible(
+        val apkVersionCode: Long,
+        val signingShortFingerprint: String
+    ) : ApkUpgradeCompatibility()
+
+    data class SignatureMismatch(
+        val installedShort: String,
+        val apkShort: String
+    ) : ApkUpgradeCompatibility()
+
+    data class VersionDowngrade(
+        val installedCode: Long,
+        val apkCode: Long
+    ) : ApkUpgradeCompatibility()
+
+    data class InvalidPackage(val reason: String) : ApkUpgradeCompatibility()
+}
 
 sealed class UpdateUiState {
     data object Idle : UpdateUiState()
@@ -62,7 +84,8 @@ sealed class UpdateUiState {
 
     data class ReadyToInstall(
         val release: GitHubReleaseInfo,
-        val apkFile: File
+        val apkFile: File,
+        val compatibility: ApkUpgradeCompatibility = ApkUpgradeCompatibility.Compatible(0L, "")
     ) : UpdateUiState()
 
     data class Error(val message: String) : UpdateUiState()
@@ -414,6 +437,112 @@ object GitHubUpdateManager {
             }
             context.startActivity(intent)
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun extractSigningSha256(info: PackageInfo?): String? {
+        if (info == null) return null
+        val sigBytes: ByteArray? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val signingInfo = info.signingInfo
+            val sigs = if (signingInfo?.hasMultipleSigners() == true) {
+                signingInfo.apkContentsSigners
+            } else {
+                signingInfo?.signingCertificateHistory
+            }
+            sigs?.firstOrNull()?.toByteArray()
+        } else {
+            info.signatures?.firstOrNull()?.toByteArray()
+        }
+        if (sigBytes == null) return null
+        val digest = MessageDigest.getInstance("SHA-256").digest(sigBytes)
+        return digest.joinToString(":") { "%02X".format(it) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun longVersionCodeOf(info: PackageInfo): Long =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode else info.versionCode.toLong()
+
+    fun shortFingerprint(sha256: String?): String {
+        if (sha256.isNullOrBlank()) return "Unknown"
+        val clean = sha256.replace(":", "")
+        return if (clean.length >= 12) "${clean.take(6)}…${clean.takeLast(6)}" else clean
+    }
+
+    @Suppress("DEPRECATION")
+    fun installedSigningShortFingerprint(context: Context): String {
+        val pm = context.packageManager
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            PackageManager.GET_SIGNATURES
+        }
+        val info = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(flags.toLong()))
+            } else {
+                pm.getPackageInfo(context.packageName, flags)
+            }
+        }.getOrNull()
+        return shortFingerprint(extractSigningSha256(info))
+    }
+
+    /**
+     * Inspects the downloaded APK before invoking Android's Package Installer so we catch
+     * signature mismatches or versionCode downgrades cleanly instead of Android displaying
+     * "App not installed as package appears to be invalid".
+     */
+    @Suppress("DEPRECATION")
+    fun verifyApkUpgradeCompatibility(context: Context, apkFile: File): ApkUpgradeCompatibility {
+        if (!apkFile.exists() || apkFile.length() < 100_000L) {
+            return ApkUpgradeCompatibility.InvalidPackage("Downloaded APK is missing or truncated")
+        }
+        val pm = context.packageManager
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            PackageManager.GET_SIGNATURES
+        }
+        val apkInfo = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.PackageInfoFlags.of(flags.toLong()))
+            } else {
+                pm.getPackageArchiveInfo(apkFile.absolutePath, flags)
+            }
+        }.getOrNull() ?: return ApkUpgradeCompatibility.InvalidPackage("Android could not parse the downloaded APK file")
+
+        if (apkInfo.packageName != context.packageName) {
+            return ApkUpgradeCompatibility.InvalidPackage(
+                "Package ID mismatch (${apkInfo.packageName} != ${context.packageName})"
+            )
+        }
+
+        val installedInfo = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(flags.toLong()))
+            } else {
+                pm.getPackageInfo(context.packageName, flags)
+            }
+        }.getOrNull()
+
+        val installedCode = installedInfo?.let { longVersionCodeOf(it) } ?: currentVersionCode().toLong()
+        val apkCode = longVersionCodeOf(apkInfo)
+        if (apkCode < installedCode) {
+            return ApkUpgradeCompatibility.VersionDowngrade(installedCode = installedCode, apkCode = apkCode)
+        }
+
+        val installedSha = extractSigningSha256(installedInfo)
+        val apkSha = extractSigningSha256(apkInfo)
+        if (!installedSha.isNullOrBlank() && !apkSha.isNullOrBlank() && !installedSha.equals(apkSha, ignoreCase = true)) {
+            return ApkUpgradeCompatibility.SignatureMismatch(
+                installedShort = shortFingerprint(installedSha),
+                apkShort = shortFingerprint(apkSha)
+            )
+        }
+
+        return ApkUpgradeCompatibility.Compatible(
+            apkVersionCode = apkCode,
+            signingShortFingerprint = shortFingerprint(apkSha ?: installedSha)
+        )
     }
 
     fun openReleaseInBrowser(context: Context, url: String) {

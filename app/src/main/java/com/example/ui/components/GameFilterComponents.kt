@@ -77,6 +77,7 @@ import com.example.model.FilterTintPreset
 import com.example.model.FreestyleCategory
 import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
+import com.example.model.LocalNexusStrings
 import com.example.model.MoodFilterPreset
 import com.example.model.SpecialFxMode
 import com.example.model.StickerPreset
@@ -110,6 +111,7 @@ fun GeForceFilterPanelContent(
     onClose: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val strings = LocalNexusStrings.current
     val activeSlot = filterState.activeSlot
     val editingSlot = if (activeSlot in 1..3) activeSlot else 1
     val currentStyle = filterState.styleForSlot(editingSlot)
@@ -180,7 +182,7 @@ fun GeForceFilterPanelContent(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "GAME FILTER",
+                                text = strings.filterPanelTitle,
                                 color = Color(0xFFF3F7FC),
                                 fontFamily = SpaceGroteskFontFamily,
                                 fontWeight = FontWeight.Bold,
@@ -197,7 +199,7 @@ fun GeForceFilterPanelContent(
                                 )
                             ) {
                                 Text(
-                                    text = "GPU SHADER",
+                                    text = strings.filterGpuBadge,
                                     color = GeForceLime,
                                     fontFamily = JetBrainsMonoFontFamily,
                                     fontWeight = FontWeight.Bold,
@@ -208,9 +210,9 @@ fun GeForceFilterPanelContent(
                         }
                         Text(
                             text = if (filterState.isEnabled) {
-                                "Style $activeSlot • ${currentStyle.name} (${currentStyle.activeModuleCount()} active)"
+                                "${strings.filterStyleLabel} $activeSlot • ${currentStyle.name} (${currentStyle.activeModuleCount()} ${strings.commonActive})"
                             } else {
-                                "Filter Off — tap Style 1–3 to activate"
+                                strings.filterOffHint
                             },
                             color = Color(0xFF91A3BA),
                             fontSize = 11.sp,
@@ -279,16 +281,16 @@ fun GeForceFilterPanelContent(
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = if (isGpuShaderActive) "Live GPU Shader Engine: ACTIVE" else "Live GPU Per-Pixel Shader",
+                                text = if (isGpuShaderActive) strings.filterGpuEngineActive else strings.filterGpuEngineTitle,
                                 color = if (isGpuShaderActive) GeForceLime else Color(0xFFECF3FC),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp
                             )
                             Text(
                                 text = if (isGpuShaderActive) {
-                                    "Real OpenGL Sharpen, HDR, Shadows, DoF & FX active on live game stream."
+                                    strings.filterGpuEngineActiveDesc
                                 } else {
-                                    "Pick 'A single app' (e.g., GeForce NOW) for true 60fps pixel shaders."
+                                    strings.filterGpuEngineIdleDesc
                                 },
                                 color = Color(0xFF8FA3BA),
                                 fontSize = 10.sp,
@@ -307,7 +309,7 @@ fun GeForceFilterPanelContent(
                                 .testTag("filter_gpu_engine_toggle")
                         ) {
                             Text(
-                                text = if (isGpuShaderActive) "Stop" else "Enable",
+                                text = if (isGpuShaderActive) strings.commonStop else strings.commonEnable,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp
                             )
@@ -326,7 +328,7 @@ fun GeForceFilterPanelContent(
                     .padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                listOf(0 to "Off", 1 to "1", 2 to "2", 3 to "3").forEach { (slot, label) ->
+                listOf(0 to strings.filterOffLabel, 1 to "1", 2 to "2", 3 to "3").forEach { (slot, label) ->
                     val selected = activeSlot == slot
                     val slotName = if (slot == 0) null else filterState.styleForSlot(slot).name
                     Box(
@@ -405,7 +407,11 @@ fun GeForceFilterPanelContent(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = cat.displayName,
+                                text = when (cat) {
+                                    FreestyleCategory.ESSENTIAL -> strings.filterCatEssential
+                                    FreestyleCategory.ACCESSIBILITY -> strings.filterCatUtility
+                                    FreestyleCategory.ARTISTIC -> strings.filterCatArtistic
+                                },
                                 color = if (selected) Color.White else Color(0xFF8FA2B8),
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                 fontSize = 12.sp
@@ -435,7 +441,7 @@ fun GeForceFilterPanelContent(
                 FreestyleCategory.ESSENTIAL -> {
                     // 1. Sharpen
                     FilterModuleCard(
-                        title = "Sharpen",
+                        title = strings.filterModSharpen,
                         subtitle = "Edge crispness & grain guard",
                         icon = Icons.Default.Details,
                         accentColor = GeForceLime,
@@ -474,7 +480,7 @@ fun GeForceFilterPanelContent(
 
                     // 2. Sharpen+
                     FilterModuleCard(
-                        title = "Sharpen+",
+                        title = strings.filterModSharpenPlus,
                         subtitle = "Texture-aware without haloing UI text",
                         icon = Icons.Default.AutoFixHigh,
                         accentColor = GeForceLime,
@@ -513,7 +519,7 @@ fun GeForceFilterPanelContent(
 
                     // 3. Brightness / Contrast
                     FilterModuleCard(
-                        title = "Brightness / Contrast",
+                        title = strings.filterModBrightnessContrast,
                         subtitle = "Exposure, Contrast, Highlights, Shadows & Gamma",
                         icon = Icons.Default.Brightness6,
                         accentColor = GeForceLime,
@@ -582,7 +588,7 @@ fun GeForceFilterPanelContent(
 
                     // 4. Details
                     FilterModuleCard(
-                        title = "Details",
+                        title = strings.filterModDetails,
                         subtitle = "Sharpen, Clarity, HDR Toning & Bloom",
                         icon = Icons.Default.Flare,
                         accentColor = TacticalCyan,
@@ -641,7 +647,7 @@ fun GeForceFilterPanelContent(
 
                     // 5. Color
                     FilterModuleCard(
-                        title = "Color",
+                        title = strings.filterModColor,
                         subtitle = "Tint Hue, Tint Intensity, Temperature & Vibrance",
                         icon = Icons.Default.Palette,
                         accentColor = TacticalCyan,
@@ -788,7 +794,7 @@ fun GeForceFilterPanelContent(
                 FreestyleCategory.ACCESSIBILITY -> {
                     // 6. Colorblind
                     FilterModuleCard(
-                        title = "Colorblind",
+                        title = strings.filterModColorblind,
                         subtitle = "Protanopia, Deuteranopia & Tritanopia LMS shift",
                         icon = Icons.Default.Visibility,
                         accentColor = TacticalCyan,
@@ -831,7 +837,7 @@ fun GeForceFilterPanelContent(
 
                     // 7. Night Mode
                     FilterModuleCard(
-                        title = "Night Mode",
+                        title = strings.filterModNightMode,
                         subtitle = "Reduces blue light for late-night comfort",
                         icon = Icons.Default.NightsStay,
                         accentColor = TurboAmber,
@@ -860,7 +866,7 @@ fun GeForceFilterPanelContent(
 
                     // 8. Splitscreen
                     FilterModuleCard(
-                        title = "Splitscreen",
+                        title = strings.filterModSplitscreen,
                         subtitle = "Compare unfiltered Original (left) vs Filtered (right)",
                         icon = Icons.Default.Compare,
                         accentColor = GeForceLime,
@@ -891,7 +897,7 @@ fun GeForceFilterPanelContent(
                 FreestyleCategory.ARTISTIC -> {
                     // 9. Black & White
                     FilterModuleCard(
-                        title = "Black & White",
+                        title = strings.filterModBlackWhite,
                         subtitle = "Pure Mono, Warm, Cool & Noir grayscale",
                         icon = Icons.Default.FilterBAndW,
                         accentColor = Color(0xFFE2EAF5),
@@ -934,7 +940,7 @@ fun GeForceFilterPanelContent(
 
                     // 10. Sepia
                     FilterModuleCard(
-                        title = "Sepia",
+                        title = strings.filterModSepia,
                         subtitle = "Warm vintage film tone",
                         icon = Icons.Default.FilterVintage,
                         accentColor = Color(0xFFD99B52),
@@ -963,7 +969,7 @@ fun GeForceFilterPanelContent(
 
                     // 11. Vignette
                     FilterModuleCard(
-                        title = "Vignette",
+                        title = strings.filterModVignette,
                         subtitle = "Darken or brighten screen corners",
                         icon = Icons.Default.Vignette,
                         accentColor = TacticalCyan,
@@ -992,7 +998,7 @@ fun GeForceFilterPanelContent(
 
                     // 12. Depth of Field / Tilt-Shift
                     FilterModuleCard(
-                        title = "Depth of Field / Tilt-Shift",
+                        title = strings.filterModDof,
                         subtitle = "Cinematic lens bokeh & miniature look",
                         icon = Icons.Default.BlurOn,
                         accentColor = Color(0xFF90CAF9),
@@ -1051,7 +1057,7 @@ fun GeForceFilterPanelContent(
 
                     // 13. Old Film
                     FilterModuleCard(
-                        title = "Old Film",
+                        title = strings.filterModOldFilm,
                         subtitle = "Vintage grain, flicker, scratches & dirt",
                         icon = Icons.Default.MovieFilter,
                         accentColor = Color(0xFFE0A96D),
@@ -1130,7 +1136,7 @@ fun GeForceFilterPanelContent(
 
                     // 14. Mood LUTs
                     FilterModuleCard(
-                        title = "Mood",
+                        title = strings.filterModMood,
                         subtitle = "Cinematic color-grading LUT presets",
                         icon = Icons.Default.Contrast,
                         accentColor = Color(0xFFB388FF),
@@ -1173,7 +1179,7 @@ fun GeForceFilterPanelContent(
 
                     // 15. Special FX
                     FilterModuleCard(
-                        title = "Special FX",
+                        title = strings.filterModSpecialFx,
                         subtitle = "Retro Pixel, Pencil Sketch & Half-Tone Comic",
                         icon = Icons.Default.AutoAwesome,
                         accentColor = MacroCoral,
@@ -1216,7 +1222,7 @@ fun GeForceFilterPanelContent(
 
                     // 16. Painterly
                     FilterModuleCard(
-                        title = "Painterly",
+                        title = strings.filterModPainterly,
                         subtitle = "Hand-painted & cel-shaded cartoon aesthetic",
                         icon = Icons.Default.Brush,
                         accentColor = Color(0xFFFF80AB),
@@ -1265,7 +1271,7 @@ fun GeForceFilterPanelContent(
 
                     // 17. Letterbox
                     FilterModuleCard(
-                        title = "Letterbox",
+                        title = strings.filterModLetterbox,
                         subtitle = "Cinematic black bars top/bottom or sides",
                         icon = Icons.Default.Crop169,
                         accentColor = Color(0xFFB0BEC5),
@@ -1304,7 +1310,7 @@ fun GeForceFilterPanelContent(
 
                     // 18. Stickers
                     FilterModuleCard(
-                        title = "Stickers",
+                        title = strings.filterModStickers,
                         subtitle = "Static HUD frames, bezels & custom PNG stickers",
                         icon = Icons.Default.FilterFrames,
                         accentColor = GeForceLime,

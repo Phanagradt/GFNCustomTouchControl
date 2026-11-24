@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.net.Uri
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
@@ -41,6 +43,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -74,20 +77,26 @@ import androidx.compose.ui.unit.sp
 import com.example.capture.CaptureBridge
 import com.example.data.OverlaySettings
 import com.example.data.VibrationMode
+import com.example.model.AppColorSchemeConfig
+import com.example.model.AppFontConfig
 import com.example.model.AppLanguage
 import com.example.model.ControllerNotation
+import com.example.model.FloatingBubbleConfig
 import com.example.model.LocalNexusStrings
 import com.example.model.RecordingConfigHelper
 import com.example.model.RecordingFps
 import com.example.model.RecordingResolution
 import com.example.model.TargetPlatformMode
 import com.example.ui.SystemReadiness
+import com.example.ui.components.AppColorSchemeCard
+import com.example.ui.components.FloatingBubbleCustomizationCard
+import com.example.ui.components.FontCustomizationCard
 import com.example.ui.components.SmoothSlider
-import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.MacroCoral
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TurboAmber
+import com.example.update.ApkUpgradeCompatibility
 import com.example.update.GitHubUpdateManager
 import com.example.update.UpdateUiState
 import kotlin.math.roundToInt
@@ -104,6 +113,12 @@ fun SetupScreen(
     onGridDivisionsChange: (Int) -> Unit,
     onNotationChange: (ControllerNotation) -> Unit,
     onDarkThemeChange: (Boolean) -> Unit,
+    onColorSchemeChange: (AppColorSchemeConfig) -> Unit,
+    onFontConfigChange: (AppFontConfig) -> Unit,
+    onPickCustomFont: (Uri) -> Unit,
+    onFloatingBubbleChange: (FloatingBubbleConfig) -> Unit,
+    onPickCustomBubbleIcon: (Uri) -> Unit,
+    onOpenWhatsNew: () -> Unit,
     onShowTelemetryChange: (Boolean) -> Unit,
     onAutoLaunchChange: (Boolean) -> Unit,
     onFloatingKeyboardDefaultChange: (Boolean) -> Unit,
@@ -127,6 +142,8 @@ fun SetupScreen(
 ) {
     val strings = LocalNexusStrings.current
     val context = LocalContext.current
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
@@ -213,12 +230,12 @@ fun SetupScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.Gamepad, contentDescription = null, tint = GeForceLime)
+                            Icon(Icons.Default.Gamepad, contentDescription = null, tint = primary)
                             Column {
                                 Text(
                                     text = strings.targetModeCardTitle,
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = GeForceLime
+                                    color = primary
                                 )
                                 Text(
                                     text = strings.targetModeSubtitle,
@@ -267,6 +284,29 @@ fun SetupScreen(
             }
 
             item {
+                AppColorSchemeCard(
+                    config = settings.colorScheme,
+                    onConfigChange = onColorSchemeChange
+                )
+            }
+
+            item {
+                FontCustomizationCard(
+                    config = settings.fontConfig,
+                    onConfigChange = onFontConfigChange,
+                    onPickCustomFont = onPickCustomFont
+                )
+            }
+
+            item {
+                FloatingBubbleCustomizationCard(
+                    config = settings.floatingBubble,
+                    onConfigChange = onFloatingBubbleChange,
+                    onPickCustomBubbleIcon = onPickCustomBubbleIcon
+                )
+            }
+
+            item {
                 RecordingQualityCard(
                     resolution = settings.recordingResolution,
                     fps = settings.recordingFps,
@@ -287,6 +327,7 @@ fun SetupScreen(
                     onDownloadUpdate = onDownloadUpdate,
                     onCancelDownload = onCancelUpdateDownload,
                     onInstallUpdate = onInstallUpdate,
+                    onOpenWhatsNew = onOpenWhatsNew,
                     onOpenReleaseUrl = { url -> GitHubUpdateManager.openReleaseInBrowser(context, url) }
                 )
             }
@@ -304,11 +345,21 @@ fun SetupScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            text = "BUTTON VIBRATION / HAPTICS",
+                            text = strings.setupVibrationCardTitle,
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
+                            color = primary
                         )
                         VibrationMode.entries.forEach { mode ->
+                            val vibTitle = when (mode) {
+                                VibrationMode.NONE -> strings.vibNoneTitle
+                                VibrationMode.LIGHT -> strings.vibLightTitle
+                                VibrationMode.STRONG -> strings.vibStrongTitle
+                            }
+                            val vibSub = when (mode) {
+                                VibrationMode.NONE -> strings.vibNoneSub
+                                VibrationMode.LIGHT -> strings.vibLightSub
+                                VibrationMode.STRONG -> strings.vibStrongSub
+                            }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -324,11 +375,11 @@ fun SetupScreen(
                                 Spacer(Modifier.width(8.dp))
                                 Column {
                                     Text(
-                                        text = mode.displayName,
+                                        text = vibTitle,
                                         style = MaterialTheme.typography.titleSmall
                                     )
                                     Text(
-                                        text = mode.subtitle,
+                                        text = vibSub,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -352,37 +403,37 @@ fun SetupScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
-                            text = "ANDROID OVERLAY & IME PERMISSIONS",
+                            text = strings.setupPermsCardTitle,
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
+                            color = primary
                         )
 
                         PermissionStepRow(
                             icon = Icons.Default.Layers,
-                            title = "1. Display Over Other Apps",
-                            description = "Allows floating virtual buttons and analog sticks to appear above GeForce NOW.",
+                            title = strings.setupPerm1Title,
+                            description = strings.setupPerm1Desc,
                             granted = readiness.canDrawOverlays,
-                            actionLabel = if (readiness.canDrawOverlays) "Granted" else "Open Settings",
+                            actionLabel = if (readiness.canDrawOverlays) strings.commonGranted else strings.commonOpenSettings,
                             testTag = "setup_overlay_perm_button",
                             onClick = onRequestOverlayPermission
                         )
 
                         PermissionStepRow(
                             icon = Icons.Default.Keyboard,
-                            title = "2. Enable NexusPad IME & Keyboard",
-                            description = "Dispatches real KeyEvents for gamepad/keyboard binds and provides a built-in virtual typing keyboard.",
+                            title = strings.setupPerm2Title,
+                            description = strings.setupPerm2Desc,
                             granted = readiness.isImeEnabled,
-                            actionLabel = if (readiness.isImeEnabled) "Enabled" else "Enable IME",
+                            actionLabel = if (readiness.isImeEnabled) strings.commonEnabled else strings.setupEnableIme,
                             testTag = "setup_enable_ime_button",
                             onClick = onOpenImeSettings
                         )
 
                         PermissionStepRow(
                             icon = Icons.Default.Mouse,
-                            title = "3. Mouse Click & Scroll Gestures",
-                            description = "Accessibility gesture engine for Left Click, Right Click, Middle Click, and Scroll Up/Down.",
+                            title = strings.setupPerm3Title,
+                            description = strings.setupPerm3Desc,
                             granted = readiness.isAccessibilityEnabled,
-                            actionLabel = if (readiness.isAccessibilityEnabled) "Enabled" else "Enable",
+                            actionLabel = if (readiness.isAccessibilityEnabled) strings.commonEnabled else strings.commonEnable,
                             testTag = "setup_accessibility_button",
                             onClick = onOpenAccessibilitySettings
                         )
@@ -399,7 +450,7 @@ fun SetupScreen(
                                     .height(48.dp)
                                     .testTag("setup_select_ime_button")
                             ) {
-                                Text(if (readiness.isImeSelected) "IME Selected ✓" else "Select Active IME")
+                                Text(if (readiness.isImeSelected) strings.setupImeSelected else strings.setupSelectIme)
                             }
 
                             OutlinedButton(
@@ -411,7 +462,7 @@ fun SetupScreen(
                             ) {
                                 Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text(if (readiness.hasNotificationPermission) "Alerts Ready" else "Allow Alerts")
+                                Text(if (readiness.hasNotificationPermission) strings.setupAlertsReady else strings.setupAllowAlerts)
                             }
                         }
 
@@ -452,9 +503,9 @@ fun SetupScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
-                            text = "CONTROLLER NOTATION",
+                            text = strings.setupNotationTitle,
                             style = MaterialTheme.typography.labelMedium,
-                            color = TacticalCyan
+                            color = secondary
                         )
                         ControllerNotation.entries.forEach { notation ->
                             Row(
@@ -492,9 +543,9 @@ fun SetupScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            text = "HUD & INTERACTION PREFERENCES",
+                            text = strings.setupHudPrefsTitle,
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
+                            color = primary
                         )
 
                         Column {
@@ -507,11 +558,11 @@ fun SetupScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Global Overlay Opacity", style = MaterialTheme.typography.titleSmall)
+                                Text(strings.setupGlobalOpacity, style = MaterialTheme.typography.titleSmall)
                                 Text(
                                     text = "${(opacityDraft * 100).roundToInt()}%",
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = primary
                                 )
                             }
                             SmoothSlider(
@@ -526,7 +577,7 @@ fun SetupScreen(
                                     onOpacityChange(v)
                                 },
                                 valueRange = 0.25f..1.0f,
-                                accentColor = GeForceLime,
+                                accentColor = primary,
                                 modifier = Modifier.testTag("setup_opacity_slider")
                             )
                         }
@@ -556,7 +607,7 @@ fun SetupScreen(
                                 Text(
                                     text = "${displayDivsX} × ${displayDivsY}",
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = primary
                                 )
                             }
                             SmoothSlider(
@@ -572,30 +623,30 @@ fun SetupScreen(
                                     onGridDivisionsChange(snapped)
                                 },
                                 valueRange = 4f..32f,
-                                accentColor = TacticalCyan,
+                                accentColor = secondary,
                                 modifier = Modifier.testTag("setup_grid_size_slider")
                             )
                         }
                         PreferenceSwitchRow(
                             icon = Icons.Default.Gamepad,
-                            title = "Show Telemetry HUD",
-                            subtitle = "Display live KeyEvent & axis monitor in Sandbox",
+                            title = strings.setupTelemetryTitle,
+                            subtitle = strings.setupTelemetrySub,
                             checked = settings.showTelemetryOverlay,
                             onCheckedChange = onShowTelemetryChange,
                             testTag = "setup_telemetry_switch"
                         )
                         PreferenceSwitchRow(
                             icon = Icons.Default.RocketLaunch,
-                            title = "Auto-Launch GeForce NOW",
-                            subtitle = "Open GeForce NOW automatically when starting overlay",
+                            title = strings.setupAutoLaunchTitle,
+                            subtitle = strings.setupAutoLaunchSub,
                             checked = settings.autoLaunchGeForceNow,
                             onCheckedChange = onAutoLaunchChange,
                             testTag = "setup_autolaunch_switch"
                         )
                         PreferenceSwitchRow(
                             icon = Icons.Default.DarkMode,
-                            title = "Tactical Dark Cockpit",
-                            subtitle = "High-contrast obsidian theme for low-glare play",
+                            title = strings.setupDarkModeTitle,
+                            subtitle = strings.setupDarkModeSub,
                             checked = settings.darkTheme,
                             onCheckedChange = onDarkThemeChange,
                             testTag = "setup_theme_switch"
@@ -618,11 +669,11 @@ fun SetupScreen(
                         Icon(
                             imageVector = Icons.Default.Info,
                             contentDescription = null,
-                            tint = TacticalCyan,
+                            tint = secondary,
                             modifier = Modifier.size(20.dp)
                         )
                         Text(
-                            text = "Note: On non-rooted Android devices, virtual buttons dispatch real KeyEvents through the NexusPad IME bridge for keyboard and digital gamepad bindings. Multi-touch is supported simultaneously across all overlay buttons and sticks.",
+                            text = strings.setupInfoNote,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -653,7 +704,7 @@ private fun PermissionStepRow(
         Icon(
             imageVector = if (granted) Icons.Default.CheckCircle else icon,
             contentDescription = null,
-            tint = if (granted) GeForceLime else TurboAmber,
+            tint = if (granted) MaterialTheme.colorScheme.primary else TurboAmber,
             modifier = Modifier.size(22.dp)
         )
         Column(modifier = Modifier.weight(1f)) {
@@ -722,6 +773,9 @@ private fun RecordingQualityCard(
     onResolutionChange: (RecordingResolution) -> Unit,
     onFpsChange: (RecordingFps) -> Unit
 ) {
+    val strings = LocalNexusStrings.current
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
     val bitrateLabel = remember(resolution, fps) {
         RecordingConfigHelper.formatBitrateMbps(resolution, fps)
     }
@@ -744,15 +798,15 @@ private fun RecordingQualityCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Default.Videocam, contentDescription = null, tint = TacticalCyan)
+                Icon(Icons.Default.Videocam, contentDescription = null, tint = secondary)
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "SCREEN RECORDING & REPLAY QUALITY",
+                        text = strings.recQualityTitle,
                         style = MaterialTheme.typography.labelMedium,
-                        color = TacticalCyan
+                        color = secondary
                     )
                     Text(
-                        text = "Choose output resolution and frame rate for Recordings & Instant Replay.",
+                        text = strings.recQualitySubtitle,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -761,7 +815,7 @@ private fun RecordingQualityCard(
 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "Resolution",
+                    text = strings.recResolutionLabel,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -787,7 +841,7 @@ private fun RecordingQualityCard(
 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "Frame Rate (FPS)",
+                    text = strings.recFpsLabel,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -820,7 +874,7 @@ private fun RecordingQualityCard(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "TARGET H.264 ENCODER PROFILE",
+                            text = strings.recEncoderProfileLabel,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -829,11 +883,11 @@ private fun RecordingQualityCard(
                             fontFamily = JetBrainsMonoFontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
-                            color = GeForceLime
+                            color = primary
                         )
                     }
                     Surface(
-                        color = TacticalCyan.copy(alpha = 0.14f),
+                        color = secondary.copy(alpha = 0.14f),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
@@ -841,7 +895,7 @@ private fun RecordingQualityCard(
                             fontFamily = JetBrainsMonoFontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
-                            color = TacticalCyan,
+                            color = secondary,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
@@ -849,7 +903,7 @@ private fun RecordingQualityCard(
             }
 
             Text(
-                text = "Auto-Fallback: If your phone's hardware H.264 encoder caps 1440p or 90/120 FPS, NexusPad automatically steps down to the highest stable resolution & FPS without failing.",
+                text = strings.recAutoFallbackNote,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -869,14 +923,26 @@ private fun GitHubUpdateCard(
     onDownloadUpdate: () -> Unit,
     onCancelDownload: () -> Unit,
     onInstallUpdate: () -> Unit,
+    onOpenWhatsNew: () -> Unit,
     onOpenReleaseUrl: (String) -> Unit
 ) {
+    val strings = LocalNexusStrings.current
+    val context = LocalContext.current
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
     val builtInRepo = remember { GitHubUpdateManager.defaultBuiltInRepo() }
     val effectiveSaved = savedRepoSlug.ifBlank { builtInRepo }
     var repoDraft by remember(effectiveSaved) { mutableStateOf(effectiveSaved) }
+    val installedSigShort = remember(context) {
+        GitHubUpdateManager.installedSigningShortFingerprint(context)
+    }
 
     val highlightBorder = when (updateState) {
-        is UpdateUiState.UpdateAvailable, is UpdateUiState.ReadyToInstall -> GeForceLime
+        is UpdateUiState.UpdateAvailable -> primary
+        is UpdateUiState.ReadyToInstall -> when (updateState.compatibility) {
+            is ApkUpgradeCompatibility.Compatible -> primary
+            else -> TurboAmber
+        }
         is UpdateUiState.Error -> MacroCoral
         else -> MaterialTheme.colorScheme.outlineVariant
     }
@@ -902,15 +968,15 @@ private fun GitHubUpdateCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = GeForceLime)
+                    Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = primary)
                     Column {
                         Text(
-                            text = "APP UPDATES (GITHUB RELEASES)",
+                            text = strings.updatesCardTitle,
                             style = MaterialTheme.typography.labelMedium,
-                            color = GeForceLime
+                            color = primary
                         )
                         Text(
-                            text = "Update directly inside NexusPad without deleting your current version or losing layouts.",
+                            text = strings.updatesCardSubtitle,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -923,41 +989,76 @@ private fun GitHubUpdateCard(
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = "Installed Version",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "v${GitHubUpdateManager.currentVersionName()} (Build ${GitHubUpdateManager.currentVersionCode()})",
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.testTag("setup_installed_version_text")
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = strings.updatesInstalledVersion,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "v${GitHubUpdateManager.currentVersionName()} (Build ${GitHubUpdateManager.currentVersionCode()})",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.testTag("setup_installed_version_text")
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = strings.updatesSigningKeyLabel,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = installedSigShort,
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp,
+                            color = secondary
+                        )
+                    }
                 }
+            }
+
+            OutlinedButton(
+                onClick = onOpenWhatsNew,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+                    .testTag("setup_open_whats_new_button")
+            ) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(strings.updatesViewWhatsNew)
             }
 
             OutlinedTextField(
                 value = repoDraft,
                 onValueChange = { repoDraft = it },
-                label = { Text("GitHub Repository (owner/repo)") },
-                placeholder = { Text("e.g. yourname/NexusPad") },
+                label = { Text(strings.updatesRepoLabel) },
+                placeholder = { Text(strings.updatesRepoPlaceholder) },
                 singleLine = true,
                 supportingText = {
                     Text(
                         if (builtInRepo.isNotBlank()) {
-                            "Auto-configured from GitHub Actions ($builtInRepo). Same signing key preserves all app data."
+                            "${strings.updatesRepoAutoHint} ($builtInRepo)"
                         } else {
-                            "Paste your GitHub repo slug or URL. GitHub Actions builds auto-fill this automatically."
+                            strings.updatesRepoManualHint
                         }
                     )
                 },
@@ -968,8 +1069,8 @@ private fun GitHubUpdateCard(
 
             PreferenceSwitchRow(
                 icon = Icons.Default.Refresh,
-                title = "Auto-Check on App Launch",
-                subtitle = "Silently check GitHub Releases for newer APKs when NexusPad opens",
+                title = strings.updatesAutoCheckTitle,
+                subtitle = strings.updatesAutoCheckSub,
                 checked = autoCheckUpdates,
                 onCheckedChange = onAutoCheckChange,
                 testTag = "setup_auto_update_switch"
@@ -994,11 +1095,11 @@ private fun GitHubUpdateCard(
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("Checking GitHub Releases...")
+                    Text(strings.updatesChecking)
                 } else {
                     Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Check for Updates")
+                    Text(strings.updatesCheckButton)
                 }
             }
 
@@ -1009,7 +1110,7 @@ private fun GitHubUpdateCard(
 
                 is UpdateUiState.UpToDate -> {
                     Surface(
-                        color = GeForceLime.copy(alpha = 0.12f),
+                        color = primary.copy(alpha = 0.12f),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -1018,9 +1119,9 @@ private fun GitHubUpdateCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = GeForceLime, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = primary, modifier = Modifier.size(20.dp))
                             Text(
-                                text = "You're up to date! Installed v${updateState.currentVersion} matches latest release ${updateState.latestTag}.",
+                                text = "${strings.updatesUpToDate} (v${updateState.currentVersion} / ${updateState.latestTag})",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -1031,11 +1132,11 @@ private fun GitHubUpdateCard(
                 is UpdateUiState.UpdateAvailable -> {
                     val release = updateState.release
                     Surface(
-                        color = GeForceLime.copy(alpha = 0.10f),
+                        color = primary.copy(alpha = 0.10f),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, GeForceLime.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                            .border(1.dp, primary.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
@@ -1047,11 +1148,11 @@ private fun GitHubUpdateCard(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "NEW UPDATE: ${release.tagName}",
+                                    text = "${strings.updatesNewAvailable}: ${release.tagName}",
                                     fontFamily = JetBrainsMonoFontFamily,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
-                                    color = GeForceLime
+                                    color = primary
                                 )
                                 if (release.apkSizeBytes > 0L) {
                                     Text(
@@ -1090,8 +1191,8 @@ private fun GitHubUpdateCard(
                                     Button(
                                         onClick = onDownloadUpdate,
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = GeForceLime,
-                                            contentColor = Color(0xFF0A1400)
+                                            containerColor = primary,
+                                            contentColor = MaterialTheme.colorScheme.onPrimary
                                         ),
                                         modifier = Modifier
                                             .weight(1f)
@@ -1100,7 +1201,7 @@ private fun GitHubUpdateCard(
                                     ) {
                                         Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(Modifier.width(6.dp))
-                                        Text("Download & Update", fontWeight = FontWeight.Bold)
+                                        Text(strings.updatesDownloadAndUpdate, fontWeight = FontWeight.Bold)
                                     }
                                 }
                                 if (release.htmlUrl.isNotBlank()) {
@@ -1136,7 +1237,7 @@ private fun GitHubUpdateCard(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Downloading ${updateState.release.tagName}...",
+                                    text = "${strings.updatesDownloading} ${updateState.release.tagName}...",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -1149,13 +1250,13 @@ private fun GitHubUpdateCard(
                                     fontFamily = JetBrainsMonoFontFamily,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 12.sp,
-                                    color = TacticalCyan
+                                    color = secondary
                                 )
                             }
                             if (updateState.totalBytes > 0L) {
                                 LinearProgressIndicator(
                                     progress = { updateState.progress },
-                                    color = GeForceLime,
+                                    color = primary,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 Text(
@@ -1166,7 +1267,7 @@ private fun GitHubUpdateCard(
                                 )
                             } else {
                                 LinearProgressIndicator(
-                                    color = GeForceLime,
+                                    color = primary,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
@@ -1179,44 +1280,85 @@ private fun GitHubUpdateCard(
                             ) {
                                 Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("Cancel Download")
+                                Text(strings.updatesCancelDownload)
                             }
                         }
                     }
                 }
 
                 is UpdateUiState.ReadyToInstall -> {
+                    val compat = updateState.compatibility
+                    val isCompatible = compat is ApkUpgradeCompatibility.Compatible
+                    val boxTint = if (isCompatible) primary else TurboAmber
                     Surface(
-                        color = GeForceLime.copy(alpha = 0.14f),
+                        color = boxTint.copy(alpha = 0.14f),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, GeForceLime.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                            .border(1.dp, boxTint.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(
-                                text = "Ready to install ${updateState.release.tagName}",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = GeForceLime
-                            )
-                            Text(
-                                text = if (canInstallPackages) {
-                                    "Tap below to launch Android's installer. Your existing layouts, filters, and gallery are preserved."
-                                } else {
-                                    "One-time setup: Android will ask to enable \"Install unknown apps\" for NexusPad, then tap Install Update again."
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            when (compat) {
+                                is ApkUpgradeCompatibility.Compatible -> {
+                                    Text(
+                                        text = "${strings.updatesReadyTitle} ${updateState.release.tagName}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = primary
+                                    )
+                                    Text(
+                                        text = if (canInstallPackages) {
+                                            strings.updatesReadyKeepsData
+                                        } else {
+                                            strings.updatesReadyNeedPerm
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                is ApkUpgradeCompatibility.SignatureMismatch -> {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(Icons.Default.Warning, contentDescription = null, tint = TurboAmber, modifier = Modifier.size(18.dp))
+                                        Text(
+                                            text = strings.updatesSigMismatchTitle,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TurboAmber
+                                        )
+                                    }
+                                    Text(
+                                        text = "${strings.updatesSigMismatchBody}\n(Installed: ${compat.installedShort} → APK: ${compat.apkShort})",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                is ApkUpgradeCompatibility.VersionDowngrade -> {
+                                    Text(
+                                        text = "APK Build (${compat.apkCode}) is lower than installed Build (${compat.installedCode}).",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TurboAmber,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                is ApkUpgradeCompatibility.InvalidPackage -> {
+                                    Text(
+                                        text = compat.reason,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MacroCoral
+                                    )
+                                }
+                            }
                             Button(
                                 onClick = onInstallUpdate,
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = GeForceLime,
-                                    contentColor = Color(0xFF0A1400)
+                                    containerColor = boxTint,
+                                    contentColor = if (isCompatible) MaterialTheme.colorScheme.onPrimary else Color(0xFF0A1400)
                                 ),
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1226,7 +1368,7 @@ private fun GitHubUpdateCard(
                                 Icon(Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    text = if (canInstallPackages) "Install Update (Keeps Data)" else "Allow & Install Update",
+                                    text = if (canInstallPackages) strings.updatesInstallButton else strings.updatesAllowAndInstall,
                                     fontWeight = FontWeight.Bold
                                 )
                             }

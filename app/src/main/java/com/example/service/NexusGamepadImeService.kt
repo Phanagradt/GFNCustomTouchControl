@@ -80,7 +80,8 @@ class NexusGamepadImeService : InputMethodService() {
                 if (!InputBridge.requestFloatingKeyboard()) {
                     OverlayControllerService.startFloatingKeyboard(this)
                 }
-            }
+            },
+            onReplaceWord = ::handleReplaceWord
         )
         keyboardView = view
         syncEditorMeta(currentInputEditorInfo)
@@ -122,6 +123,33 @@ class NexusGamepadImeService : InputMethodService() {
             }
         }
         ic.commitText(text, 1)
+    }
+
+    private fun handleReplaceWord(deleteCount: Int, replacement: String) {
+        val ic = currentInputConnection ?: return
+        val info = currentInputEditorInfo
+        val isRawTarget = info == null || info.inputType == InputType.TYPE_NULL
+        if (isRawTarget) {
+            repeat(deleteCount) {
+                InputBridge.dispatchRawKey(KeyEvent.KEYCODE_DEL, KeyEvent.ACTION_DOWN)
+                InputBridge.dispatchRawKey(KeyEvent.KEYCODE_DEL, KeyEvent.ACTION_UP)
+            }
+            val events = keyCharMap.getEvents(replacement.toCharArray())
+            if (events != null && events.isNotEmpty()) {
+                events.forEach { ev ->
+                    InputBridge.dispatchRawKey(ev.keyCode, ev.action, ev.metaState)
+                }
+            } else {
+                ic.commitText(replacement, 1)
+            }
+        } else {
+            ic.beginBatchEdit()
+            if (deleteCount > 0) {
+                ic.deleteSurroundingText(deleteCount, 0)
+            }
+            ic.commitText(replacement, 1)
+            ic.endBatchEdit()
+        }
     }
 
     private fun handleBackspace() {

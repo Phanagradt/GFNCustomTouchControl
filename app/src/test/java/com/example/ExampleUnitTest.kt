@@ -5,8 +5,12 @@ import com.example.input.InputBridge
 import com.example.capture.CaptureBridge
 import com.example.filter.FreestyleGlTextureView
 import com.example.filter.GameFilterBridge
+import com.example.model.AppColorSchemeConfig
+import com.example.model.AppFontConfig
+import com.example.model.AppFontPreset
 import com.example.model.AppLanguage
 import com.example.model.AppLocalization
+import com.example.model.AppThemePreset
 import com.example.model.AxisPair
 import com.example.model.BlackWhiteTone
 import com.example.model.CaptureMediaType
@@ -32,7 +36,10 @@ import com.example.model.ReplayBufferPreset
 import com.example.model.SpecialFxMode
 import com.example.model.StickerPreset
 import com.example.model.TargetPlatformMode
+import com.example.model.FloatingBubbleConfig
+import com.example.model.FloatingBubbleStyle
 import com.example.model.TouchpadMode
+import com.example.service.KeyboardWordPredictor
 import com.example.ui.components.computeOverlayBlurRadius
 import com.example.ui.components.computeOverlayDimAmount
 import com.example.update.GitHubUpdateManager
@@ -980,4 +987,109 @@ class ExampleUnitTest {
         assertTrue(parsed.apkDownloadUrl!!.endsWith("NexusPad-v1.0.12.apk"))
         assertTrue(parsed.releaseNotes.contains("Recording 1080p 60 FPS"))
     }
+
+    @Test
+    fun `app color scheme mixer resolves presets 2-color blend and 3-color custom accent`() {
+        val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        val adapter = moshi.adapter(AppColorSchemeConfig::class.java)
+
+        val preset = AppColorSchemeConfig(preset = AppThemePreset.CYBER_PINK)
+        assertEquals(AppThemePreset.CYBER_PINK.primaryHex, preset.effectivePrimaryHex())
+        assertEquals(AppThemePreset.CYBER_PINK.secondaryHex, preset.effectiveSecondaryHex())
+        assertEquals(AppThemePreset.CYBER_PINK.tertiaryHex, preset.effectiveTertiaryHex())
+
+        val mix2 = AppColorSchemeConfig(
+            preset = AppThemePreset.CUSTOM_MIX,
+            useThreeColors = false,
+            customPrimaryHex = 0xFFFF0000,
+            customSecondaryHex = 0xFF0000FF,
+            customTertiaryHex = 0xFF00FF00
+        )
+        val blended = mix2.effectiveTertiaryHex()
+        assertEquals(0xFF7F007FL, blended)
+
+        val mix3 = mix2.copy(useThreeColors = true)
+        assertEquals(0xFF00FF00L, mix3.effectiveTertiaryHex())
+
+        val restored = adapter.fromJson(adapter.toJson(mix3))
+        assertEquals(mix3, restored)
+    }
+
+    @Test
+    fun `floating bubble config clamps size opacity and round-trips with font config`() {
+        val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        val bubbleAdapter = moshi.adapter(FloatingBubbleConfig::class.java)
+        val fontAdapter = moshi.adapter(AppFontConfig::class.java)
+
+        val extremeSmall = FloatingBubbleConfig(sizeDp = 12f, opacity = 0.05f, style = FloatingBubbleStyle.HEX_BADGE)
+        assertEquals(36f, extremeSmall.clampedSizeDp(), 0.001f)
+        assertEquals(0.25f, extremeSmall.clampedOpacity(), 0.001f)
+
+        val extremeLarge = FloatingBubbleConfig(sizeDp = 140f, opacity = 1.8f, style = FloatingBubbleStyle.CYBER_PILL)
+        assertEquals(88f, extremeLarge.clampedSizeDp(), 0.001f)
+        assertEquals(1.0f, extremeLarge.clampedOpacity(), 0.001f)
+
+        assertEquals(extremeSmall, bubbleAdapter.fromJson(bubbleAdapter.toJson(extremeSmall)))
+
+        val customFont = AppFontConfig(
+            preset = AppFontPreset.CUSTOM_UPLOAD,
+            customFontPath = "/data/user/0/com.aistudio.nexuspad.vktrmz/files/custom_fonts/arcade.ttf",
+            customFontName = "arcade"
+        )
+        assertEquals(customFont, fontAdapter.fromJson(fontAdapter.toJson(customFont)))
+    }
+
+    @Test
+    fun `keyboard word predictor auto-corrects typos predicts next words and supports Thai`() {
+        val typo = KeyboardWordPredictor.predict("teh")
+        assertEquals("the", typo.autoCorrect)
+        assertEquals("the", typo.suggestions.first())
+
+        val typoCap = KeyboardWordPredictor.predict("Recieve")
+        assertEquals("Receive", typoCap.autoCorrect)
+
+        val fuzzy = KeyboardWordPredictor.predict("playre")
+        assertEquals("player", fuzzy.autoCorrect)
+
+        val nextAfterGood = KeyboardWordPredictor.predict(currentWord = "", previousWord = "good", isThai = false)
+        assertTrue(nextAfterGood.suggestions.isNotEmpty())
+        assertTrue(nextAfterGood.suggestions.any { it.equals("game", ignoreCase = true) || it.equals("luck", ignoreCase = true) })
+
+        val thaiPrefix = KeyboardWordPredictor.predict(currentWord = "สวัส", isThai = true)
+        assertTrue("Expected Thai greeting suggestion", thaiPrefix.suggestions.contains("สวัสดี"))
+
+        val thaiNext = KeyboardWordPredictor.predict(currentWord = "", previousWord = "ขอบคุณ", isThai = true)
+        assertTrue(thaiNext.suggestions.isNotEmpty())
+    }
+
+    @Test
+    fun `full app localization translates Freestyle Gallery Updates Personalization and WhatsNew across all 5 languages`() {
+        val english = AppLocalization.stringsFor(AppLanguage.ENGLISH)
+        val nonEnglish = listOf(AppLanguage.THAI, AppLanguage.SPANISH, AppLanguage.JAPANESE, AppLanguage.CHINESE)
+
+        nonEnglish.forEach { lang ->
+            val s = AppLocalization.stringsFor(lang)
+            assertTrue("$lang filterPanelTitle blank", s.filterPanelTitle.isNotBlank())
+            assertTrue("$lang galleryTitle blank", s.galleryTitle.isNotBlank())
+            assertTrue("$lang recQualityTitle blank", s.recQualityTitle.isNotBlank())
+            assertTrue("$lang updatesCardTitle blank", s.updatesCardTitle.isNotBlank())
+            assertTrue("$lang themeCardTitle blank", s.themeCardTitle.isNotBlank())
+            assertTrue("$lang fontCardTitle blank", s.fontCardTitle.isNotBlank())
+            assertTrue("$lang bubbleCardTitle blank", s.bubbleCardTitle.isNotBlank())
+            assertTrue("$lang whatsNewItems should have 5 entries", s.whatsNewItems.size == 5)
+            assertFalse("$lang galleryTitle should be translated from English", s.galleryTitle == english.galleryTitle)
+            assertFalse("$lang updatesCardTitle should be translated from English", s.updatesCardTitle == english.updatesCardTitle)
+            assertFalse("$lang themeCardTitle should be translated from English", s.themeCardTitle == english.themeCardTitle)
+        }
+    }
+
+    @Test
+    fun `github update manager formats short signing fingerprint cleanly`() {
+        val full = "C7:3F:97:29:AB:CD:EF:12:34:56:78:90:AA:BB:CC:DD"
+        val short = GitHubUpdateManager.shortFingerprint(full)
+        assertEquals("C73F97…BBCCDD", short)
+        assertEquals("SHORT", GitHubUpdateManager.shortFingerprint("SHORT"))
+        assertEquals("Unknown", GitHubUpdateManager.shortFingerprint(null))
+    }
 }
+

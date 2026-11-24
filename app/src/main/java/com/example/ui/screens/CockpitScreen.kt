@@ -68,8 +68,8 @@ import com.example.data.VibrationMode
 import com.example.model.BindingDomain
 import com.example.model.ControlType
 import com.example.model.ControllerProfile
+import com.example.model.LocalNexusStrings
 import com.example.ui.SystemReadiness
-import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.MacroCoral
 import com.example.ui.theme.MacroViolet
 import com.example.ui.theme.TacticalCyan
@@ -93,6 +93,7 @@ fun CockpitScreen(
     onLaunchGeForceNow: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = LocalNexusStrings.current
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
@@ -115,7 +116,7 @@ fun CockpitScreen(
 
             item {
                 Text(
-                    text = "GEFORCE NOW INTEGRATION",
+                    text = strings.cockpitIntegrationHeader,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -123,29 +124,29 @@ fun CockpitScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     ReadinessRowCard(
                         icon = Icons.Default.Layers,
-                        title = "Screen Overlay Engine",
+                        title = strings.cockpitOverlayEngineTitle,
                         subtitle = if (readiness.canDrawOverlays) {
-                            "Display over other apps permission granted"
+                            strings.cockpitOverlayEngineGranted
                         } else {
-                            "Required to float virtual controls over GeForce NOW"
+                            strings.cockpitOverlayEngineMissing
                         },
-                        statusText = if (readiness.canDrawOverlays) "READY" else "GRANT",
+                        statusText = if (readiness.canDrawOverlays) strings.commonReady else strings.commonGrant,
                         isReady = readiness.canDrawOverlays,
                         testTag = "readiness_overlay_card",
                         onClick = onRequestOverlayPermission
                     )
                     ReadinessRowCard(
                         icon = Icons.Default.Keyboard,
-                        title = "Gamepad & Built-In Keyboard IME",
+                        title = strings.cockpitImeTitle,
                         subtitle = when {
-                            readiness.isImeSelected -> "Active for key dispatch & built-in typing keyboard"
-                            readiness.isImeEnabled -> "Enabled — tap to select as active input method"
-                            else -> "Enable NexusPad IME for game keys & built-in keyboard"
+                            readiness.isImeSelected -> strings.cockpitImeSelected
+                            readiness.isImeEnabled -> strings.cockpitImeEnabled
+                            else -> strings.cockpitImeDisabled
                         },
                         statusText = when {
-                            readiness.isImeSelected -> "ACTIVE"
-                            readiness.isImeEnabled -> "SELECT"
-                            else -> "SETUP"
+                            readiness.isImeSelected -> strings.commonActive
+                            readiness.isImeEnabled -> strings.commonSelect
+                            else -> strings.commonSetup
                         },
                         isReady = readiness.isImeSelected,
                         testTag = "readiness_ime_card",
@@ -153,26 +154,26 @@ fun CockpitScreen(
                     )
                     ReadinessRowCard(
                         icon = Icons.Default.Mouse,
-                        title = "Mouse Click & Scroll Gestures",
+                        title = strings.cockpitMouseTitle,
                         subtitle = if (readiness.isAccessibilityEnabled) {
-                            "Enabled — Left, Right, Middle click & Scroll active"
+                            strings.cockpitMouseReady
                         } else {
-                            "Enable NexusPad Mouse Gestures for LMB, RMB, MMB & Scroll"
+                            strings.cockpitMouseMissing
                         },
-                        statusText = if (readiness.isAccessibilityEnabled) "READY" else "ENABLE",
+                        statusText = if (readiness.isAccessibilityEnabled) strings.commonReady else strings.commonEnable.uppercase(),
                         isReady = readiness.isAccessibilityEnabled,
                         testTag = "readiness_accessibility_card",
                         onClick = onOpenAccessibilitySettings
                     )
                     ReadinessRowCard(
                         icon = Icons.Default.RocketLaunch,
-                        title = "GeForce NOW Stream Target",
+                        title = strings.cockpitGfnTitle,
                         subtitle = if (readiness.isGeForceNowInstalled) {
-                            "Detected com.nvidia.geforcenow — ready to launch"
+                            strings.cockpitGfnInstalled
                         } else {
-                            "Launch Play Store or verify layouts in Test Sandbox"
+                            strings.cockpitGfnMissing
                         },
-                        statusText = if (readiness.isGeForceNowInstalled) "LAUNCH" else "SANDBOX",
+                        statusText = if (readiness.isGeForceNowInstalled) strings.commonLaunch else strings.navSandbox.uppercase(),
                         isReady = readiness.isGeForceNowInstalled,
                         testTag = "readiness_gfn_card",
                         onClick = if (readiness.isGeForceNowInstalled) onLaunchGeForceNow else onOpenSandbox
@@ -188,12 +189,12 @@ fun CockpitScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "QUICK PROFILE SWITCH",
+                            text = strings.cockpitQuickProfile,
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.secondary
                         )
                         Text(
-                            text = "${allProfiles.size} saved",
+                            text = "${allProfiles.size} ${strings.cockpitSavedSuffix}",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -234,16 +235,21 @@ fun CockpitScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "BUTTON VIBRATION",
+                        text = strings.cockpitVibrationHeader,
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.secondary
                     )
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(VibrationMode.entries) { mode ->
+                            val modeLabel = when (mode) {
+                                VibrationMode.NONE -> strings.vibNoneTitle
+                                VibrationMode.LIGHT -> strings.vibLightTitle
+                                VibrationMode.STRONG -> strings.vibStrongTitle
+                            }
                             FilterChip(
                                 selected = vibrationMode == mode,
                                 onClick = { onVibrationModeChange(mode) },
-                                label = { Text(mode.displayName) },
+                                label = { Text(modeLabel) },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                                     selectedLabelColor = MaterialTheme.colorScheme.primary
@@ -277,6 +283,9 @@ private fun HeroCockpitCard(
     onToggleOverlay: () -> Unit,
     onOpenEditor: () -> Unit
 ) {
+    val strings = LocalNexusStrings.current
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
     Card(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -284,7 +293,7 @@ private fun HeroCockpitCard(
             .fillMaxWidth()
             .border(
                 width = 1.dp,
-                color = if (isOverlayRunning) GeForceLime.copy(alpha = 0.7f) else MaterialTheme.colorScheme.outline,
+                color = if (isOverlayRunning) primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.outline,
                 shape = MaterialTheme.shapes.large
             )
     ) {
@@ -324,11 +333,11 @@ private fun HeroCockpitCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
-                        color = if (isOverlayRunning) GeForceLime.copy(alpha = 0.22f) else Color(0xAA121721),
+                        color = if (isOverlayRunning) primary.copy(alpha = 0.22f) else Color(0xAA121721),
                         shape = RoundedCornerShape(20.dp),
                         modifier = Modifier.border(
                             1.dp,
-                            if (isOverlayRunning) GeForceLime else Color(0xFF314057),
+                            if (isOverlayRunning) primary else Color(0xFF314057),
                             RoundedCornerShape(20.dp)
                         )
                     ) {
@@ -341,12 +350,12 @@ private fun HeroCockpitCard(
                                 modifier = Modifier
                                     .size(8.dp)
                                     .clip(CircleShape)
-                                    .background(if (isOverlayRunning) GeForceLime else TacticalCyan)
+                                    .background(if (isOverlayRunning) primary else secondary)
                             )
                             Text(
-                                text = if (isOverlayRunning) "OVERLAY LIVE" else "COCKPIT ARMED",
+                                text = if (isOverlayRunning) strings.cockpitOverlayLive else strings.cockpitArmed,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (isOverlayRunning) GeForceLime else Color.White
+                                color = if (isOverlayRunning) primary else Color.White
                             )
                         }
                     }
@@ -359,7 +368,7 @@ private fun HeroCockpitCard(
                             Text(
                                 text = it.genre.displayName.uppercase(),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TacticalCyan,
+                                color = secondary,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
@@ -368,14 +377,14 @@ private fun HeroCockpitCard(
 
                 Column {
                     Text(
-                        text = activeProfile?.name ?: "Loading Profile...",
+                        text = activeProfile?.name ?: "NexusPad",
                         style = MaterialTheme.typography.headlineSmall,
                         color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = activeProfile?.gameTitle ?: "Customizable touch-to-controller mapper",
+                        text = activeProfile?.gameTitle ?: strings.profilesSubtitle,
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color(0xFFB6C4D9),
                         maxLines = 1,
@@ -389,8 +398,8 @@ private fun HeroCockpitCard(
                         Button(
                             onClick = onToggleOverlay,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isOverlayRunning) MacroCoral else GeForceLime,
-                                contentColor = if (isOverlayRunning) Color.White else Color(0xFF0A1400)
+                                containerColor = if (isOverlayRunning) MacroCoral else primary,
+                                contentColor = if (isOverlayRunning) Color.White else MaterialTheme.colorScheme.onPrimary
                             ),
                             modifier = Modifier
                                 .weight(1f)
@@ -404,7 +413,7 @@ private fun HeroCockpitCard(
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                text = if (isOverlayRunning) "Stop Overlay" else "Launch Overlay",
+                                text = if (isOverlayRunning) strings.stopOverlay else strings.launchOverlay,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -422,7 +431,7 @@ private fun HeroCockpitCard(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(Modifier.width(6.dp))
-                            Text("Customize")
+                            Text(strings.commonCustomize)
                         }
                     }
                 }
@@ -441,6 +450,7 @@ private fun ReadinessRowCard(
     testTag: String,
     onClick: () -> Unit
 ) {
+    val primary = MaterialTheme.colorScheme.primary
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.medium,
@@ -463,14 +473,14 @@ private fun ReadinessRowCard(
                     .size(40.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(
-                        if (isReady) GeForceLime.copy(alpha = 0.14f) else TurboAmber.copy(alpha = 0.14f)
+                        if (isReady) primary.copy(alpha = 0.14f) else TurboAmber.copy(alpha = 0.14f)
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = if (isReady) GeForceLime else TurboAmber,
+                    tint = if (isReady) primary else TurboAmber,
                     modifier = Modifier.size(22.dp)
                 )
             }
@@ -489,7 +499,7 @@ private fun ReadinessRowCard(
                 )
             }
             Surface(
-                color = if (isReady) GeForceLime.copy(alpha = 0.18f) else TurboAmber.copy(alpha = 0.18f),
+                color = if (isReady) primary.copy(alpha = 0.18f) else TurboAmber.copy(alpha = 0.18f),
                 shape = RoundedCornerShape(8.dp)
             ) {
                 Row(
@@ -500,13 +510,13 @@ private fun ReadinessRowCard(
                     Icon(
                         imageVector = if (isReady) Icons.Default.CheckCircle else Icons.Default.WarningAmber,
                         contentDescription = null,
-                        tint = if (isReady) GeForceLime else TurboAmber,
+                        tint = if (isReady) primary else TurboAmber,
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
                         text = statusText,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isReady) GeForceLime else TurboAmber
+                        color = if (isReady) primary else TurboAmber
                     )
                 }
             }
@@ -525,6 +535,8 @@ private fun ActiveLayoutSchematicCard(
     onOpenEditor: () -> Unit,
     onOpenSandbox: () -> Unit
 ) {
+    val strings = LocalNexusStrings.current
+    val primary = MaterialTheme.colorScheme.primary
     val gamepadCount = profile.controls.count {
         it.binding.domain == BindingDomain.CONTROLLER || it.binding.domain == BindingDomain.ANALOG_AXIS
     }
@@ -547,18 +559,18 @@ private fun ActiveLayoutSchematicCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "ACTIVE BINDING TOPOLOGY",
+                        text = strings.cockpitActiveTopology,
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        color = primary
                     )
                     Text(
-                        text = "${profile.controls.size} virtual controls mapped",
+                        text = "${profile.controls.size} ${strings.cockpitMappedSuffix}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (gamepadCount > 0) StatBadge("${gamepadCount} PAD", GeForceLime)
+                    if (gamepadCount > 0) StatBadge("${gamepadCount} PAD", primary)
                     if (mouseCount > 0) StatBadge("${mouseCount} MSE", TurboAmber)
                     if (keyboardCount > 0) StatBadge("${keyboardCount} KEY", TacticalCyan)
                     if (comboCount > 0) StatBadge("${comboCount} MACRO", MacroViolet)
@@ -577,7 +589,7 @@ private fun ActiveLayoutSchematicCard(
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.img_game_arena_bg),
-                    contentDescription = "Profile Layout Preview",
+                    contentDescription = strings.cockpitActiveTopology,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -598,7 +610,7 @@ private fun ActiveLayoutSchematicCard(
                         .padding(8.dp)
                 ) {
                     Text(
-                        text = "Tap to customize positions",
+                        text = strings.cockpitTapCustomize,
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -621,7 +633,7 @@ private fun ActiveLayoutSchematicCard(
                 ) {
                     Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Layout Studio")
+                    Text(strings.cockpitLayoutStudio)
                 }
                 Button(
                     onClick = onOpenSandbox,
@@ -636,7 +648,7 @@ private fun ActiveLayoutSchematicCard(
                 ) {
                     Icon(Icons.Default.TouchApp, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Test Controls")
+                    Text(strings.cockpitTestControls)
                 }
             }
         }

@@ -84,13 +84,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.capture.CaptureBridge
 import com.example.model.CaptureMediaType
 import com.example.model.CapturedMediaItem
+import com.example.model.LocalNexusStrings
 import com.example.model.RecordingConfigHelper
 import com.example.model.RecordingFps
 import com.example.model.RecordingResolution
 import com.example.model.ReplayBufferPreset
 import com.example.service.ScreenCaptureService
 import com.example.ui.components.SmoothSlider
-import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.MacroCoral
 import com.example.ui.theme.TacticalCyan
@@ -103,10 +103,10 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private enum class GalleryFilterTab(val label: String) {
-    ALL("All"),
-    SCREENSHOTS("Screenshots"),
-    VIDEOS("Videos & Replays")
+private enum class GalleryFilterTab {
+    ALL,
+    SCREENSHOTS,
+    VIDEOS
 }
 
 @Composable
@@ -121,6 +121,9 @@ fun GalleryScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val strings = LocalNexusStrings.current
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
     val mediaItems by CaptureBridge.galleryItems.collectAsStateWithLifecycle()
     val isReplayOn by CaptureBridge.isInstantReplayOn.collectAsStateWithLifecycle()
     val isRecording by CaptureBridge.isRecording.collectAsStateWithLifecycle()
@@ -166,12 +169,12 @@ fun GalleryScreen(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Shadow Capture & Gallery",
+                    text = strings.galleryTitle,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "GeForce-style Instant Replay (10s – 1h), manual recording, and screenshots.",
+                    text = strings.gallerySubtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -180,7 +183,7 @@ fun GalleryScreen(
                 onClick = { CaptureBridge.refreshGallery(context) },
                 modifier = Modifier.testTag("gallery_refresh_button")
             ) {
-                Icon(Icons.Default.Refresh, contentDescription = "Refresh Gallery")
+                Icon(Icons.Default.Refresh, contentDescription = strings.commonReset)
             }
         }
 
@@ -207,16 +210,16 @@ fun GalleryScreen(
                             .height(48.dp)
                             .testTag("gallery_screenshot_button")
                     ) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp), tint = TacticalCyan)
+                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp), tint = secondary)
                         Spacer(Modifier.width(6.dp))
-                        Text("Screenshot", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(strings.menuScreenshot, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
 
                     Button(
                         onClick = { ScreenCaptureService.toggleInstantReplay(context, replayDurationSec) },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isReplayOn) GeForceLime else Color(0xFF1D2634),
-                            contentColor = if (isReplayOn) Color(0xFF0A1400) else Color.White
+                            containerColor = if (isReplayOn) primary else Color(0xFF1D2634),
+                            contentColor = if (isReplayOn) MaterialTheme.colorScheme.onPrimary else Color.White
                         ),
                         modifier = Modifier
                             .weight(1.1f)
@@ -226,7 +229,7 @@ fun GalleryScreen(
                         Icon(Icons.Default.Replay, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            text = if (isReplayOn) "Replay ON" else "Instant Replay",
+                            text = if (isReplayOn) strings.galleryReplayOn else strings.menuReplay,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -251,7 +254,7 @@ fun GalleryScreen(
                         )
                         Spacer(Modifier.width(5.dp))
                         Text(
-                            text = if (isRecording) CaptureBridge.formatDurationMs(recordingElapsedMs) else "Record",
+                            text = if (isRecording) CaptureBridge.formatDurationMs(recordingElapsedMs) else strings.menuRecord,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -262,8 +265,8 @@ fun GalleryScreen(
                     Button(
                         onClick = { ScreenCaptureService.saveInstantReplayClip(context, replayDurationSec) },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = TacticalCyan,
-                            contentColor = Color(0xFF031820)
+                            containerColor = secondary,
+                            contentColor = MaterialTheme.colorScheme.onSecondary
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -273,7 +276,7 @@ fun GalleryScreen(
                         Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Save Last ${ReplayBufferPreset.formatDuration(replayDurationSec)} Clip Now",
+                            text = "${strings.gallerySaveClipPrefix} ${ReplayBufferPreset.formatDuration(replayDurationSec)} ${strings.gallerySaveClipSuffix}",
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -293,7 +296,7 @@ fun GalleryScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "INSTANT REPLAY BUFFER LENGTH",
+                        text = strings.galleryReplayBufferHeader,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -302,7 +305,7 @@ fun GalleryScreen(
                         fontFamily = JetBrainsMonoFontFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
-                        color = GeForceLime
+                        color = primary
                     )
                 }
 
@@ -338,7 +341,7 @@ fun GalleryScreen(
                         onReplayDurationChange(snapped)
                     },
                     valueRange = 10f..3600f,
-                    accentColor = GeForceLime,
+                    accentColor = primary,
                     modifier = Modifier.testTag("gallery_replay_slider")
                 )
 
@@ -349,7 +352,7 @@ fun GalleryScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "CAPTURE QUALITY",
+                        text = strings.galleryCaptureQualityHeader,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -358,7 +361,7 @@ fun GalleryScreen(
                         fontFamily = JetBrainsMonoFontFamily,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 11.sp,
-                        color = TacticalCyan,
+                        color = secondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -397,10 +400,15 @@ fun GalleryScreen(
                     GalleryFilterTab.SCREENSHOTS -> mediaItems.count { it.type == CaptureMediaType.SCREENSHOT }
                     GalleryFilterTab.VIDEOS -> mediaItems.count { it.type != CaptureMediaType.SCREENSHOT }
                 }
+                val tabLabel = when (tab) {
+                    GalleryFilterTab.ALL -> strings.commonAll
+                    GalleryFilterTab.SCREENSHOTS -> strings.galleryScreenshotsTab
+                    GalleryFilterTab.VIDEOS -> strings.galleryVideosTab
+                }
                 FilterChip(
                     selected = filterTab == tab,
                     onClick = { filterTab = tab },
-                    label = { Text("${tab.label} ($count)") },
+                    label = { Text("$tabLabel ($count)") },
                     modifier = Modifier.testTag("gallery_tab_${tab.name.lowercase()}")
                 )
             }
@@ -426,18 +434,18 @@ fun GalleryScreen(
                     Icon(
                         imageVector = Icons.Default.PhotoLibrary,
                         contentDescription = null,
-                        tint = TacticalCyan.copy(alpha = 0.65f),
+                        tint = secondary.copy(alpha = 0.65f),
                         modifier = Modifier.size(56.dp)
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        text = "No captures yet",
+                        text = strings.galleryEmptyTitle,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "Use Screenshot, Instant Replay (10s–1h), or Record above — or from the Floating Bubble menu while playing.",
+                        text = strings.galleryEmptySubtitle,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -495,10 +503,12 @@ private fun GalleryMediaCard(
         }
     }
 
+    val strings = LocalNexusStrings.current
+    val primary = MaterialTheme.colorScheme.primary
     val isVideo = item.type != CaptureMediaType.SCREENSHOT
     val badgeColor = when (item.type) {
         CaptureMediaType.SCREENSHOT -> TacticalCyan
-        CaptureMediaType.REPLAY -> GeForceLime
+        CaptureMediaType.REPLAY -> primary
         CaptureMediaType.RECORDING -> MacroCoral
     }
     val dateText = remember(item.createdAtMs) {
@@ -623,7 +633,7 @@ private fun GalleryMediaCard(
                     IconButton(onClick = onShare, modifier = Modifier.size(34.dp)) {
                         Icon(
                             imageVector = Icons.Default.Share,
-                            contentDescription = "Share",
+                            contentDescription = strings.commonShare,
                             tint = TacticalCyan,
                             modifier = Modifier.size(16.dp)
                         )
@@ -631,7 +641,7 @@ private fun GalleryMediaCard(
                     IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
                         Icon(
                             imageVector = Icons.Default.DeleteOutline,
-                            contentDescription = "Delete",
+                            contentDescription = strings.commonDelete,
                             tint = TurboAmber,
                             modifier = Modifier.size(16.dp)
                         )
@@ -649,6 +659,8 @@ private fun MediaPreviewDialog(
     onShare: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val strings = LocalNexusStrings.current
+    val primary = MaterialTheme.colorScheme.primary
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -668,7 +680,7 @@ private fun MediaPreviewDialog(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = item.type.label,
-                            color = GeForceLime,
+                            color = primary,
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
@@ -683,13 +695,13 @@ private fun MediaPreviewDialog(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         IconButton(onClick = onShare) {
-                            Icon(Icons.Default.Share, contentDescription = "Share", tint = TacticalCyan)
+                            Icon(Icons.Default.Share, contentDescription = strings.commonShare, tint = TacticalCyan)
                         }
                         IconButton(onClick = onDelete) {
-                            Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = MacroCoral)
+                            Icon(Icons.Default.DeleteOutline, contentDescription = strings.commonDelete, tint = MacroCoral)
                         }
                         IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                            Icon(Icons.Default.Close, contentDescription = strings.commonClose, tint = Color.White)
                         }
                     }
                 }
@@ -713,7 +725,7 @@ private fun MediaPreviewDialog(
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else {
-                            Text("Unable to decode image", color = Color.White)
+                            Text(strings.galleryCannotDecodeImage, color = Color.White)
                         }
                     } else {
                         var videoViewRef by remember { mutableStateOf<VideoView?>(null) }
@@ -729,7 +741,7 @@ private fun MediaPreviewDialog(
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Text(
-                                    text = "Unable to play this video clip",
+                                    text = strings.galleryCannotPlayVideo,
                                     color = Color.White,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -739,7 +751,7 @@ private fun MediaPreviewDialog(
                                 ) {
                                     Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Delete Broken Clip")
+                                    Text(strings.galleryDeleteBroken)
                                 }
                             }
                         } else {

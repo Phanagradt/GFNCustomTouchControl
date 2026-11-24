@@ -191,6 +191,7 @@ fun GameFilterScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val primary = MaterialTheme.colorScheme.primary
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = if (selectedSection == 0) strings.visualsGameFilterTab else strings.crosshairTitle,
@@ -198,9 +199,9 @@ fun GameFilterScreen(
                             )
                             Text(
                                 text = if (selectedSection == 0) {
-                                    "18-module OpenGL ES Freestyle GPU pixel shader suite"
+                                    strings.visualsFilterSubtitle
                                 } else {
-                                    "Adjust reticle shape, color, outline, gap, thickness & custom image"
+                                    strings.visualsCrosshairSubtitle
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -209,8 +210,8 @@ fun GameFilterScreen(
                         Button(
                             onClick = onToggleOverlay,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isOverlayRunning) MacroCoral else GeForceLime,
-                                contentColor = if (isOverlayRunning) Color.White else Color(0xFF0A1400)
+                                containerColor = if (isOverlayRunning) MacroCoral else primary,
+                                contentColor = if (isOverlayRunning) Color.White else MaterialTheme.colorScheme.onPrimary
                             ),
                             modifier = Modifier
                                 .height(48.dp)
@@ -222,11 +223,12 @@ fun GameFilterScreen(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(Modifier.width(4.dp))
-                            Text(if (isOverlayRunning) "Stop" else "Overlay")
+                            Text(if (isOverlayRunning) strings.commonStop else strings.commonOverlay)
                         }
                     }
 
                     // Mode Switcher
+                    val primary = MaterialTheme.colorScheme.primary
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -246,7 +248,7 @@ fun GameFilterScreen(
                                     .weight(1f)
                                     .heightIn(min = 48.dp)
                                     .clip(RoundedCornerShape(9.dp))
-                                    .background(if (selected) GeForceLime else Color.Transparent)
+                                    .background(if (selected) primary else Color.Transparent)
                                     .clickable { selectedSection = idx }
                                     .testTag("visuals_section_tab_$idx")
                                     .padding(horizontal = 10.dp),
@@ -256,14 +258,13 @@ fun GameFilterScreen(
                                 Icon(
                                     imageVector = icon,
                                     contentDescription = null,
-                                    tint = if (selected) Color(0xFF091200) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(
                                     text = label,
-                                    color = if (selected) Color(0xFF091200) else MaterialTheme.colorScheme.onSurface,
-                                    fontFamily = SpaceGroteskFontFamily,
+                                    color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
@@ -397,6 +398,7 @@ private fun LiveGpuShaderPreviewCard(
     onPreviewSplitPosition: (Float) -> Unit,
     onCommitSplitPosition: (Float) -> Unit
 ) {
+    val strings = LocalNexusStrings.current
     val effectiveStyle = if (compareOriginal) null else activeStyle
     var glViewRef by remember { mutableStateOf<FreestyleGlTextureView?>(null) }
 
@@ -520,7 +522,7 @@ private fun LiveGpuShaderPreviewCard(
                     .padding(start = 10.dp, bottom = 34.dp)
             ) {
                 Text(
-                    text = "ORIGINAL",
+                    text = strings.filterOriginal.uppercase(),
                     color = Color(0xFFB4C3D6),
                     fontFamily = JetBrainsMonoFontFamily,
                     fontWeight = FontWeight.Bold,
@@ -536,7 +538,7 @@ private fun LiveGpuShaderPreviewCard(
                     .padding(end = 10.dp, bottom = 34.dp)
             ) {
                 Text(
-                    text = "FILTERED",
+                    text = strings.filterFiltered,
                     color = GeForceLime,
                     fontFamily = JetBrainsMonoFontFamily,
                     fontWeight = FontWeight.Bold,
@@ -629,7 +631,7 @@ private fun LiveGpuShaderPreviewCard(
                         modifier = Modifier.size(13.dp)
                     )
                     Text(
-                        text = "Photo",
+                        text = strings.filterPreviewPhoto,
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
@@ -657,12 +659,12 @@ private fun LiveGpuShaderPreviewCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Compare,
-                        contentDescription = "Compare Original",
+                        contentDescription = strings.filterCompare,
                         tint = if (compareOriginal) Color(0xFF001B21) else Color.White,
                         modifier = Modifier.size(13.dp)
                     )
                     Text(
-                        text = if (compareOriginal) "Original" else "Compare",
+                        text = if (compareOriginal) strings.filterOriginal else strings.filterCompare,
                         color = if (compareOriginal) Color(0xFF001B21) else Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
@@ -688,9 +690,9 @@ private fun LiveGpuShaderPreviewCard(
             )
             Text(
                 text = if (isGpuShaderActive) {
-                    "Live GPU Shader Overlay ACTIVE — real per-pixel GLSL filtering on your game"
+                    strings.filterPreviewActiveBanner
                 } else {
-                    "Real OpenGL ES 2.0 shader preview • Enable Live GPU Shader below for in-game pixels"
+                    strings.filterPreviewIdleBanner
                 },
                 color = Color(0xFFE3ECF7),
                 fontSize = 10.sp

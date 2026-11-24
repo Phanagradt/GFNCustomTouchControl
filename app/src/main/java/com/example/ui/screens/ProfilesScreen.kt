@@ -60,8 +60,8 @@ import androidx.compose.ui.unit.dp
 import com.example.model.BindingDomain
 import com.example.model.ControllerProfile
 import com.example.model.GameGenre
+import com.example.model.LocalNexusStrings
 import com.example.model.ProfileTemplate
-import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.MacroViolet
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TurboAmber
@@ -79,6 +79,7 @@ fun ProfilesScreen(
     onExportProfileClick: (ControllerProfile) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = LocalNexusStrings.current
     var searchQuery by remember { mutableStateOf("") }
     var selectedGenre by remember { mutableStateOf<GameGenre?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -113,14 +114,14 @@ fun ProfilesScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                         Text(
-                            text = "Controller & Key Profiles",
+                            text = strings.profilesTitle,
                             style = MaterialTheme.typography.headlineSmall,
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Text(
-                            text = "Customize per-game layouts for GeForce NOW",
+                            text = strings.profilesSubtitle,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -133,14 +134,14 @@ fun ProfilesScreen(
                     ) {
                         Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Import")
+                        Text(strings.profilesImport)
                     }
                 }
 
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search game or layout name...") },
+                    placeholder = { Text(strings.profilesSearchHint) },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     singleLine = true,
                     shape = MaterialTheme.shapes.medium,
@@ -154,7 +155,7 @@ fun ProfilesScreen(
                         FilterChip(
                             selected = selectedGenre == null,
                             onClick = { selectedGenre = null },
-                            label = { Text("All") }
+                            label = { Text(strings.commonAll) }
                         )
                     }
                     items(GameGenre.entries) { genre ->
@@ -183,12 +184,12 @@ fun ProfilesScreen(
                         )
                         Spacer(Modifier.height(10.dp))
                         Text(
-                            text = "No matching controller profiles",
+                            text = strings.profilesEmptyTitle,
                             style = MaterialTheme.typography.titleMedium
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "Create a new layout or clear your genre filter.",
+                            text = strings.profilesEmptySub,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -251,6 +252,8 @@ private fun ProfileCard(
     onExport: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val strings = LocalNexusStrings.current
+    val primary = MaterialTheme.colorScheme.primary
     val gamepadCount = profile.controls.count {
         it.binding.domain == BindingDomain.CONTROLLER || it.binding.domain == BindingDomain.ANALOG_AXIS
     }
@@ -265,7 +268,7 @@ private fun ProfileCard(
             .fillMaxWidth()
             .border(
                 width = if (isActive) 1.5.dp else 1.dp,
-                color = if (isActive) GeForceLime else MaterialTheme.colorScheme.outlineVariant,
+                color = if (isActive) primary else MaterialTheme.colorScheme.outlineVariant,
                 shape = MaterialTheme.shapes.large
             )
             .testTag("profile_card_${profile.id}")
@@ -290,13 +293,13 @@ private fun ProfileCard(
                         )
                         if (isActive) {
                             Surface(
-                                color = GeForceLime.copy(alpha = 0.2f),
+                                color = primary.copy(alpha = 0.2f),
                                 shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
-                                    text = "ACTIVE",
+                                    text = strings.commonActive,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = GeForceLime,
+                                    color = primary,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
@@ -331,7 +334,7 @@ private fun ProfileCard(
                         ) {
                             Icon(
                                 Icons.Default.DeleteOutline,
-                                contentDescription = "Delete Profile",
+                                contentDescription = strings.commonDelete,
                                 tint = MaterialTheme.colorScheme.error
                             )
                         }
@@ -365,7 +368,7 @@ private fun ProfileCard(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (gamepadCount > 0) item { StatBadge("$gamepadCount PAD", GeForceLime) }
+                        if (gamepadCount > 0) item { StatBadge("$gamepadCount PAD", primary) }
                         if (mouseCount > 0) item { StatBadge("$mouseCount MSE", TurboAmber) }
                         if (keyCount > 0) item { StatBadge("$keyCount KEY", TacticalCyan) }
                         if (comboCount > 0) item { StatBadge("$comboCount MACRO", MacroViolet) }
@@ -381,14 +384,14 @@ private fun ProfileCard(
                             ) {
                                 Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("Arm")
+                                Text(strings.profilesArm)
                             }
                         }
                         Button(
                             onClick = onEdit,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.primary
+                                contentColor = primary
                             ),
                             modifier = Modifier
                                 .weight(1f)
@@ -397,7 +400,7 @@ private fun ProfileCard(
                         ) {
                             Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Edit")
+                            Text(strings.commonEdit)
                         }
                     }
                 }
@@ -411,6 +414,7 @@ private fun CreateProfileDialog(
     onDismiss: () -> Unit,
     onConfirm: (name: String, gameTitle: String, genre: GameGenre, template: ProfileTemplate) -> Unit
 ) {
+    val strings = LocalNexusStrings.current
     var name by remember { mutableStateOf("") }
     var gameTitle by remember { mutableStateOf("") }
     var template by remember { mutableStateOf(ProfileTemplate.PC_MOUSE_WASD) }
@@ -418,10 +422,10 @@ private fun CreateProfileDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New GeForce NOW Layout") },
+        title = { Text(strings.profilesNewTitle) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Starter Template", style = MaterialTheme.typography.labelMedium)
+                Text(strings.profilesStarterTemplate, style = MaterialTheme.typography.labelMedium)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(ProfileTemplate.entries) { entry ->
                         FilterChip(
@@ -442,7 +446,7 @@ private fun CreateProfileDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Profile Name") },
+                    label = { Text(strings.profilesNameLabel) },
                     placeholder = { Text(template.title) },
                     singleLine = true,
                     modifier = Modifier
@@ -452,14 +456,14 @@ private fun CreateProfileDialog(
                 OutlinedTextField(
                     value = gameTitle,
                     onValueChange = { gameTitle = it },
-                    label = { Text("Target Game") },
-                    placeholder = { Text("e.g., Dead by Daylight / Apex") },
+                    label = { Text(strings.profilesTargetGameLabel) },
+                    placeholder = { Text("e.g., Dead by Daylight / Roblox") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("new_profile_game_input")
                 )
-                Text("Genre Tag", style = MaterialTheme.typography.labelMedium)
+                Text(strings.profilesGenreTag, style = MaterialTheme.typography.labelMedium)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(GameGenre.entries) { entry ->
                         FilterChip(
@@ -476,12 +480,12 @@ private fun CreateProfileDialog(
                 onClick = { onConfirm(name, gameTitle, genre, template) },
                 modifier = Modifier.testTag("confirm_create_profile_button")
             ) {
-                Text("Create & Edit")
+                Text(strings.profilesCreateAndEdit)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(strings.commonCancel)
             }
         }
     )

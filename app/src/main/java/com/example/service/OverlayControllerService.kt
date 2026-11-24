@@ -116,6 +116,8 @@ import com.example.data.ProfileRepository
 import com.example.filter.FreestyleGlTextureView
 import com.example.filter.GameFilterBridge
 import com.example.input.InputBridge
+import com.example.model.AppColorSchemeConfig
+import com.example.model.AppFontConfig
 import com.example.model.AppLanguage
 import com.example.model.AppLocalization
 import com.example.model.AxisPair
@@ -123,6 +125,8 @@ import com.example.model.ControlShape
 import com.example.model.ControllerProfile
 import com.example.model.CrosshairPresets
 import com.example.model.CrosshairSettings
+import com.example.model.FloatingBubbleConfig
+import com.example.model.FloatingBubbleStyle
 import com.example.model.GameFilterState
 import com.example.model.LocalNexusStrings
 import com.example.model.ReplayBufferPreset
@@ -130,6 +134,7 @@ import com.example.model.TargetPlatformMode
 import com.example.model.VirtualControl
 import com.example.ui.components.CrosshairOverlayCanvas
 import com.example.ui.components.CrosshairPanelContent
+import com.example.ui.components.FloatingBubbleVisual
 import com.example.ui.components.GeForceFilterPanelContent
 import com.example.ui.components.ScreenFilterOverlayCanvas
 import com.example.ui.components.VirtualControlCanvasItem
@@ -233,6 +238,9 @@ class OverlayControllerService : Service() {
     private val appLanguageFlow = MutableStateFlow(AppLanguage.SYSTEM)
     private val targetModeFlow = MutableStateFlow(TargetPlatformMode.GEFORCE_NOW)
     private val replayDurationSecFlow = MutableStateFlow(30)
+    private val colorSchemeFlow = MutableStateFlow(AppColorSchemeConfig())
+    private val fontConfigFlow = MutableStateFlow(AppFontConfig())
+    private val floatingBubbleFlow = MutableStateFlow(FloatingBubbleConfig())
     private val activeProfileName = MutableStateFlow("NexusPad")
     private val activeProfileIdFlow = MutableStateFlow<String?>(null)
     private val allProfilesFlow = MutableStateFlow<List<ControllerProfile>>(emptyList())
@@ -422,6 +430,18 @@ class OverlayControllerService : Service() {
                     }
             }
 
+            launch {
+                prefsRepo.settingsFlow
+                    .map { Triple(it.colorScheme, it.fontConfig, it.floatingBubble) }
+                    .distinctUntilChanged()
+                    .collect { (scheme, fontCfg, bubbleCfg) ->
+                        colorSchemeFlow.value = scheme
+                        fontConfigFlow.value = fontCfg
+                        floatingBubbleFlow.value = bubbleCfg
+                        updateFloatingBubbleWindowSize(bubbleCfg)
+                    }
+            }
+
             val controlSettingsFlow = prefsRepo.settingsFlow
                 .map { s ->
                     s.copy(
@@ -430,7 +450,12 @@ class OverlayControllerService : Service() {
                         recordingResolution = com.example.model.RecordingResolution.P720,
                         recordingFps = com.example.model.RecordingFps.FPS_30,
                         githubRepoSlug = "",
-                        autoCheckUpdates = true
+                        autoCheckUpdates = true,
+                        colorScheme = AppColorSchemeConfig(),
+                        fontConfig = AppFontConfig(),
+                        floatingBubble = FloatingBubbleConfig(),
+                        customTestBgPath = "",
+                        lastSeenWhatsNewVersionCode = 0
                     )
                 }
                 .distinctUntilChanged()
@@ -581,15 +606,36 @@ class OverlayControllerService : Service() {
         }
     }
 
+    private fun computeBubblePixelSize(config: FloatingBubbleConfig): Pair<Int, Int> {
+        val density = resources.displayMetrics.density
+        val baseDp = config.clampedSizeDp()
+        val wDp = if (config.style == FloatingBubbleStyle.CYBER_PILL) baseDp * 1.45f else baseDp
+        val hDp = if (config.style == FloatingBubbleStyle.CYBER_PILL) baseDp * 0.86f else baseDp
+        return (wDp * density).roundToInt().coerceAtLeast(36) to (hDp * density).roundToInt().coerceAtLeast(36)
+    }
+
+    private fun updateFloatingBubbleWindowSize(config: FloatingBubbleConfig) {
+        val bubble = floatingBubbleView ?: return
+        val bp = bubbleParams ?: return
+        val (newW, newH) = computeBubblePixelSize(config)
+        if (bp.width == newW && bp.height == newH) return
+        val (screenW, screenH) = realScreenSize()
+        bp.width = newW
+        bp.height = newH
+        bp.x = bp.x.coerceIn(0, (screenW - newW).coerceAtLeast(0))
+        bp.y = bp.y.coerceIn(0, (screenH - newH).coerceAtLeast(0))
+        runCatching { windowManager.updateViewLayout(bubble, bp) }
+    }
+
     @OptIn(ExperimentalComposeUiApi::class)
     private fun attachFloatingBubble() {
         val (screenW, screenH) = realScreenSize()
         val density = resources.displayMetrics.density
         val touchSlopPx = ViewConfiguration.get(this).scaledTouchSlop.toFloat()
-        val bubblePx = (56 * density).roundToInt()
+        val (initW, initH) = computeBubblePixelSize(floatingBubbleFlow.value)
         val params = WindowManager.LayoutParams(
-            bubblePx,
-            bubblePx,
+            initW,
+            initH,
             overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_SPLIT_TOUCH,
@@ -597,7 +643,7 @@ class OverlayControllerService : Service() {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = (18 * density).roundToInt()
-            y = (screenH * 0.14f).roundToInt().coerceIn(0, (screenH - bubblePx).coerceAtLeast(0))
+            y = (screenH * 0.14f).roundToInt().coerceIn(0, (screenH - initH).coerceAtLeast(0))
             applyFullScreenOverlayFlags(this)
         }
         bubbleParams = params
@@ -621,27 +667,38 @@ class OverlayControllerService : Service() {
                 val layoutOpen by layoutPickerPanelOpen.collectAsState()
                 val isRec by CaptureBridge.isRecording.collectAsState()
                 val isRep by CaptureBridge.isInstantReplayOn.collectAsState()
+                val colorScheme by colorSchemeFlow.collectAsState()
+                val fontConfig by fontConfigFlow.collectAsState()
+                val bubbleConfig by floatingBubbleFlow.collectAsState()
                 val anyPanelOpen = menuOpen || filterOpen || crossOpen || layoutOpen
 
-                NexusPadTheme {
+                NexusPadTheme(
+                    darkTheme = true,
+                    colorSchemeConfig = colorScheme,
+                    fontConfig = fontConfig
+                ) {
+                    val baseAccent = if (bubbleConfig.useThemeAccent) {
+                        Color(colorScheme.effectivePrimaryHex())
+                    } else {
+                        Color(bubbleConfig.customAccentHex)
+                    }
                     val accent = when {
                         isRec -> MacroCoral
-                        anyPanelOpen -> TacticalCyan
+                        anyPanelOpen -> Color(colorScheme.effectiveSecondaryHex())
                         locked -> TurboAmber
                         !visible -> Color(0xFF9FB0C7)
-                        else -> GeForceLime
+                        else -> baseAccent
                     }
-                    Box(
+                    FloatingBubbleVisual(
+                        config = bubbleConfig,
+                        accentColor = accent,
+                        isPanelOpen = anyPanelOpen,
+                        isRecording = isRec,
+                        isReplayOn = isRep,
+                        isLocked = locked,
+                        isHidden = !visible,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(2.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(Color(0xEE182130), Color(0xEE0B0E14))
-                                )
-                            )
-                            .border(2.dp, accent, CircleShape)
                             .pointerInteropFilter { event ->
                                 when (event.actionMasked) {
                                     MotionEvent.ACTION_DOWN -> {
@@ -688,54 +745,8 @@ class OverlayControllerService : Service() {
                                     }
                                     else -> true
                                 }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = if (anyPanelOpen) Icons.Default.Close else Icons.Default.Gamepad,
-                            contentDescription = "Open NexusPad Menu",
-                            tint = accent,
-                            modifier = Modifier.size(25.dp)
-                        )
-                        if (isRec && !anyPanelOpen) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(6.dp)
-                                    .size(9.dp)
-                                    .clip(CircleShape)
-                                    .background(MacroCoral)
-                            )
-                        } else if (isRep && !anyPanelOpen) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(6.dp)
-                                    .size(9.dp)
-                                    .clip(CircleShape)
-                                    .background(TacticalCyan)
-                            )
-                        }
-                        if (locked && !anyPanelOpen) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(6.dp)
-                                    .size(9.dp)
-                                    .clip(CircleShape)
-                                    .background(TurboAmber)
-                            )
-                        } else if (!visible && !anyPanelOpen) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(6.dp)
-                                    .size(9.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF9FB0C7))
-                            )
-                        }
-                    }
+                            }
+                    )
                 }
             }
         }
@@ -969,10 +980,16 @@ class OverlayControllerService : Service() {
                 val isReplayOn by CaptureBridge.isInstantReplayOn.collectAsState()
                 val isRecording by CaptureBridge.isRecording.collectAsState()
                 val recElapsedMs by CaptureBridge.recordingElapsedMs.collectAsState()
+                val colorScheme by colorSchemeFlow.collectAsState()
+                val fontConfig by fontConfigFlow.collectAsState()
                 val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
 
                 CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
-                    NexusPadTheme(darkTheme = true) {
+                    NexusPadTheme(
+                        darkTheme = true,
+                        colorSchemeConfig = colorScheme,
+                        fontConfig = fontConfig
+                    ) {
                         LeftSideOverlayMenu(
                             profileName = profileName,
                             buttonsVisible = visible,
@@ -1082,10 +1099,16 @@ class OverlayControllerService : Service() {
                 val filterState by GameFilterBridge.liveFilterState.collectAsState()
                 val isGpuShaderActive by GameFilterBridge.isGpuShaderActive.collectAsState()
                 val appLang by appLanguageFlow.collectAsState()
+                val colorScheme by colorSchemeFlow.collectAsState()
+                val fontConfig by fontConfigFlow.collectAsState()
                 val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
 
                 CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
-                    NexusPadTheme(darkTheme = true) {
+                    NexusPadTheme(
+                        darkTheme = true,
+                        colorSchemeConfig = colorScheme,
+                        fontConfig = fontConfig
+                    ) {
                         LeftDockedPanelWrapper(
                             onDismiss = { filterPanelOpen.value = false }
                         ) {
@@ -1164,10 +1187,16 @@ class OverlayControllerService : Service() {
             setContent {
                 val crosshair by crosshairFlow.collectAsState()
                 val appLang by appLanguageFlow.collectAsState()
+                val colorScheme by colorSchemeFlow.collectAsState()
+                val fontConfig by fontConfigFlow.collectAsState()
                 val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
 
                 CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
-                    NexusPadTheme(darkTheme = true) {
+                    NexusPadTheme(
+                        darkTheme = true,
+                        colorSchemeConfig = colorScheme,
+                        fontConfig = fontConfig
+                    ) {
                         LeftDockedPanelWrapper(
                             onDismiss = { crosshairPanelOpen.value = false }
                         ) {
@@ -1233,10 +1262,17 @@ class OverlayControllerService : Service() {
                 val profiles by allProfilesFlow.collectAsState()
                 val activeId by activeProfileIdFlow.collectAsState()
                 val appLang by appLanguageFlow.collectAsState()
+                val colorScheme by colorSchemeFlow.collectAsState()
+                val fontConfig by fontConfigFlow.collectAsState()
                 val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
 
                 CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
-                    NexusPadTheme(darkTheme = true) {
+                    NexusPadTheme(
+                        darkTheme = true,
+                        colorSchemeConfig = colorScheme,
+                        fontConfig = fontConfig
+                    ) {
+                        val accentColor = Color(colorScheme.effectivePrimaryHex())
                         LeftDockedPanelWrapper(
                             onDismiss = { layoutPickerPanelOpen.value = false }
                         ) {
@@ -1258,8 +1294,8 @@ class OverlayControllerService : Service() {
                                     ) {
                                         Column {
                                             Text(
-                                                text = "CHOOSE LAYOUT",
-                                                color = GeForceLime,
+                                                text = localizedStrings.menuChooseLayoutHeader,
+                                                color = accentColor,
                                                 fontFamily = JetBrainsMonoFontFamily,
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 10.sp
@@ -1267,7 +1303,6 @@ class OverlayControllerService : Service() {
                                             Text(
                                                 text = localizedStrings.menuLayouts,
                                                 color = Color.White,
-                                                fontFamily = SpaceGroteskFontFamily,
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 14.sp
                                             )
@@ -1276,7 +1311,7 @@ class OverlayControllerService : Service() {
                                             onClick = { layoutPickerPanelOpen.value = false },
                                             modifier = Modifier.size(34.dp)
                                         ) {
-                                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFFA2B3C9))
+                                            Icon(Icons.Default.Close, contentDescription = localizedStrings.commonClose, tint = Color(0xFFA2B3C9))
                                         }
                                     }
 
@@ -1286,10 +1321,10 @@ class OverlayControllerService : Service() {
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clip(RoundedCornerShape(12.dp))
-                                                .background(if (isCurrent) Color(0xFF1A2814) else Color(0xFF151C28))
+                                                .background(if (isCurrent) accentColor.copy(alpha = 0.14f) else Color(0xFF151C28))
                                                 .border(
                                                     width = 1.dp,
-                                                    color = if (isCurrent) GeForceLime else Color(0xFF2B384C),
+                                                    color = if (isCurrent) accentColor else Color(0xFF2B384C),
                                                     shape = RoundedCornerShape(12.dp)
                                                 )
                                                 .clickable {
@@ -1306,14 +1341,13 @@ class OverlayControllerService : Service() {
                                                 Text(
                                                     text = profile.name,
                                                     color = Color.White,
-                                                    fontFamily = SpaceGroteskFontFamily,
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 13.sp,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                                 Text(
-                                                    text = "${profile.gameTitle} • ${profile.controls.size} controls",
+                                                    text = "${profile.gameTitle} • ${profile.controls.size} ${localizedStrings.commonControlsSuffix}",
                                                     color = Color(0xFF9FB0C7),
                                                     fontSize = 10.sp,
                                                     maxLines = 1,
@@ -1323,8 +1357,8 @@ class OverlayControllerService : Service() {
                                             if (isCurrent) {
                                                 Icon(
                                                     imageVector = Icons.Default.CheckCircle,
-                                                    contentDescription = "Active Layout",
-                                                    tint = GeForceLime,
+                                                    contentDescription = localizedStrings.commonActive,
+                                                    tint = accentColor,
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                             }
@@ -1364,11 +1398,18 @@ class OverlayControllerService : Service() {
         val view = ComposeView(this).apply {
             attachLifecycle(this)
             setContent {
-                NexusPadTheme(darkTheme = true) {
+                val colorScheme by colorSchemeFlow.collectAsState()
+                val fontConfig by fontConfigFlow.collectAsState()
+                val accentColor = Color(colorScheme.effectivePrimaryHex())
+                NexusPadTheme(
+                    darkTheme = true,
+                    colorSchemeConfig = colorScheme,
+                    fontConfig = fontConfig
+                ) {
                     Surface(
                         color = Color(0xEC0C1219),
                         shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier.border(1.2.dp, GeForceLime, RoundedCornerShape(20.dp))
+                        modifier = Modifier.border(1.2.dp, accentColor, RoundedCornerShape(20.dp))
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1378,13 +1419,12 @@ class OverlayControllerService : Service() {
                             Icon(
                                 imageVector = Icons.Default.CameraAlt,
                                 contentDescription = null,
-                                tint = GeForceLime,
+                                tint = accentColor,
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
                                 text = message,
                                 color = Color.White,
-                                fontFamily = SpaceGroteskFontFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 12.sp
                             )
@@ -1442,108 +1482,126 @@ class OverlayControllerService : Service() {
             var kbCurH = screenH
 
             setContent {
-                NexusPadTheme(darkTheme = true) {
-                    Surface(
-                        color = Color(0xF20B0E14),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.5.dp, GeForceLime.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            // Silky 1:1 raw-screen-coordinate Drag Bar (never stutters or fights window coords)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color(0xFF141B26))
-                                    .pointerInteropFilter { event ->
-                                        when (event.actionMasked) {
-                                            MotionEvent.ACTION_DOWN -> {
-                                                kbStartRawX = event.rawX
-                                                kbStartRawY = event.rawY
-                                                kbStartWinX = params.x
-                                                kbStartWinY = params.y
-                                                val (cw, ch) = realScreenSize()
-                                                kbCurW = cw
-                                                kbCurH = ch
-                                                true
-                                            }
-                                            MotionEvent.ACTION_MOVE -> {
-                                                val totalDx = event.rawX - kbStartRawX
-                                                val totalDy = event.rawY - kbStartRawY
-                                                val measuredH = this@apply.height.coerceAtLeast((140 * density).roundToInt())
-                                                val newX = (kbStartWinX + totalDx).roundToInt()
-                                                    .coerceIn(0, (kbCurW - params.width).coerceAtLeast(0))
-                                                val newY = (kbStartWinY + totalDy).roundToInt()
-                                                    .coerceIn(0, (kbCurH - measuredH).coerceAtLeast(0))
-                                                if (newX != params.x || newY != params.y) {
-                                                    params.x = newX
-                                                    params.y = newY
-                                                    runCatching { windowManager.updateViewLayout(this@apply, params) }
-                                                }
-                                                true
-                                            }
-                                            else -> true
-                                        }
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DragHandle,
-                                        contentDescription = "Drag Floating Keyboard",
-                                        tint = GeForceLime,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = "DRAG KEYBOARD ABOVE TASKBAR",
-                                        color = Color(0xFFD5E1F0),
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 10.sp
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { floatingKeyboardOpen.value = false },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Close Floating Keyboard",
-                                        tint = Color(0xFFD5E1F0),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
+                val appLang by appLanguageFlow.collectAsState()
+                val colorScheme by colorSchemeFlow.collectAsState()
+                val fontConfig by fontConfigFlow.collectAsState()
+                val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
+                val accentColor = Color(colorScheme.effectivePrimaryHex())
 
-                            AndroidView(
-                                factory = { ctx ->
-                                    NexusVirtualKeyboardView(
-                                        context = ctx,
-                                        initialLanguage = initialKbLang,
-                                        isFloatingMode = true,
-                                        onCommitText = { InputBridge.dispatchCommitText(it) },
-                                        onBackspace = { InputBridge.dispatchBackspace() },
-                                        onEnter = { InputBridge.dispatchEnter() },
-                                        onSpecialKey = { keyCode ->
-                                            InputBridge.dispatchRawKey(keyCode, KeyEvent.ACTION_DOWN)
-                                            InputBridge.dispatchRawKey(keyCode, KeyEvent.ACTION_UP)
-                                        },
-                                        onSwitchIme = { SystemIntegrations.showInputMethodPicker(ctx) },
-                                        onHideKeyboard = { floatingKeyboardOpen.value = false },
-                                        onToggleFloating = {
-                                            floatingKeyboardOpen.value = false
-                                            InputBridge.requestShowKeyboard()
+                CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
+                    NexusPadTheme(
+                        darkTheme = true,
+                        colorSchemeConfig = colorScheme,
+                        fontConfig = fontConfig
+                    ) {
+                        Surface(
+                            color = Color(0xF20B0E14),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.5.dp, accentColor.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                // Silky 1:1 raw-screen-coordinate Drag Bar (never stutters or fights window coords)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFF141B26))
+                                        .pointerInteropFilter { event ->
+                                            when (event.actionMasked) {
+                                                MotionEvent.ACTION_DOWN -> {
+                                                    kbStartRawX = event.rawX
+                                                    kbStartRawY = event.rawY
+                                                    kbStartWinX = params.x
+                                                    kbStartWinY = params.y
+                                                    val (cw, ch) = realScreenSize()
+                                                    kbCurW = cw
+                                                    kbCurH = ch
+                                                    true
+                                                }
+                                                MotionEvent.ACTION_MOVE -> {
+                                                    val totalDx = event.rawX - kbStartRawX
+                                                    val totalDy = event.rawY - kbStartRawY
+                                                    val measuredH = this@apply.height.coerceAtLeast((140 * density).roundToInt())
+                                                    val newX = (kbStartWinX + totalDx).roundToInt()
+                                                        .coerceIn(0, (kbCurW - params.width).coerceAtLeast(0))
+                                                    val newY = (kbStartWinY + totalDy).roundToInt()
+                                                        .coerceIn(0, (kbCurH - measuredH).coerceAtLeast(0))
+                                                    if (newX != params.x || newY != params.y) {
+                                                        params.x = newX
+                                                        params.y = newY
+                                                        runCatching { windowManager.updateViewLayout(this@apply, params) }
+                                                    }
+                                                    true
+                                                }
+                                                else -> true
+                                            }
                                         }
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DragHandle,
+                                            contentDescription = localizedStrings.menuDragKbHint,
+                                            tint = accentColor,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = localizedStrings.menuDragKbHint,
+                                            color = Color(0xFFD5E1F0),
+                                            fontFamily = JetBrainsMonoFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 10.sp
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { floatingKeyboardOpen.value = false },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = localizedStrings.commonClose,
+                                            tint = Color(0xFFD5E1F0),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+
+                                AndroidView(
+                                    factory = { ctx ->
+                                        NexusVirtualKeyboardView(
+                                            context = ctx,
+                                            initialLanguage = initialKbLang,
+                                            isFloatingMode = true,
+                                            onCommitText = { InputBridge.dispatchCommitText(it) },
+                                            onReplaceWord = { deleteCount, replacement ->
+                                                repeat(deleteCount.coerceAtLeast(0)) {
+                                                    InputBridge.dispatchBackspace()
+                                                }
+                                                InputBridge.dispatchCommitText(replacement)
+                                            },
+                                            onBackspace = { InputBridge.dispatchBackspace() },
+                                            onEnter = { InputBridge.dispatchEnter() },
+                                            onSpecialKey = { keyCode ->
+                                                InputBridge.dispatchRawKey(keyCode, KeyEvent.ACTION_DOWN)
+                                                InputBridge.dispatchRawKey(keyCode, KeyEvent.ACTION_UP)
+                                            },
+                                            onSwitchIme = { SystemIntegrations.showInputMethodPicker(ctx) },
+                                            onHideKeyboard = { floatingKeyboardOpen.value = false },
+                                            onToggleFloating = {
+                                                floatingKeyboardOpen.value = false
+                                                InputBridge.requestShowKeyboard()
+                                            }
+                                        )
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                         }
                     }
                 }
@@ -1908,7 +1966,7 @@ private fun LeftSideOverlayMenu(
             onClick = onTakeScreenshot
         ),
         DockActionItem(
-            label = if (isReplayOn) "Replay ON (${ReplayBufferPreset.formatDuration(replayDurationSec)})" else strings.menuReplay,
+            label = if (isReplayOn) "${strings.galleryReplayOn} (${ReplayBufferPreset.formatDuration(replayDurationSec)})" else strings.menuReplay,
             icon = Icons.Default.Replay,
             tint = if (isReplayOn) GeForceLime else TacticalCyan,
             onClick = onToggleReplay

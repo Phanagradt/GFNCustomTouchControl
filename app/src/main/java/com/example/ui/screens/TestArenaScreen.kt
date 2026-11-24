@@ -1,10 +1,14 @@
 package com.example.ui.screens
 
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -27,8 +31,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -39,6 +46,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +55,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -60,10 +71,14 @@ import com.example.data.OverlaySettings
 import com.example.model.BindingDomain
 import com.example.model.ColorMatrixBuilder
 import com.example.model.ControllerProfile
+import com.example.model.LocalNexusStrings
 import com.example.model.StickState
 import com.example.model.TelemetryEvent
 import com.example.ui.components.CrosshairOverlayCanvas
 import com.example.ui.components.PositionedVirtualControl
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.MacroCoral
@@ -86,8 +101,31 @@ fun TestArenaScreen(
     onEditProfile: (String) -> Unit,
     onToggleOverlay: () -> Unit,
     onClearTelemetry: () -> Unit,
+    onPickCustomBg: (Uri) -> Unit,
+    onResetCustomBg: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = LocalNexusStrings.current
+    val primary = MaterialTheme.colorScheme.primary
+    val bgPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) onPickCustomBg(uri)
+    }
+
+    val customBgBitmap by produceState<ImageBitmap?>(initialValue = null, settings.customTestBgPath) {
+        value = if (settings.customTestBgPath.isNotBlank()) {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val f = File(settings.customTestBgPath)
+                    if (f.exists()) BitmapFactory.decodeFile(f.absolutePath)?.asImageBitmap() else null
+                }.getOrNull()
+            }
+        } else {
+            null
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -102,12 +140,12 @@ fun TestArenaScreen(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Stream Test Sandbox",
+                    text = strings.sandboxTitle,
                     style = MaterialTheme.typography.titleLarge
                 )
                 Text(
-                    text = activeProfile?.let { "${it.name} • ${it.controls.size} controls" }
-                        ?: "No profile active",
+                    text = activeProfile?.let { "${it.name} • ${it.controls.size} ${strings.commonControlsSuffix}" }
+                        ?: strings.sandboxNoProfile,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -124,14 +162,14 @@ fun TestArenaScreen(
                     ) {
                         Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Edit")
+                        Text(strings.commonEdit)
                     }
                 }
                 Button(
                     onClick = onToggleOverlay,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isOverlayRunning) MacroCoral else GeForceLime,
-                        contentColor = if (isOverlayRunning) Color.White else Color(0xFF0A1400)
+                        containerColor = if (isOverlayRunning) MacroCoral else primary,
+                        contentColor = if (isOverlayRunning) Color.White else MaterialTheme.colorScheme.onPrimary
                     ),
                     modifier = Modifier
                         .height(48.dp)
@@ -143,24 +181,48 @@ fun TestArenaScreen(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(Modifier.width(4.dp))
-                    Text(if (isOverlayRunning) "Stop" else "Overlay")
+                    Text(if (isOverlayRunning) strings.commonStop else strings.commonOverlay)
                 }
             }
         }
 
-        // Quick profile switcher
-        if (allProfiles.isNotEmpty()) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(allProfiles, key = { it.id }) { profile ->
-                    FilterChip(
-                        selected = profile.id == activeProfile?.id,
-                        onClick = { onSelectProfile(profile.id) },
-                        label = { Text(profile.name) },
+        // Quick profile switcher + Custom Background picker chips
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item(key = "custom_bg_chip") {
+                AssistChip(
+                    onClick = {
+                        bgPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    label = { Text(strings.sandboxCustomBg) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                    },
+                    modifier = Modifier.testTag("sandbox_pick_bg_button")
+                )
+            }
+            if (settings.customTestBgPath.isNotBlank()) {
+                item(key = "reset_bg_chip") {
+                    AssistChip(
+                        onClick = onResetCustomBg,
+                        label = { Text(strings.sandboxResetBg) },
                         leadingIcon = {
-                            Icon(Icons.Default.Gamepad, contentDescription = null, modifier = Modifier.size(16.dp))
-                        }
+                            Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
+                        },
+                        modifier = Modifier.testTag("sandbox_reset_bg_button")
                     )
                 }
+            }
+            items(allProfiles, key = { it.id }) { profile ->
+                FilterChip(
+                    selected = profile.id == activeProfile?.id,
+                    onClick = { onSelectProfile(profile.id) },
+                    label = { Text(profile.name) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Gamepad, contentDescription = null, modifier = Modifier.size(16.dp))
+                    }
+                )
             }
         }
 
@@ -184,13 +246,23 @@ fun TestArenaScreen(
                 }
             }
 
-            Image(
-                painter = painterResource(id = R.drawable.img_game_arena_bg),
-                contentDescription = "Simulated GeForce NOW Game Stream",
-                contentScale = ContentScale.Crop,
-                colorFilter = viewportColorFilter,
-                modifier = Modifier.fillMaxSize()
-            )
+            if (customBgBitmap != null) {
+                Image(
+                    bitmap = customBgBitmap!!,
+                    contentDescription = strings.sandboxCustomBg,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = viewportColorFilter,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Image(
+                    painter = painterResource(id = R.drawable.img_game_arena_bg),
+                    contentDescription = strings.sandboxTitle,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = viewportColorFilter,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -252,13 +324,13 @@ fun TestArenaScreen(
                 ) {
                     Text(
                         text = if (activeFilterStyle != null) {
-                            "FILTER S${activeFilterStyle.slot}"
+                            "${strings.menuFilter.uppercase()} S${activeFilterStyle.slot}"
                         } else {
-                            "FILTER OFF"
+                            strings.sandboxFilterOff
                         },
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 10.sp,
-                        color = if (activeFilterStyle != null) GeForceLime else Color(0xFF9FB0C7),
+                        color = if (activeFilterStyle != null) primary else Color(0xFF9FB0C7),
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
@@ -321,12 +393,12 @@ fun TestArenaScreen(
                                 modifier = Modifier
                                     .size(8.dp)
                                     .clip(CircleShape)
-                                    .background(GeForceLime)
+                                    .background(primary)
                             )
                             Text(
-                                text = "LIVE INPUT TELEMETRY (TOUCH + HARDWARE)",
+                                text = strings.sandboxTelemetryHeader,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
+                                color = primary
                             )
                         }
                         IconButton(
@@ -337,7 +409,7 @@ fun TestArenaScreen(
                         ) {
                             Icon(
                                 Icons.Default.CleaningServices,
-                                contentDescription = "Clear Telemetry",
+                                contentDescription = strings.commonReset,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -351,7 +423,7 @@ fun TestArenaScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Tap buttons, drag sticks, or press hardware keys above to inspect KeyEvent & Axis telemetry.",
+                                text = strings.sandboxTelemetryEmpty,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

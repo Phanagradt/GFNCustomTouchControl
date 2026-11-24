@@ -7,9 +7,12 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.model.AppColorSchemeConfig
+import com.example.model.AppFontConfig
 import com.example.model.AppLanguage
 import com.example.model.ControllerNotation
 import com.example.model.CrosshairSettings
+import com.example.model.FloatingBubbleConfig
 import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
 import com.example.model.RecordingFps
@@ -46,7 +49,12 @@ data class OverlaySettings(
     val githubRepoSlug: String = "",
     val autoCheckUpdates: Boolean = true,
     val gameFilter: GameFilterState = GameFilterState.default(),
-    val crosshair: CrosshairSettings = CrosshairSettings()
+    val crosshair: CrosshairSettings = CrosshairSettings(),
+    val colorScheme: AppColorSchemeConfig = AppColorSchemeConfig(),
+    val fontConfig: AppFontConfig = AppFontConfig(),
+    val floatingBubble: FloatingBubbleConfig = FloatingBubbleConfig(),
+    val customTestBgPath: String = "",
+    val lastSeenWhatsNewVersionCode: Int = 0
 ) {
     val hapticsEnabled: Boolean
         get() = vibrationMode != VibrationMode.NONE
@@ -60,6 +68,9 @@ class PreferencesRepository(private val context: Context) {
 
     private val filterAdapter = moshi.adapter(GameFilterState::class.java)
     private val crosshairAdapter = moshi.adapter(CrosshairSettings::class.java)
+    private val colorSchemeAdapter = moshi.adapter(AppColorSchemeConfig::class.java)
+    private val fontConfigAdapter = moshi.adapter(AppFontConfig::class.java)
+    private val floatingBubbleAdapter = moshi.adapter(FloatingBubbleConfig::class.java)
 
     private object Keys {
         val HAPTICS = booleanPreferencesKey("haptics_enabled")
@@ -81,6 +92,11 @@ class PreferencesRepository(private val context: Context) {
         val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
         val GAME_FILTER_JSON = stringPreferencesKey("game_filter_json")
         val CROSSHAIR_JSON = stringPreferencesKey("crosshair_json")
+        val COLOR_SCHEME_JSON = stringPreferencesKey("color_scheme_json")
+        val FONT_CONFIG_JSON = stringPreferencesKey("font_config_json")
+        val FLOATING_BUBBLE_JSON = stringPreferencesKey("floating_bubble_json")
+        val CUSTOM_TEST_BG_PATH = stringPreferencesKey("custom_test_bg_path")
+        val LAST_SEEN_WHATS_NEW_CODE = intPreferencesKey("last_seen_whats_new_version_code")
     }
 
     val settingsFlow: Flow<OverlaySettings> = context.nexusDataStore.data.map { prefs ->
@@ -115,6 +131,9 @@ class PreferencesRepository(private val context: Context) {
 
         val gameFilter = decodeFilterState(prefs[Keys.GAME_FILTER_JSON])
         val crosshair = decodeCrosshairSettings(prefs[Keys.CROSSHAIR_JSON])
+        val colorScheme = decodeColorScheme(prefs[Keys.COLOR_SCHEME_JSON])
+        val fontConfig = decodeFontConfig(prefs[Keys.FONT_CONFIG_JSON])
+        val floatingBubble = decodeFloatingBubble(prefs[Keys.FLOATING_BUBBLE_JSON])
 
         OverlaySettings(
             vibrationMode = vibrationMode,
@@ -134,7 +153,12 @@ class PreferencesRepository(private val context: Context) {
             githubRepoSlug = prefs[Keys.GITHUB_REPO_SLUG] ?: "",
             autoCheckUpdates = prefs[Keys.AUTO_CHECK_UPDATES] ?: true,
             gameFilter = gameFilter,
-            crosshair = crosshair
+            crosshair = crosshair,
+            colorScheme = colorScheme,
+            fontConfig = fontConfig,
+            floatingBubble = floatingBubble,
+            customTestBgPath = prefs[Keys.CUSTOM_TEST_BG_PATH] ?: "",
+            lastSeenWhatsNewVersionCode = prefs[Keys.LAST_SEEN_WHATS_NEW_CODE] ?: 0
         )
     }
 
@@ -152,6 +176,21 @@ class PreferencesRepository(private val context: Context) {
     private fun decodeCrosshairSettings(raw: String?): CrosshairSettings {
         if (raw.isNullOrBlank()) return CrosshairSettings()
         return runCatching { crosshairAdapter.fromJson(raw) }.getOrNull() ?: CrosshairSettings()
+    }
+
+    private fun decodeColorScheme(raw: String?): AppColorSchemeConfig {
+        if (raw.isNullOrBlank()) return AppColorSchemeConfig()
+        return runCatching { colorSchemeAdapter.fromJson(raw) }.getOrNull() ?: AppColorSchemeConfig()
+    }
+
+    private fun decodeFontConfig(raw: String?): AppFontConfig {
+        if (raw.isNullOrBlank()) return AppFontConfig()
+        return runCatching { fontConfigAdapter.fromJson(raw) }.getOrNull() ?: AppFontConfig()
+    }
+
+    private fun decodeFloatingBubble(raw: String?): FloatingBubbleConfig {
+        if (raw.isNullOrBlank()) return FloatingBubbleConfig()
+        return runCatching { floatingBubbleAdapter.fromJson(raw) }.getOrNull() ?: FloatingBubbleConfig()
     }
 
     suspend fun setVibrationMode(mode: VibrationMode) {
@@ -248,6 +287,36 @@ class PreferencesRepository(private val context: Context) {
     suspend fun updateCrosshair(crosshair: CrosshairSettings) {
         context.nexusDataStore.edit { prefs ->
             prefs[Keys.CROSSHAIR_JSON] = crosshairAdapter.toJson(crosshair)
+        }
+    }
+
+    suspend fun updateColorScheme(config: AppColorSchemeConfig) {
+        context.nexusDataStore.edit { prefs ->
+            prefs[Keys.COLOR_SCHEME_JSON] = colorSchemeAdapter.toJson(config)
+        }
+    }
+
+    suspend fun updateFontConfig(config: AppFontConfig) {
+        context.nexusDataStore.edit { prefs ->
+            prefs[Keys.FONT_CONFIG_JSON] = fontConfigAdapter.toJson(config)
+        }
+    }
+
+    suspend fun updateFloatingBubble(config: FloatingBubbleConfig) {
+        context.nexusDataStore.edit { prefs ->
+            prefs[Keys.FLOATING_BUBBLE_JSON] = floatingBubbleAdapter.toJson(config)
+        }
+    }
+
+    suspend fun setCustomTestBgPath(path: String) {
+        context.nexusDataStore.edit { prefs ->
+            prefs[Keys.CUSTOM_TEST_BG_PATH] = path
+        }
+    }
+
+    suspend fun setLastSeenWhatsNewVersionCode(versionCode: Int) {
+        context.nexusDataStore.edit { prefs ->
+            prefs[Keys.LAST_SEEN_WHATS_NEW_CODE] = versionCode
         }
     }
 }
