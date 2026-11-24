@@ -1,10 +1,15 @@
 package com.example.ui
 
+import android.app.Activity
 import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.capture.CaptureBridge
+import com.example.cloud.CloudAuthResult
+import com.example.cloud.CloudLayoutSyncRepository
+import com.example.cloud.CloudUserInfo
+import com.example.cloud.GoogleAuthManager
 import com.example.data.NexusDatabase
 import com.example.data.OverlaySettings
 import com.example.data.PreferencesRepository
@@ -47,6 +52,9 @@ import com.example.update.GitHubUpdateManager
 import com.example.update.UpdateUiState
 import com.example.util.ButtonImageCodec
 import com.example.util.SystemIntegrations
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.auth
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -60,6 +68,14 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 import kotlin.math.roundToInt
+
+sealed interface CloudSaveUiState {
+    data object Idle : CloudSaveUiState
+    data object SigningIn : CloudSaveUiState
+    data object Syncing : CloudSaveUiState
+    data class Synced(val cloudLayoutCount: Int, val syncedAtMs: Long) : CloudSaveUiState
+    data class Error(val message: String) : CloudSaveUiState
+}
 
 data class SystemReadiness(
     val canDrawOverlays: Boolean = false,
@@ -87,6 +103,8 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     private val database = NexusDatabase.getInstance(application)
     private val profileRepo = ProfileRepository(database.profileDao())
     private val prefsRepo = PreferencesRepository(application)
+    private val cloudRepo by lazy { CloudLayoutSyncRepository(application) }
+    private val firebaseAuth: FirebaseAuth? = runCatching { Firebase.auth }.getOrNull()
 
     val profiles: StateFlow<List<ControllerProfile>> = profileRepo.profiles
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -122,13 +140,45 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     private val _hasLoadedSettings = MutableStateFlow(false)
     val hasLoadedSettings: StateFlow<Boolean> = _hasLoadedSettings.asStateFlow()
 
+    private val _cloudUser = MutableStateFlow<CloudUserInfo?>(GoogleAuthManager.currentUser())
+    val cloudUser: StateFlow<CloudUserInfo?> = _cloudUser.asStateFlow()
+
+    private val _cloudSyncState = MutableStateFlow<CloudSaveUiState>(CloudSaveUiState.Idle)
+    val cloudSyncState: StateFlow<CloudSaveUiState> = _cloudSyncState.asStateFlow()
+
     private var updateJob: Job? = null
+    private var cloudSyncJob: Job? = null
+    private var lastSyncedUid: String? = null
     private var didAutoCheckUpdates = false
+    private var didAttemptSilentSignIn = false
+
+    private val authStateListener = FirebaseAuth.AuthStateListener { auth ->
+        val fbUser = auth.currentUser
+        if (fbUser != null) {
+            val info = CloudUserInfo.fromFirebaseUser(fbUser)
+            _cloudUser.value = info
+            if (lastSyncedUid != info.uid) {
+                lastSyncedUid = info.uid
+                syncLayoutsWithCloud(user = info, forceCloudWins = false, showToast = false)
+            }
+        } else {
+            cloudSyncJob?.cancel()
+            cloudSyncJob = null
+            lastSyncedUid = null
+            _cloudUser.value = null
+            if (_cloudSyncState.value !is CloudSaveUiState.SigningIn &&
+                _cloudSyncState.value !is CloudSaveUiState.Error
+            ) {
+                _cloudSyncState.value = CloudSaveUiState.Idle
+            }
+        }
+    }
 
     init {
         viewModelScope.launch {
             profileRepo.ensureSeeded()
         }
+        firebaseAuth?.addAuthStateListener(authStateListener)
         viewModelScope.launch {
             prefsRepo.settingsFlow.collect { s ->
                 _hasLoadedSettings.value = true
@@ -148,6 +198,203 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         refreshSystemStatus()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        firebaseAuth?.removeAuthStateListener(authStateListener)
+        cloudSyncJob?.cancel()
+        updateJob?.cancel()
+    }
+
+    // Optional Google Sign-In & Cloud Layout Save (zero Firestore calls when signed out)
+    fun attemptSilentCloudSignIn(activity: Activity) {
+        if (didAttemptSilentSignIn || _cloudUser.value != null) return
+        didAttemptSilentSignIn = true
+        viewModelScope.launch {
+            when (val result = GoogleAuthManager.attemptAutoSignIn(activity)) {
+                is CloudAuthResult.Success -> {
+                    _cloudUser.value = result.user
+                    if (lastSyncedUid != result.user.uid) {
+                        lastSyncedUid = result.user.uid
+                        syncLayoutsWithCloud(user = result.user, forceCloudWins = false, showToast = false)
+                    }
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    fun signInForCloudSave(activity: Activity) {
+        if (_cloudSyncState.value is CloudSaveUiState.SigningIn) return
+        _cloudSyncState.value = CloudSaveUiState.SigningIn
+        viewModelScope.launch {
+            when (val result = GoogleAuthManager.signInWithGoogle(activity)) {
+                is CloudAuthResult.Success -> {
+                    _cloudUser.value = result.user
+                    lastSyncedUid = result.user.uid
+                    syncLayoutsWithCloud(user = result.user, forceCloudWins = false, showToast = true)
+                }
+                CloudAuthResult.Cancelled, CloudAuthResult.NoSavedCredential -> {
+                    _cloudSyncState.value = CloudSaveUiState.Idle
+                }
+                is CloudAuthResult.Error -> {
+                    _cloudSyncState.value = CloudSaveUiState.Error(result.message)
+                    _snackbarMessage.value = result.message
+                }
+            }
+        }
+    }
+
+    fun signOutCloudSave() {
+        cloudSyncJob?.cancel()
+        cloudSyncJob = null
+        lastSyncedUid = null
+        viewModelScope.launch {
+            GoogleAuthManager.signOut(getApplication())
+            _cloudUser.value = null
+            _cloudSyncState.value = CloudSaveUiState.Idle
+            _snackbarMessage.value = "Signed out of Cloud Save — local layouts kept on this device"
+        }
+    }
+
+    fun backupAllLayoutsToCloud() {
+        val user = _cloudUser.value ?: return
+        cloudSyncJob?.cancel()
+        cloudSyncJob = viewModelScope.launch {
+            _cloudSyncState.value = CloudSaveUiState.Syncing
+            profileRepo.ensureSeeded()
+            val accountRes = cloudRepo.upsertUserAccount(user)
+            if (accountRes.isFailure) {
+                val msg = accountRes.exceptionOrNull()?.localizedMessage ?: "Cloud Save failed"
+                _cloudSyncState.value = CloudSaveUiState.Error(msg)
+                _snackbarMessage.value = msg
+                return@launch
+            }
+            val localProfiles = profileRepo.getAllProfilesOnce()
+            var pushedCount = 0
+            var firstError: Throwable? = null
+            for (profile in localProfiles) {
+                val res = cloudRepo.pushLayout(profile)
+                if (res.isSuccess) {
+                    pushedCount++
+                } else if (firstError == null) {
+                    firstError = res.exceptionOrNull()
+                }
+            }
+            if (firstError != null && pushedCount == 0) {
+                val msg = firstError.localizedMessage ?: "Could not back up layouts to cloud"
+                _cloudSyncState.value = CloudSaveUiState.Error(msg)
+                _snackbarMessage.value = msg
+            } else {
+                val now = System.currentTimeMillis()
+                _cloudSyncState.value = CloudSaveUiState.Synced(
+                    cloudLayoutCount = pushedCount,
+                    syncedAtMs = now
+                )
+                _snackbarMessage.value = "Backed up $pushedCount layouts to Cloud Save"
+            }
+        }
+    }
+
+    fun restoreLayoutsFromCloud() {
+        val user = _cloudUser.value ?: return
+        syncLayoutsWithCloud(user = user, forceCloudWins = true, showToast = true)
+    }
+
+    private fun syncLayoutsWithCloud(
+        user: CloudUserInfo,
+        forceCloudWins: Boolean,
+        showToast: Boolean
+    ) {
+        cloudSyncJob?.cancel()
+        cloudSyncJob = viewModelScope.launch {
+            _cloudSyncState.value = CloudSaveUiState.Syncing
+            profileRepo.ensureSeeded()
+
+            val accountRes = cloudRepo.upsertUserAccount(user)
+            if (accountRes.isFailure) {
+                val msg = accountRes.exceptionOrNull()?.localizedMessage ?: "Cloud Save account sync failed"
+                _cloudSyncState.value = CloudSaveUiState.Error(msg)
+                if (showToast) _snackbarMessage.value = msg
+                return@launch
+            }
+
+            val cloudRes = cloudRepo.fetchAllCloudLayouts()
+            val cloudProfiles = cloudRes.getOrElse { err ->
+                val msg = err.localizedMessage ?: "Failed to read Cloud Save layouts"
+                _cloudSyncState.value = CloudSaveUiState.Error(msg)
+                if (showToast) _snackbarMessage.value = msg
+                return@launch
+            }
+
+            val localProfiles = profileRepo.getAllProfilesOnce()
+            val plan = CloudLayoutSyncRepository.planMerge(
+                localProfiles = localProfiles,
+                cloudProfiles = cloudProfiles,
+                forceCloudWins = forceCloudWins
+            )
+
+            for (restored in plan.toSaveLocally) {
+                profileRepo.upsertCloudRestoredProfile(restored)
+            }
+            if (plan.preferredActiveProfileId != null) {
+                profileRepo.setActiveProfile(plan.preferredActiveProfileId)
+            }
+
+            var uploadedCount = 0
+            for (local in plan.toPushToCloud) {
+                if (cloudRepo.pushLayout(local).isSuccess) {
+                    uploadedCount++
+                }
+            }
+
+            val totalCloudIds = (cloudProfiles.map { CloudLayoutSyncRepository.sanitizeLayoutId(it.id) } +
+                plan.toPushToCloud.map { CloudLayoutSyncRepository.sanitizeLayoutId(it.id) }).toSet()
+            _cloudSyncState.value = CloudSaveUiState.Synced(
+                cloudLayoutCount = totalCloudIds.size,
+                syncedAtMs = System.currentTimeMillis()
+            )
+
+            if (showToast || plan.toSaveLocally.isNotEmpty()) {
+                _snackbarMessage.value = when {
+                    plan.toSaveLocally.isNotEmpty() && uploadedCount > 0 ->
+                        "Cloud Save: restored ${plan.toSaveLocally.size}, backed up $uploadedCount layouts"
+                    plan.toSaveLocally.isNotEmpty() ->
+                        "Restored ${plan.toSaveLocally.size} layouts from Cloud Save"
+                    uploadedCount > 0 ->
+                        "Backed up $uploadedCount layouts to Cloud Save"
+                    else ->
+                        "Cloud Save up to date (${totalCloudIds.size} layouts)"
+                }
+            }
+        }
+    }
+
+    private fun pushProfileToCloudIfSignedIn(profile: ControllerProfile) {
+        if (_cloudUser.value == null) return
+        viewModelScope.launch {
+            cloudRepo.pushLayout(profile).onSuccess {
+                val currentCount = (profiles.value.size).coerceAtLeast(1)
+                _cloudSyncState.value = CloudSaveUiState.Synced(
+                    cloudLayoutCount = currentCount,
+                    syncedAtMs = System.currentTimeMillis()
+                )
+            }
+        }
+    }
+
+    private fun deleteProfileFromCloudIfSignedIn(profileId: String) {
+        if (_cloudUser.value == null) return
+        viewModelScope.launch {
+            cloudRepo.deleteCloudLayout(profileId).onSuccess {
+                val remainingCount = profiles.value.count { it.id != profileId }
+                _cloudSyncState.value = CloudSaveUiState.Synced(
+                    cloudLayoutCount = remainingCount,
+                    syncedAtMs = System.currentTimeMillis()
+                )
+            }
+        }
     }
 
     fun refreshSystemStatus() {
@@ -174,6 +421,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     fun setActiveProfile(id: String) {
         viewModelScope.launch {
             profileRepo.setActiveProfile(id)
+            profileRepo.getProfile(id)?.let { pushProfileToCloudIfSignedIn(it) }
             _snackbarMessage.value = "Active overlay profile updated"
         }
     }
@@ -192,15 +440,17 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                 genre = genre,
                 template = template
             )
-            profileRepo.saveProfile(created)
-            profileRepo.setActiveProfile(created.id)
-            onCreated(created.id)
+            val saved = profileRepo.saveProfile(created)
+            profileRepo.setActiveProfile(saved.id)
+            pushProfileToCloudIfSignedIn(saved.copy(isActive = true))
+            onCreated(saved.id)
         }
     }
 
     fun duplicateProfile(source: ControllerProfile) {
         viewModelScope.launch {
             val copy = profileRepo.duplicateProfile(source)
+            pushProfileToCloudIfSignedIn(copy)
             _snackbarMessage.value = "Duplicated \"${copy.name}\""
         }
     }
@@ -208,6 +458,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteProfile(id: String) {
         viewModelScope.launch {
             profileRepo.deleteProfile(id)
+            deleteProfileFromCloudIfSignedIn(id)
             _snackbarMessage.value = "Profile removed"
         }
     }
@@ -219,6 +470,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val result = profileRepo.importProfileJson(json)
             result.onSuccess { imported ->
+                pushProfileToCloudIfSignedIn(imported)
                 _snackbarMessage.value = "Imported \"${imported.name}\" (${imported.controls.size} controls)"
             }.onFailure {
                 _snackbarMessage.value = "Could not import JSON: ${it.localizedMessage ?: "Invalid format"}"
@@ -758,9 +1010,14 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     fun saveEditorProfile(onSaved: () -> Unit = {}) {
         val current = _editorState.value.profile ?: return
         viewModelScope.launch {
-            profileRepo.saveProfile(current)
-            _editorState.update { it.copy(hasUnsavedChanges = false) }
-            _snackbarMessage.value = "Saved \"${current.name}\""
+            val saved = profileRepo.saveProfile(current)
+            pushProfileToCloudIfSignedIn(saved)
+            _editorState.update { it.copy(profile = saved, hasUnsavedChanges = false) }
+            _snackbarMessage.value = if (_cloudUser.value != null) {
+                "Saved \"${saved.name}\" & backed up to Cloud"
+            } else {
+                "Saved \"${saved.name}\""
+            }
             onSaved()
         }
     }

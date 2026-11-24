@@ -31,7 +31,9 @@ class ProfileRepository(private val profileDao: ProfileDao) {
 
     suspend fun ensureSeeded() {
         if (profileDao.countProfiles() == 0) {
-            val starters = PresetProfiles.createStarterProfiles().map { it.toEntity() }
+            val starters = PresetProfiles.createStarterProfiles().map {
+                it.copy(updatedAt = STARTER_SEED_TIMESTAMP).toEntity()
+            }
             profileDao.insertAll(starters)
         }
     }
@@ -46,6 +48,18 @@ class ProfileRepository(private val profileDao: ProfileDao) {
         val updated = profile.copy(updatedAt = System.currentTimeMillis())
         profileDao.insertProfile(updated.toEntity())
         return updated
+    }
+
+    /**
+     * Inserts or updates a layout restored from Cloud Save while preserving its cloud updatedAt
+     * timestamp so reinstall/sync never triggers false local-newer conflicts.
+     */
+    suspend fun upsertCloudRestoredProfile(profile: ControllerProfile) {
+        profileDao.insertProfile(profile.toEntity())
+    }
+
+    companion object {
+        const val STARTER_SEED_TIMESTAMP = 1L
     }
 
     suspend fun setActiveProfile(id: String) {

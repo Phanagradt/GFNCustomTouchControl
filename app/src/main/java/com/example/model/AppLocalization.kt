@@ -332,6 +332,24 @@ class NexusStrings internal constructor() {
         "Custom Floating Bubble & Test Background" to "Resize and restyle the floating bubble (5 shapes + custom icon) and upload your own custom background image in the Test Sandbox.",
         "Animated Virtual Keyboard + Auto-Correct" to "Built-in keyboard now features crisp key-press pop-up animations and a Gboard-style EN/TH word suggestion & auto-correct bar."
     ); internal set
+
+    // Cloud Layout Save (Optional Google Sign-In)
+    var cloudSaveTitle: String = "CLOUD LAYOUT SAVE"; internal set
+    var cloudSaveSubtitle: String = "Optional account for Cloud Save only — automatically backs up & restores your layouts across app updates and reinstalls."; internal set
+    var cloudSaveSignInButton: String = "Sign up / Log in with Google"; internal set
+    var cloudSaveSigningIn: String = "Signing in with Google..."; internal set
+    var cloudSaveSignInShort: String = "Sign In"; internal set
+    var cloudSaveActiveBadge: String = "AUTO-BACKUP ON"; internal set
+    var cloudSaveSignedOutLabel: String = "Cloud Save: Local Only"; internal set
+    var cloudSaveSignedOutHint: String = "Sign in with Google so you never lose layouts after an update"; internal set
+    var cloudSaveSyncing: String = "Syncing layouts with cloud..."; internal set
+    var cloudSaveBackedUpSuffix: String = "layouts backed up"; internal set
+    var cloudSaveAutoSaveHint: String = "Every layout edit auto-saves to your account"; internal set
+    var cloudSaveBackupNow: String = "Back Up Now"; internal set
+    var cloudSaveRestore: String = "Restore"; internal set
+    var cloudSaveSyncShort: String = "Sync"; internal set
+    var cloudSaveSignOut: String = "Sign Out"; internal set
+    var cloudSaveSignOutNote: String = "Signing out keeps all layouts on this device."; internal set
 }
 
 private inline fun buildNexusStrings(block: NexusStrings.() -> Unit): NexusStrings =
@@ -665,6 +683,23 @@ object AppLocalization {
             "ปรับแต่งฟองลอยและภาพพื้นหลังหน้าทดสอบ" to "เปลี่ยนขนาดและดีไซน์ฟองลอย 5 แบบ (+ อัปโหลดรูปเอง) และอัปโหลดรูปพื้นหลังทดสอบเองในหน้า Sandbox",
             "คีย์บอร์ดในตัวมีแอนิเมชัน + เดาคำอัตโนมัติ" to "เพิ่มแอนิเมชันเด้งเมื่อกดปุ่ม ป๊อปอัปตัวอักษร และแถบแนะนำคำ/แก้คำผิดภาษาไทย-อังกฤษสไตล์ Gboard"
         )
+
+        cloudSaveTitle = "สำรองเลย์เอาต์บนคลาวด์ (CLOUD SAVE)"
+        cloudSaveSubtitle = "ล็อกอินเฉพาะเพื่อสำรองเลย์เอาต์บนคลาวด์เท่านั้น — อัปเดตหรือติดตั้งแอปใหม่เลย์เอาต์จะกลับมาอัตโนมัติ ไม่ต้องแบ็กอัปเอง"
+        cloudSaveSignInButton = "สมัคร / เข้าสู่ระบบด้วย Google"
+        cloudSaveSigningIn = "กำลังเข้าสู่ระบบด้วย Google..."
+        cloudSaveSignInShort = "เข้าสู่ระบบ"
+        cloudSaveActiveBadge = "สำรองอัตโนมัติเปิดอยู่"
+        cloudSaveSignedOutLabel = "คลาวด์เซฟ: เก็บในเครื่องเท่านั้น"
+        cloudSaveSignedOutHint = "เข้าสู่ระบบ Google เพื่อเก็บเลย์เอาต์ไว้อัตโนมัติเมื่ออัปเดตแอป"
+        cloudSaveSyncing = "กำลังซิงก์เลย์เอาต์กับคลาวด์..."
+        cloudSaveBackedUpSuffix = "เลย์เอาต์ที่สำรองแล้ว"
+        cloudSaveAutoSaveHint = "ทุกการแก้ไขเลย์เอาต์จะถูกบันทึกขึ้นคลาวด์อัตโนมัติ"
+        cloudSaveBackupNow = "สำรองตอนนี้"
+        cloudSaveRestore = "กู้คืนจากคลาวด์"
+        cloudSaveSyncShort = "ซิงก์"
+        cloudSaveSignOut = "ออกจากระบบ"
+        cloudSaveSignOutNote = "การออกจากระบบจะยังคงเลย์เอาต์ทั้งหมดไว้ในเครื่องนี้"
     }
 
     private fun buildSpanishStrings(): NexusStrings = buildNexusStrings {
@@ -963,6 +998,23 @@ object AppLocalization {
             "Burbuja Flotante y Fondo de Pruebas Propios" to "Personaliza tamaño, forma e icono de la burbuja y sube tu propia imagen de fondo en Pruebas.",
             "Teclado Animado con Autocorrección" to "Animaciones al pulsar cada tecla, vista previa flotante y sugerencias de palabras estilo Gboard."
         )
+
+        cloudSaveTitle = "GUARDADO EN LA NUBE (LAYOUTS)"
+        cloudSaveSubtitle = "Cuenta opcional solo para Cloud Save: respalda y restaura tus diseños automáticamente tras cada actualización."
+        cloudSaveSignInButton = "Registrarse / Entrar con Google"
+        cloudSaveSigningIn = "Iniciando sesión con Google..."
+        cloudSaveSignInShort = "Entrar"
+        cloudSaveActiveBadge = "RESPALDO ACTIVO"
+        cloudSaveSignedOutLabel = "Cloud Save: Solo Local"
+        cloudSaveSignedOutHint = "Inicia sesión con Google para no perder tus diseños al actualizar"
+        cloudSaveSyncing = "Sincronizando diseños con la nube..."
+        cloudSaveBackedUpSuffix = "diseños respaldados"
+        cloudSaveAutoSaveHint = "Cada cambio en tus diseños se guarda automáticamente"
+        cloudSaveBackupNow = "Respaldar Ahora"
+        cloudSaveRestore = "Restaurar"
+        cloudSaveSyncShort = "Sinc."
+        cloudSaveSignOut = "Cerrar Sesión"
+        cloudSaveSignOutNote = "Al cerrar sesión se mantienen todos tus diseños locales."
     }
 
     private fun buildJapaneseStrings(): NexusStrings = buildNexusStrings {
@@ -1261,6 +1313,23 @@ object AppLocalization {
             "カスタムバブル＆テスト背景画像" to "フローティングバブルの形・サイズ変更や、テスト画面の背景アップロードに対応しました。",
             "キーボードアニメーション＆予測変換" to "キー押下ポップアップと Gboard 風の自動修正・単語予測バーを搭載しました。"
         )
+
+        cloudSaveTitle = "クラウド保存（レイアウト専用）"
+        cloudSaveSubtitle = "クラウド保存専用の任意アカウントです。アプリアップデートや再インストール後もレイアウトを自動復元できます。"
+        cloudSaveSignInButton = "Google で登録 / ログイン"
+        cloudSaveSigningIn = "Google でログイン中..."
+        cloudSaveSignInShort = "ログイン"
+        cloudSaveActiveBadge = "自動バックアップON"
+        cloudSaveSignedOutLabel = "クラウド保存: ローカルのみ"
+        cloudSaveSignedOutHint = "Google ログインで更新時のレイアウト消失を防止"
+        cloudSaveSyncing = "クラウドと同期中..."
+        cloudSaveBackedUpSuffix = "件バックアップ済み"
+        cloudSaveAutoSaveHint = "レイアウト編集ごとに自動でクラウド保存されます"
+        cloudSaveBackupNow = "今すぐ保存"
+        cloudSaveRestore = "クラウドから復元"
+        cloudSaveSyncShort = "同期"
+        cloudSaveSignOut = "ログアウト"
+        cloudSaveSignOutNote = "ログアウトしても端末内のレイアウトは残ります。"
     }
 
     private fun buildChineseStrings(): NexusStrings = buildNexusStrings {
@@ -1559,6 +1628,23 @@ object AppLocalization {
             "自定义悬浮球与测试背景图" to "支持 5 种悬浮球外观、大小调节、自定义图标以及沙盒自定义背景图。",
             "虚拟键盘按键动画与智能联想" to "新增按键缩放弹窗动画以及 Gboard 风格中英泰联想词与自动纠错栏。"
         )
+
+        cloudSaveTitle = "云端配置备份 (CLOUD SAVE)"
+        cloudSaveSubtitle = "仅用于云端保存布局的可选账号 — 每次更新或重装应用后自动恢复你的所有按键布局。"
+        cloudSaveSignInButton = "使用 Google 注册 / 登录"
+        cloudSaveSigningIn = "正在使用 Google 登录..."
+        cloudSaveSignInShort = "登录"
+        cloudSaveActiveBadge = "自动云备份已开启"
+        cloudSaveSignedOutLabel = "云端备份：仅本地保存"
+        cloudSaveSignedOutHint = "登录 Google 即可在更新应用时自动保留布局"
+        cloudSaveSyncing = "正在同步云端布局..."
+        cloudSaveBackedUpSuffix = "个布局已备份"
+        cloudSaveAutoSaveHint = "每次编辑布局都会自动同步到你的云端账号"
+        cloudSaveBackupNow = "立即备份"
+        cloudSaveRestore = "从云端恢复"
+        cloudSaveSyncShort = "同步"
+        cloudSaveSignOut = "退出登录"
+        cloudSaveSignOutNote = "退出登录不会删除本设备上的本地布局。"
     }
 }
 

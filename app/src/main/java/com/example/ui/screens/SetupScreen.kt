@@ -75,6 +75,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.capture.CaptureBridge
+import com.example.cloud.CloudUserInfo
 import com.example.data.OverlaySettings
 import com.example.data.VibrationMode
 import com.example.model.AppColorSchemeConfig
@@ -87,8 +88,10 @@ import com.example.model.RecordingConfigHelper
 import com.example.model.RecordingFps
 import com.example.model.RecordingResolution
 import com.example.model.TargetPlatformMode
+import com.example.ui.CloudSaveUiState
 import com.example.ui.SystemReadiness
 import com.example.ui.components.AppColorSchemeCard
+import com.example.ui.components.CloudSaveAccountCard
 import com.example.ui.components.FloatingBubbleCustomizationCard
 import com.example.ui.components.FontCustomizationCard
 import com.example.ui.components.SmoothSlider
@@ -107,6 +110,13 @@ fun SetupScreen(
     settings: OverlaySettings,
     readiness: SystemReadiness,
     updateState: UpdateUiState,
+    cloudUser: CloudUserInfo?,
+    cloudSyncState: CloudSaveUiState,
+    localProfileCount: Int,
+    onCloudSignIn: () -> Unit,
+    onCloudBackupNow: () -> Unit,
+    onCloudRestore: () -> Unit,
+    onCloudSignOut: () -> Unit,
     onVibrationModeChange: (VibrationMode) -> Unit,
     onOpacityChange: (Float) -> Unit,
     onGridSnapChange: (Boolean) -> Unit,
@@ -164,6 +174,18 @@ fun SetupScreen(
                     text = strings.setupSubtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            item {
+                CloudSaveAccountCard(
+                    user = cloudUser,
+                    syncState = cloudSyncState,
+                    localProfileCount = localProfileCount,
+                    onSignInClick = onCloudSignIn,
+                    onBackupNowClick = onCloudBackupNow,
+                    onRestoreClick = onCloudRestore,
+                    onSignOutClick = onCloudSignOut
                 )
             }
 

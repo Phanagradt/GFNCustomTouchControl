@@ -57,11 +57,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.cloud.CloudUserInfo
 import com.example.model.BindingDomain
 import com.example.model.ControllerProfile
 import com.example.model.GameGenre
 import com.example.model.LocalNexusStrings
 import com.example.model.ProfileTemplate
+import com.example.ui.CloudSaveUiState
+import com.example.ui.components.CloudSaveCompactBanner
 import com.example.ui.theme.MacroViolet
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TurboAmber
@@ -70,6 +73,10 @@ import com.example.ui.theme.TurboAmber
 fun ProfilesScreen(
     profiles: List<ControllerProfile>,
     activeProfileId: String?,
+    cloudUser: CloudUserInfo?,
+    cloudSyncState: CloudSaveUiState,
+    onCloudSignIn: () -> Unit,
+    onCloudSyncNow: () -> Unit,
     onSetActive: (String) -> Unit,
     onEditProfile: (String) -> Unit,
     onDuplicateProfile: (ControllerProfile) -> Unit,
@@ -137,6 +144,13 @@ fun ProfilesScreen(
                         Text(strings.profilesImport)
                     }
                 }
+
+                CloudSaveCompactBanner(
+                    user = cloudUser,
+                    syncState = cloudSyncState,
+                    onSignInClick = onCloudSignIn,
+                    onSyncNowClick = onCloudSyncNow
+                )
 
                 OutlinedTextField(
                     value = searchQuery,

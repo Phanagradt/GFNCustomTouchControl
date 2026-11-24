@@ -3,6 +3,8 @@ package com.example
 import android.view.KeyEvent
 import com.example.input.InputBridge
 import com.example.capture.CaptureBridge
+import com.example.cloud.CloudLayoutSyncRepository
+import com.example.data.ProfileRepository
 import com.example.filter.FreestyleGlTextureView
 import com.example.filter.GameFilterBridge
 import com.example.model.AppColorSchemeConfig
@@ -1091,5 +1093,81 @@ class ExampleUnitTest {
         assertEquals("SHORT", GitHubUpdateManager.shortFingerprint("SHORT"))
         assertEquals("Unknown", GitHubUpdateManager.shortFingerprint(null))
     }
+
+    @Test
+    fun `cloud layout payload matches firestore security rules schema and round trips cleanly`() {
+        val sample = PresetProfiles.pcMouseWasdPreset(id = "my custom/layout! 123").copy(
+            globalOpacity = 0.05f, // out of bounds, should clamp to 0.2
+            updatedAt = 1_700_000_000_000L
+        )
+        val safeId = CloudLayoutSyncRepository.sanitizeLayoutId(sample.id)
+        assertTrue(Regex("^[a-zA-Z0-9_\\-]+$").matches(safeId))
+        assertTrue(safeId.length in 1..128)
+
+        val createPayload = CloudLayoutSyncRepository.toCreatePayload("user_abc_123", sample)
+        val expectedCreateKeys = setOf(
+            "userId", "name", "gameTitle", "genre", "globalOpacity",
+            "gridSnap", "active", "controls", "clientUpdatedAt", "createdAt", "updatedAt"
+        )
+        assertEquals(expectedCreateKeys, createPayload.keys)
+        assertFalse("Must never write an id field into document body", "id" in createPayload)
+        assertEquals(0.2, createPayload["globalOpacity"] as Double, 0.0001)
+
+        val updatePayload = CloudLayoutSyncRepository.toUpdatePayload(sample)
+        val expectedUpdateKeys = setOf(
+            "name", "gameTitle", "genre", "globalOpacity",
+            "gridSnap", "active", "controls", "clientUpdatedAt", "updatedAt"
+        )
+        assertEquals(expectedUpdateKeys, updatePayload.keys)
+        assertFalse("Update payload must never mutate userId", "userId" in updatePayload)
+        assertFalse("Update payload must never mutate createdAt", "createdAt" in updatePayload)
+
+        val restored = CloudLayoutSyncRepository.fromFirestoreDocumentMap(safeId, createPayload)
+        assertNotNull(restored)
+        assertEquals(safeId, restored?.id)
+        assertEquals(sample.name, restored?.name)
+        assertEquals(sample.genre, restored?.genre)
+        assertEquals(sample.controls.size, restored?.controls?.size)
+        assertEquals(0.2f, restored!!.globalOpacity, 0.001f)
+        assertEquals(1_700_000_000_000L, restored.updatedAt)
+    }
+
+    @Test
+    fun `cloud merge protects backed up layouts from freshly seeded presets after reinstall`() {
+        val freshlySeeded = PresetProfiles.fpsPrecisionPreset(isActive = true)
+            .copy(updatedAt = ProfileRepository.STARTER_SEED_TIMESTAMP)
+        val cloudEditedPreset = freshlySeeded.copy(
+            name = "My Custom Apex FPS",
+            updatedAt = 1_700_000_500_000L,
+            isActive = true
+        )
+        val cloudCustomLayout = PresetProfiles.createBlankProfile("DBD Survivor", "Dead by Daylight", GameGenre.ACTION_RPG)
+            .copy(id = "custom_dbd_01", updatedAt = 1_700_000_600_000L)
+
+        val plan = CloudLayoutSyncRepository.planMerge(
+            localProfiles = listOf(freshlySeeded),
+            cloudProfiles = listOf(cloudEditedPreset, cloudCustomLayout),
+            forceCloudWins = false
+        )
+
+        assertEquals(2, plan.toSaveLocally.size)
+        assertTrue(plan.toSaveLocally.any { it.name == "My Custom Apex FPS" })
+        assertTrue(plan.toSaveLocally.any { it.id == "custom_dbd_01" })
+        assertTrue("Freshly seeded starter preset should not overwrite cloud", plan.toPushToCloud.isEmpty())
+        assertEquals(cloudEditedPreset.id, plan.preferredActiveProfileId)
+    }
+
+    @Test
+    fun `cloud save UI strings are translated across all 5 languages`() {
+        val english = AppLocalization.stringsFor(AppLanguage.ENGLISH)
+        listOf(AppLanguage.THAI, AppLanguage.SPANISH, AppLanguage.JAPANESE, AppLanguage.CHINESE).forEach { lang ->
+            val s = AppLocalization.stringsFor(lang)
+            assertTrue("$lang cloudSaveTitle blank", s.cloudSaveTitle.isNotBlank())
+            assertTrue("$lang cloudSaveSignInButton blank", s.cloudSaveSignInButton.isNotBlank())
+            assertFalse("$lang cloudSaveTitle should be translated", s.cloudSaveTitle == english.cloudSaveTitle)
+            assertFalse("$lang cloudSaveSignInButton should be translated", s.cloudSaveSignInButton == english.cloudSaveSignInButton)
+        }
+    }
 }
+
 

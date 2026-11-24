@@ -145,6 +145,7 @@ class MainActivity : ComponentActivity() {
                     fontConfig = settings.fontConfig
                 ) {
                     NexusPadAppShell(
+                        activity = this@MainActivity,
                         viewModel = viewModel,
                         visualsInitialSection = visualsInitialTab,
                         openVisualsTrigger = openVisualsTrigger
@@ -196,6 +197,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NexusPadAppShell(
+    activity: ComponentActivity,
     viewModel: NexusViewModel,
     visualsInitialSection: Int,
     openVisualsTrigger: Int
@@ -244,12 +246,18 @@ private fun NexusPadAppShell(
     val editorState by viewModel.editorState.collectAsStateWithLifecycle()
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
+    val cloudUser by viewModel.cloudUser.collectAsStateWithLifecycle()
+    val cloudSyncState by viewModel.cloudSyncState.collectAsStateWithLifecycle()
     val hasUpdateBadge = updateState is UpdateUiState.UpdateAvailable || updateState is UpdateUiState.ReadyToInstall
 
     var showOverlayPermissionDialog by remember { mutableStateOf(false) }
     var showWhatsNewDialog by remember { mutableStateOf(false) }
     var didTriggerAutoWhatsNew by remember { mutableStateOf(false) }
     var pendingExportProfile by remember { mutableStateOf<ControllerProfile?>(null) }
+
+    LaunchedEffect(Unit) {
+        viewModel.attemptSilentCloudSignIn(activity)
+    }
 
     LaunchedEffect(hasLoadedSettings, settings.lastSeenWhatsNewVersionCode) {
         if (hasLoadedSettings && !didTriggerAutoWhatsNew && settings.lastSeenWhatsNewVersionCode < BuildConfig.VERSION_CODE) {
@@ -529,6 +537,10 @@ private fun NexusPadAppShell(
                             ProfilesScreen(
                                 profiles = profiles,
                                 activeProfileId = activeProfile?.id,
+                                cloudUser = cloudUser,
+                                cloudSyncState = cloudSyncState,
+                                onCloudSignIn = { viewModel.signInForCloudSave(activity) },
+                                onCloudSyncNow = viewModel::backupAllLayoutsToCloud,
                                 onSetActive = viewModel::setActiveProfile,
                                 onEditProfile = { id ->
                                     viewModel.openEditor(id)
@@ -634,6 +646,13 @@ private fun NexusPadAppShell(
                                 settings = settings,
                                 readiness = readiness,
                                 updateState = updateState,
+                                cloudUser = cloudUser,
+                                cloudSyncState = cloudSyncState,
+                                localProfileCount = profiles.size,
+                                onCloudSignIn = { viewModel.signInForCloudSave(activity) },
+                                onCloudBackupNow = viewModel::backupAllLayoutsToCloud,
+                                onCloudRestore = viewModel::restoreLayoutsFromCloud,
+                                onCloudSignOut = viewModel::signOutCloudSave,
                                 onVibrationModeChange = viewModel::setVibrationMode,
                                 onOpacityChange = viewModel::setGlobalOpacity,
                                 onGridSnapChange = viewModel::setGridSnapEnabled,
