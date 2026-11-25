@@ -314,7 +314,7 @@ fun TestArenaScreen(
                         text = "L: %+.2f, %+.2f".format(leftStick.x, leftStick.y),
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 11.sp,
-                        color = GeForceLime,
+                        color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }

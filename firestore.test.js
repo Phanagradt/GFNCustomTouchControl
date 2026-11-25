@@ -260,3 +260,68 @@ test("Shared layouts: valid 5-minute code works for friends; expired code & >6mi
   await assertSucceeds(aliceDb.collection("shared_layouts").where("ownerId", "==", ALICE_UID).get());
   await assertSucceeds(aliceDb.collection("shared_layouts").doc("OLD555").delete());
 });
+
+test("User settings subcollection: owner CRUD succeeds, unauth/cross-user/ghost-field/immutable tamper fail", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const now = new Date(Date.now() - 1000);
+
+  const validPayload = {
+    userId: ALICE_UID,
+    gameFilterJson: '{"activeSlot":1,"styles":[]}',
+    crosshairJson: '{"enabled":true,"style":"CLASSIC_PLUS"}',
+    colorSchemeJson: '{"preset":"GEFORCE_LIME"}',
+    fontConfigJson: '{"preset":"NEXUS_DEFAULT"}',
+    floatingBubbleJson: '{"style":"TACTICAL_RING"}',
+    darkTheme: true,
+    clientUpdatedAt: Date.now(),
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await assertFails(unauthDb.collection("users").doc(ALICE_UID).collection("settings").doc("preferences").get());
+  await assertFails(unauthDb.collection("users").doc(ALICE_UID).collection("settings").doc("preferences").set(validPayload));
+
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).collection("settings").doc("preferences").set(validPayload)
+  );
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).collection("settings").doc("preferences").get()
+  );
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).collection("settings").doc("preferences").update({
+      darkTheme: false,
+      clientUpdatedAt: Date.now(),
+      updatedAt: new Date(Date.now() - 500),
+    })
+  );
+
+  // Cross-user read/write blocked
+  await assertFails(bobDb.collection("users").doc(ALICE_UID).collection("settings").doc("preferences").get());
+  await assertFails(
+    bobDb.collection("users").doc(ALICE_UID).collection("settings").doc("preferences").update({
+      darkTheme: true,
+      updatedAt: now,
+    })
+  );
+
+  // Ghost field & immutable createdAt tamper rejected
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).collection("settings").doc("preferences").update({
+      createdAt: new Date(Date.now() - 200),
+      updatedAt: new Date(Date.now() - 100),
+    })
+  );
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).collection("settings").doc("extra_doc").set({
+      ...validPayload,
+      ghostFlag: true,
+    })
+  );
+
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).collection("settings").doc("preferences").delete()
+  );
+});
+

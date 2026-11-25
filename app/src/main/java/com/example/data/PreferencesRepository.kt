@@ -5,22 +5,28 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.model.AppColorSchemeConfig
 import com.example.model.AppFontConfig
+import com.example.model.AppFontPreset
 import com.example.model.AppLanguage
 import com.example.model.ControllerNotation
 import com.example.model.CrosshairSettings
 import com.example.model.FloatingBubbleConfig
+import com.example.model.FloatingBubbleStyle
 import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
+import com.example.model.GyroAimConfig
+import com.example.model.PerfHudConfig
 import com.example.model.RecordingFps
 import com.example.model.RecordingResolution
 import com.example.model.TargetPlatformMode
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.nexusDataStore by preferencesDataStore(name = "nexuspad_settings")
@@ -30,6 +36,16 @@ enum class VibrationMode(val displayName: String, val subtitle: String) {
     LIGHT("Light Tap", "Subtle keyboard-style feedback"),
     STRONG("Crisp Click", "Firm virtual key click")
 }
+
+data class CloudAppearanceSnapshot(
+    val gameFilterJson: String,
+    val crosshairJson: String,
+    val colorSchemeJson: String,
+    val fontConfigJson: String,
+    val floatingBubbleJson: String,
+    val darkTheme: Boolean,
+    val clientUpdatedAt: Long
+)
 
 data class OverlaySettings(
     val vibrationMode: VibrationMode = VibrationMode.LIGHT,
@@ -54,7 +70,10 @@ data class OverlaySettings(
     val fontConfig: AppFontConfig = AppFontConfig(),
     val floatingBubble: FloatingBubbleConfig = FloatingBubbleConfig(),
     val customTestBgPath: String = "",
-    val lastSeenWhatsNewVersionCode: Int = 0
+    val lastSeenWhatsNewVersionCode: Int = 0,
+    val gyroAim: GyroAimConfig = GyroAimConfig(),
+    val perfHud: PerfHudConfig = PerfHudConfig(),
+    val appearanceUpdatedAtMs: Long = 0L
 ) {
     val hapticsEnabled: Boolean
         get() = vibrationMode != VibrationMode.NONE
@@ -71,6 +90,8 @@ class PreferencesRepository(private val context: Context) {
     private val colorSchemeAdapter = moshi.adapter(AppColorSchemeConfig::class.java)
     private val fontConfigAdapter = moshi.adapter(AppFontConfig::class.java)
     private val floatingBubbleAdapter = moshi.adapter(FloatingBubbleConfig::class.java)
+    private val gyroAimAdapter = moshi.adapter(GyroAimConfig::class.java)
+    private val perfHudAdapter = moshi.adapter(PerfHudConfig::class.java)
 
     private object Keys {
         val HAPTICS = booleanPreferencesKey("haptics_enabled")
@@ -97,6 +118,9 @@ class PreferencesRepository(private val context: Context) {
         val FLOATING_BUBBLE_JSON = stringPreferencesKey("floating_bubble_json")
         val CUSTOM_TEST_BG_PATH = stringPreferencesKey("custom_test_bg_path")
         val LAST_SEEN_WHATS_NEW_CODE = intPreferencesKey("last_seen_whats_new_version_code")
+        val GYRO_AIM_JSON = stringPreferencesKey("gyro_aim_json")
+        val PERF_HUD_JSON = stringPreferencesKey("perf_hud_json")
+        val APPEARANCE_UPDATED_AT = longPreferencesKey("appearance_updated_at_ms")
     }
 
     val settingsFlow: Flow<OverlaySettings> = context.nexusDataStore.data.map { prefs ->
@@ -134,6 +158,8 @@ class PreferencesRepository(private val context: Context) {
         val colorScheme = decodeColorScheme(prefs[Keys.COLOR_SCHEME_JSON])
         val fontConfig = decodeFontConfig(prefs[Keys.FONT_CONFIG_JSON])
         val floatingBubble = decodeFloatingBubble(prefs[Keys.FLOATING_BUBBLE_JSON])
+        val gyroAim = decodeGyroAim(prefs[Keys.GYRO_AIM_JSON])
+        val perfHud = decodePerfHud(prefs[Keys.PERF_HUD_JSON])
 
         OverlaySettings(
             vibrationMode = vibrationMode,
@@ -158,7 +184,10 @@ class PreferencesRepository(private val context: Context) {
             fontConfig = fontConfig,
             floatingBubble = floatingBubble,
             customTestBgPath = prefs[Keys.CUSTOM_TEST_BG_PATH] ?: "",
-            lastSeenWhatsNewVersionCode = prefs[Keys.LAST_SEEN_WHATS_NEW_CODE] ?: 0
+            lastSeenWhatsNewVersionCode = prefs[Keys.LAST_SEEN_WHATS_NEW_CODE] ?: 0,
+            gyroAim = gyroAim,
+            perfHud = perfHud,
+            appearanceUpdatedAtMs = prefs[Keys.APPEARANCE_UPDATED_AT] ?: 0L
         )
     }
 
@@ -193,6 +222,16 @@ class PreferencesRepository(private val context: Context) {
         return runCatching { floatingBubbleAdapter.fromJson(raw) }.getOrNull() ?: FloatingBubbleConfig()
     }
 
+    private fun decodeGyroAim(raw: String?): GyroAimConfig {
+        if (raw.isNullOrBlank()) return GyroAimConfig()
+        return runCatching { gyroAimAdapter.fromJson(raw) }.getOrNull() ?: GyroAimConfig()
+    }
+
+    private fun decodePerfHud(raw: String?): PerfHudConfig {
+        if (raw.isNullOrBlank()) return PerfHudConfig()
+        return runCatching { perfHudAdapter.fromJson(raw) }.getOrNull() ?: PerfHudConfig()
+    }
+
     suspend fun setVibrationMode(mode: VibrationMode) {
         context.nexusDataStore.edit {
             it[Keys.VIBRATION_MODE] = mode.name
@@ -217,7 +256,10 @@ class PreferencesRepository(private val context: Context) {
     }
 
     suspend fun setDarkTheme(dark: Boolean) {
-        context.nexusDataStore.edit { it[Keys.DARK_THEME] = dark }
+        context.nexusDataStore.edit {
+            it[Keys.DARK_THEME] = dark
+            it[Keys.APPEARANCE_UPDATED_AT] = System.currentTimeMillis()
+        }
     }
 
     suspend fun setShowTelemetryOverlay(show: Boolean) {
@@ -265,6 +307,7 @@ class PreferencesRepository(private val context: Context) {
             val current = decodeFilterState(prefs[Keys.GAME_FILTER_JSON])
             val updated = current.copy(activeSlot = slot.coerceIn(0, 3))
             prefs[Keys.GAME_FILTER_JSON] = filterAdapter.toJson(updated)
+            prefs[Keys.APPEARANCE_UPDATED_AT] = System.currentTimeMillis()
         }
     }
 
@@ -273,6 +316,7 @@ class PreferencesRepository(private val context: Context) {
             val current = decodeFilterState(prefs[Keys.GAME_FILTER_JSON])
             val next = current.withUpdatedStyle(style).copy(activeSlot = style.slot.coerceIn(1, 3))
             prefs[Keys.GAME_FILTER_JSON] = filterAdapter.toJson(next)
+            prefs[Keys.APPEARANCE_UPDATED_AT] = System.currentTimeMillis()
         }
     }
 
@@ -281,30 +325,47 @@ class PreferencesRepository(private val context: Context) {
             val current = decodeFilterState(prefs[Keys.GAME_FILTER_JSON])
             val next = current.withResetSlot(slot)
             prefs[Keys.GAME_FILTER_JSON] = filterAdapter.toJson(next)
+            prefs[Keys.APPEARANCE_UPDATED_AT] = System.currentTimeMillis()
         }
     }
 
     suspend fun updateCrosshair(crosshair: CrosshairSettings) {
         context.nexusDataStore.edit { prefs ->
             prefs[Keys.CROSSHAIR_JSON] = crosshairAdapter.toJson(crosshair)
+            prefs[Keys.APPEARANCE_UPDATED_AT] = System.currentTimeMillis()
         }
     }
 
     suspend fun updateColorScheme(config: AppColorSchemeConfig) {
         context.nexusDataStore.edit { prefs ->
             prefs[Keys.COLOR_SCHEME_JSON] = colorSchemeAdapter.toJson(config)
+            prefs[Keys.APPEARANCE_UPDATED_AT] = System.currentTimeMillis()
         }
     }
 
     suspend fun updateFontConfig(config: AppFontConfig) {
         context.nexusDataStore.edit { prefs ->
             prefs[Keys.FONT_CONFIG_JSON] = fontConfigAdapter.toJson(config)
+            prefs[Keys.APPEARANCE_UPDATED_AT] = System.currentTimeMillis()
         }
     }
 
     suspend fun updateFloatingBubble(config: FloatingBubbleConfig) {
         context.nexusDataStore.edit { prefs ->
             prefs[Keys.FLOATING_BUBBLE_JSON] = floatingBubbleAdapter.toJson(config)
+            prefs[Keys.APPEARANCE_UPDATED_AT] = System.currentTimeMillis()
+        }
+    }
+
+    suspend fun updateGyroAim(config: GyroAimConfig) {
+        context.nexusDataStore.edit { prefs ->
+            prefs[Keys.GYRO_AIM_JSON] = gyroAimAdapter.toJson(config)
+        }
+    }
+
+    suspend fun updatePerfHud(config: PerfHudConfig) {
+        context.nexusDataStore.edit { prefs ->
+            prefs[Keys.PERF_HUD_JSON] = perfHudAdapter.toJson(config)
         }
     }
 
@@ -319,4 +380,79 @@ class PreferencesRepository(private val context: Context) {
             prefs[Keys.LAST_SEEN_WHATS_NEW_CODE] = versionCode
         }
     }
+
+    /**
+     * Exports Filters (all 3 Freestyle slots), Crosshair, Color Scheme, Font Preset,
+     * Floating Bubble style, and Dark Theme into size-bounded JSON for Cloud Save.
+     */
+    suspend fun exportCloudAppearanceSnapshot(): CloudAppearanceSnapshot {
+        val current = settingsFlow.first()
+        var filterJson = filterAdapter.toJson(current.gameFilter)
+        if (filterJson.length > MAX_CLOUD_FILTER_JSON_CHARS) {
+            val stripped = current.gameFilter.copy(
+                styles = current.gameFilter.styles.map { it.copy(customStickerBase64 = null) }
+            )
+            filterJson = filterAdapter.toJson(stripped)
+        }
+
+        var crosshairJson = crosshairAdapter.toJson(current.crosshair)
+        if (crosshairJson.length > MAX_CLOUD_CROSSHAIR_JSON_CHARS) {
+            crosshairJson = crosshairAdapter.toJson(current.crosshair.copy(customImageBase64 = null))
+        }
+
+        val safeFont = current.fontConfig.copy(
+            preset = if (current.fontConfig.preset == AppFontPreset.CUSTOM_UPLOAD) {
+                AppFontPreset.NEXUS_DEFAULT
+            } else {
+                current.fontConfig.preset
+            },
+            customFontPath = "",
+            customFontName = ""
+        )
+        val safeBubble = current.floatingBubble.copy(
+            style = if (current.floatingBubble.style == FloatingBubbleStyle.CUSTOM_IMAGE) {
+                FloatingBubbleStyle.TACTICAL_RING
+            } else {
+                current.floatingBubble.style
+            },
+            customIconPath = ""
+        )
+
+        return CloudAppearanceSnapshot(
+            gameFilterJson = filterJson.take(MAX_CLOUD_FILTER_JSON_CHARS),
+            crosshairJson = crosshairJson.take(MAX_CLOUD_CROSSHAIR_JSON_CHARS),
+            colorSchemeJson = colorSchemeAdapter.toJson(current.colorScheme).take(8_000),
+            fontConfigJson = fontConfigAdapter.toJson(safeFont).take(4_000),
+            floatingBubbleJson = floatingBubbleAdapter.toJson(safeBubble).take(4_000),
+            darkTheme = current.darkTheme,
+            clientUpdatedAt = current.appearanceUpdatedAtMs
+        )
+    }
+
+    /**
+     * Applies a Cloud Save appearance snapshot atomically to DataStore.
+     */
+    suspend fun applyCloudAppearanceSnapshot(snapshot: CloudAppearanceSnapshot) {
+        val parsedFilter = decodeFilterState(snapshot.gameFilterJson)
+        val parsedCrosshair = decodeCrosshairSettings(snapshot.crosshairJson)
+        val parsedColor = decodeColorScheme(snapshot.colorSchemeJson)
+        val parsedFont = decodeFontConfig(snapshot.fontConfigJson)
+        val parsedBubble = decodeFloatingBubble(snapshot.floatingBubbleJson)
+
+        context.nexusDataStore.edit { prefs ->
+            prefs[Keys.GAME_FILTER_JSON] = filterAdapter.toJson(parsedFilter)
+            prefs[Keys.CROSSHAIR_JSON] = crosshairAdapter.toJson(parsedCrosshair)
+            prefs[Keys.COLOR_SCHEME_JSON] = colorSchemeAdapter.toJson(parsedColor)
+            prefs[Keys.FONT_CONFIG_JSON] = fontConfigAdapter.toJson(parsedFont)
+            prefs[Keys.FLOATING_BUBBLE_JSON] = floatingBubbleAdapter.toJson(parsedBubble)
+            prefs[Keys.DARK_THEME] = snapshot.darkTheme
+            prefs[Keys.APPEARANCE_UPDATED_AT] = snapshot.clientUpdatedAt.coerceAtLeast(1L)
+        }
+    }
+
+    companion object {
+        private const val MAX_CLOUD_FILTER_JSON_CHARS = 155_000
+        private const val MAX_CLOUD_CROSSHAIR_JSON_CHARS = 155_000
+    }
 }
+

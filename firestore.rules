@@ -58,6 +58,17 @@ service cloud.firestore {
              (data.controls.size() == 0 || data.controls[0] is map);
     }
 
+    function isValidUserSettings(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.gameFilterJson is string && data.gameFilterJson.size() <= 160000 &&
+             data.crosshairJson is string && data.crosshairJson.size() <= 160000 &&
+             data.colorSchemeJson is string && data.colorSchemeJson.size() <= 8000 &&
+             data.fontConfigJson is string && data.fontConfigJson.size() <= 4000 &&
+             data.floatingBubbleJson is string && data.floatingBubbleJson.size() <= 4000 &&
+             data.darkTheme is bool &&
+             data.clientUpdatedAt is int && data.clientUpdatedAt >= 0;
+    }
+
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
       allow list: if false;
@@ -120,6 +131,46 @@ service cloud.firestore {
                          ]);
 
         allow delete: if isSignedIn() && isValidId(userId) && isValidId(layoutId) && request.auth.uid == userId;
+      }
+
+      match /settings/{settingId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(settingId) && request.auth.uid == userId;
+        allow list: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(settingId) &&
+                         request.auth.uid == userId &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll([
+                           'userId', 'gameFilterJson', 'crosshairJson', 'colorSchemeJson',
+                           'fontConfigJson', 'floatingBubbleJson', 'darkTheme',
+                           'clientUpdatedAt', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'gameFilterJson', 'crosshairJson', 'colorSchemeJson',
+                           'fontConfigJson', 'floatingBubbleJson', 'darkTheme',
+                           'clientUpdatedAt', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         isValidUserSettings(incoming());
+
+        allow update: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(settingId) &&
+                         request.auth.uid == userId &&
+                         isValidUserSettings(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'gameFilterJson', 'crosshairJson', 'colorSchemeJson',
+                           'fontConfigJson', 'floatingBubbleJson', 'darkTheme',
+                           'clientUpdatedAt', 'updatedAt'
+                         ]);
+
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(settingId) && request.auth.uid == userId;
       }
     }
 

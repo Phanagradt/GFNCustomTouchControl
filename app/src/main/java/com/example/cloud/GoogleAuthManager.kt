@@ -34,7 +34,7 @@ data class CloudUserInfo(
             uid = user.uid,
             displayName = user.displayName?.trim()?.takeIf { it.isNotEmpty() }
                 ?: user.email?.substringBefore("@")?.takeIf { it.isNotEmpty() }
-                ?: "NexusPad Player",
+                ?: "XenosPad Player",
             email = user.email,
             photoUrl = user.photoUrl?.toString()
         )
@@ -105,7 +105,7 @@ object GoogleAuthManager {
     suspend fun signInWithGoogle(activity: Activity): CloudAuthResult {
         val webClientId = resolveWebClientId(activity)
             ?: return CloudAuthResult.Error(
-                "Google Sign-In is not configured for this build (missing Web Client ID)."
+                "This APK was built without Firebase google-services.json. Add the GOOGLE_SERVICES_JSON and NEXUSPAD_KEYSTORE_BASE64 secrets in GitHub Actions and rebuild, or export the APK from AI Studio."
             )
 
         return try {
@@ -188,11 +188,12 @@ object GoogleAuthManager {
 
     private fun resolveWebClientId(context: Context): String? {
         return runCatching {
-            val resId = context.resources.getIdentifier(
-                "default_web_client_id",
-                "string",
-                context.packageName
-            )
+            val packages = listOf(context.packageName, context.applicationContext.packageName, "com.example").distinct()
+            val resId = packages
+                .asSequence()
+                .map { pkg -> context.resources.getIdentifier("default_web_client_id", "string", pkg) }
+                .firstOrNull { it != 0 }
+                ?: 0
             if (resId == 0) {
                 null
             } else {

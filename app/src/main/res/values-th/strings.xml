@@ -1,8 +1,8 @@
 <resources>
-    <string name="app_name">NexusPad</string>
-    <string name="ime_service_label">จอยและคีย์บอร์ด NexusPad</string>
+    <string name="app_name">XenosPad</string>
+    <string name="ime_service_label">จอยและคีย์บอร์ด XenosPad</string>
     <string name="overlay_channel_name">โอเวอร์เลย์จอยเสมือน</string>
     <string name="overlay_channel_description">ควบคุมปุ่มเกมแพด คีย์บอร์ด และเป้าเล็งลอยตัวบนเกมคลาวด์</string>
-    <string name="accessibility_service_label">ระบบควบคุมเมาส์ NexusPad</string>
-    <string name="accessibility_service_description">จำลองคลิกซ้าย คลิกขวา คลิกกลาง และการเลื่อนเมาส์สำหรับปุ่มบนหน้าจอของ NexusPad โดยไม่เก็บข้อมูลส่วนตัว</string>
+    <string name="accessibility_service_label">ระบบควบคุมเมาส์ XenosPad</string>
+    <string name="accessibility_service_description">จำลองคลิกซ้าย คลิกขวา คลิกกลาง และการเลื่อนเมาส์สำหรับปุ่มบนหน้าจอของ XenosPad โดยไม่เก็บข้อมูลส่วนตัว</string>
 </resources>

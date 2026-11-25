@@ -304,7 +304,7 @@ private fun HeroCockpitCard(
         ) {
             Image(
                 painter = painterResource(id = R.drawable.img_hero_cockpit),
-                contentDescription = "NexusPad Virtual Cockpit",
+                contentDescription = "XenosPad Virtual Cockpit",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
@@ -377,7 +377,7 @@ private fun HeroCockpitCard(
 
                 Column {
                     Text(
-                        text = activeProfile?.name ?: "NexusPad",
+                        text = activeProfile?.name ?: "XenosPad",
                         style = MaterialTheme.typography.headlineSmall,
                         color = Color.White,
                         maxLines = 1,

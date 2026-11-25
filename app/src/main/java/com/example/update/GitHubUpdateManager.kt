@@ -212,6 +212,7 @@ object GitHubUpdateManager {
             val size = asset.size
             if (name.endsWith(".apk", ignoreCase = true) && isAllowedGitHubDownloadUrl(downloadUrl)) {
                 val preferThis = bestApkUrl == null ||
+                    name.startsWith("XenosPad", ignoreCase = true) ||
                     name.startsWith("NexusPad", ignoreCase = true)
                 if (preferThis) {
                     bestApkUrl = downloadUrl
@@ -237,7 +238,7 @@ object GitHubUpdateManager {
     suspend fun fetchLatestRelease(repoInput: String): Result<GitHubReleaseInfo> = withContext(Dispatchers.IO) {
         val slug = normalizeRepoSlug(repoInput)
             ?: return@withContext Result.failure(
-                IllegalArgumentException("Enter a valid GitHub repository (e.g. username/NexusPad)")
+                IllegalArgumentException("Enter a valid GitHub repository (e.g. username/XenosPad)")
             )
 
         val apiUrl = "https://api.github.com/repos/$slug/releases/latest"
@@ -249,7 +250,7 @@ object GitHubUpdateManager {
                 readTimeout = 15_000
                 setRequestProperty("Accept", "application/vnd.github+json")
                 setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-                setRequestProperty("User-Agent", "NexusPad-Android/${currentVersionName()}")
+                setRequestProperty("User-Agent", "XenosPad-Android/${currentVersionName()}")
             }
             val code = connection.responseCode
             if (code == HttpURLConnection.HTTP_NOT_FOUND) {
@@ -302,7 +303,7 @@ object GitHubUpdateManager {
                 old.delete()
             }
         }
-        val safeName = (release.apkFileName ?: "NexusPad-${release.tagName}.apk")
+        val safeName = (release.apkFileName ?: "XenosPad-${release.tagName}.apk")
             .replace(Regex("[^A-Za-z0-9._-]"), "_")
             .let { if (it.endsWith(".apk", ignoreCase = true)) it else "$it.apk" }
         val targetFile = File(updatesDir, safeName)
@@ -323,7 +324,7 @@ object GitHubUpdateManager {
                     requestMethod = "GET"
                     connectTimeout = 15_000
                     readTimeout = 30_000
-                    setRequestProperty("User-Agent", "NexusPad-Android/${currentVersionName()}")
+                    setRequestProperty("User-Agent", "XenosPad-Android/${currentVersionName()}")
                     setRequestProperty("Accept", "application/octet-stream")
                 }
                 val code = connection.responseCode
@@ -421,7 +422,7 @@ object GitHubUpdateManager {
         if (!canInstallPackages(context)) {
             openInstallPermissionSettings(context)
             return Result.failure(
-                IllegalStateException("Allow \"Install unknown apps\" for NexusPad, then tap Install Update again")
+                IllegalStateException("Allow \"Install unknown apps\" for XenosPad, then tap Install Update again")
             )
         }
         return runCatching {

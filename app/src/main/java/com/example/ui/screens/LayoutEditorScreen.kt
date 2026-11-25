@@ -280,7 +280,7 @@ fun LayoutEditorScreen(
                 .padding(start = 10.dp, top = 10.dp)
                 .border(
                     width = 1.dp,
-                    color = if (editorState.hasUnsavedChanges) GeForceLime else Color(0xFF314057),
+                    color = if (editorState.hasUnsavedChanges) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                     shape = RoundedCornerShape(24.dp)
                 )
         ) {
@@ -304,8 +304,8 @@ fun LayoutEditorScreen(
                 Button(
                     onClick = onSave,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (editorState.hasUnsavedChanges) GeForceLime else Color(0xFF1A2230),
-                        contentColor = if (editorState.hasUnsavedChanges) Color(0xFF0A1400) else Color.White
+                        containerColor = if (editorState.hasUnsavedChanges) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (editorState.hasUnsavedChanges) MaterialTheme.colorScheme.onPrimary else Color.White
                     ),
                     contentPadding = PaddingValues(horizontal = 12.dp),
                     modifier = Modifier
@@ -345,7 +345,7 @@ fun LayoutEditorScreen(
                                 .size(42.dp)
                                 .testTag("editor_add_control_button")
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = "Add Control", tint = GeForceLime)
+                            Icon(Icons.Default.Add, contentDescription = "Add Control", tint = MaterialTheme.colorScheme.primary)
                         }
                         IconButton(
                             onClick = { showGridDialog = true },
@@ -356,7 +356,7 @@ fun LayoutEditorScreen(
                             Icon(
                                 imageVector = Icons.Default.GridOn,
                                 contentDescription = "Grid Settings",
-                                tint = if (settings.gridSnapEnabled) GeForceLime else Color(0xFF9FB0C7)
+                                tint = if (settings.gridSnapEnabled) MaterialTheme.colorScheme.primary else Color(0xFF9FB0C7)
                             )
                         }
                         if (editorState.undoStack.isNotEmpty()) {
@@ -388,7 +388,7 @@ fun LayoutEditorScreen(
                         Icon(
                             imageVector = Icons.Default.PlayArrow,
                             contentDescription = if (editorState.isPlayTestMode) "Stop Test" else "Play-Test",
-                            tint = if (editorState.isPlayTestMode) GeForceLime else Color.White
+                            tint = if (editorState.isPlayTestMode) MaterialTheme.colorScheme.primary else Color.White
                         )
                     }
                 }
@@ -411,7 +411,7 @@ fun LayoutEditorScreen(
         // Play-test mini telemetry pill (top center, non-blocking)
         if (editorState.isPlayTestMode && !hideFloatingTools) {
             val isHeld = pressedIds.isNotEmpty()
-            val accentColor = if (isHeld) GeForceLime else TacticalCyan
+            val accentColor = if (isHeld) MaterialTheme.colorScheme.primary else TacticalCyan
             Surface(
                 color = Color(0xCC0B0E14),
                 shape = RoundedCornerShape(16.dp),

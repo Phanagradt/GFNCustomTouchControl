@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "NexusPad"
+rootProject.name = "XenosPad"
 
 include(":app")

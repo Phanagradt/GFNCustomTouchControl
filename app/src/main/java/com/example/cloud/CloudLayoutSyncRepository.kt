@@ -3,6 +3,7 @@ package com.example.cloud
 import android.content.Context
 import android.view.KeyEvent
 import com.example.R
+import com.example.data.CloudAppearanceSnapshot
 import com.example.data.ProfileRepository
 import com.example.model.AxisPair
 import com.example.model.BindingDomain
@@ -16,6 +17,7 @@ import com.example.model.TouchpadMode
 import com.example.model.TriggerBehavior
 import com.example.model.VirtualControl
 import com.google.firebase.Firebase
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.DocumentSnapshot
@@ -26,6 +28,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
+import java.security.SecureRandom
+import java.util.Date
+import java.util.UUID
 
 data class CloudMergePlan(
     val toSaveLocally: List<ControllerProfile>,
@@ -37,7 +42,20 @@ data class CloudSyncSummary(
     val uploadedCount: Int,
     val restoredCount: Int,
     val totalCloudCount: Int,
+    val syncedAppearance: Boolean = false,
     val syncedAtMs: Long = System.currentTimeMillis()
+)
+
+data class SharedLayoutCodeResult(
+    val shareCode: String,
+    val profileName: String,
+    val expiresAtMs: Long
+)
+
+data class FetchedSharedLayout(
+    val shareCode: String,
+    val authorName: String,
+    val profile: ControllerProfile
 )
 
 class CloudLayoutSyncRepository(
@@ -65,7 +83,7 @@ class CloudLayoutSyncRepository(
         check(uid == user.uid) { "Signed-in user mismatch." }
         val path = "users/$uid"
         val docRef = db.collection(COLLECTION_USERS).document(uid)
-        val safeName = user.displayName.trim().ifEmpty { "NexusPad Player" }.take(MAX_NAME_LENGTH)
+        val safeName = user.displayName.trim().ifEmpty { "XenosPad Player" }.take(MAX_NAME_LENGTH)
         val safePhoto = user.photoUrl?.trim()?.takeIf { it.isNotEmpty() }?.take(MAX_PHOTO_URL_LENGTH)
 
         return try {
@@ -180,6 +198,147 @@ class CloudLayoutSyncRepository(
     }
 
     /**
+     * Pushes Filters, Crosshair, Color Scheme, Font Preset, Floating Bubble, and Dark Theme
+     * to /users/{uid}/settings/preferences in strict 1:1 parity with firestore.rules.
+     */
+    suspend fun pushAppearanceSettings(snapshot: CloudAppearanceSnapshot): Result<Unit> {
+        val uid = runCatching { requireAuthenticatedUid() }.getOrElse { return Result.failure(it) }
+        val path = "users/$uid/settings/$DOC_PREFERENCES"
+        val docRef = db.collection(COLLECTION_USERS)
+            .document(uid)
+            .collection(COLLECTION_SETTINGS)
+            .document(DOC_PREFERENCES)
+
+        return try {
+            val existing = docRef.get().await()
+            if (existing.exists()) {
+                docRef.update(toSettingsUpdatePayload(snapshot)).await()
+            } else {
+                docRef.set(toSettingsCreatePayload(uid, snapshot)).await()
+            }
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.WRITE, path)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Fetches cloud-saved Filters, Crosshair, and Theme settings for the signed-in user.
+     * Returns Result.success(null) if no backup exists yet.
+     */
+    suspend fun fetchAppearanceSettings(): Result<CloudAppearanceSnapshot?> {
+        val uid = runCatching { requireAuthenticatedUid() }.getOrElse { return Result.failure(it) }
+        val path = "users/$uid/settings/$DOC_PREFERENCES"
+        val docRef = db.collection(COLLECTION_USERS)
+            .document(uid)
+            .collection(COLLECTION_SETTINGS)
+            .document(DOC_PREFERENCES)
+
+        return try {
+            val doc = docRef.get().await()
+            if (!doc.exists()) {
+                Result.success(null)
+            } else {
+                val data = doc.getData(DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                Result.success(data?.let { fromSettingsDocumentMap(it) })
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.GET, path)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Creates a temporary 5-minute 6-character share code in /shared_layouts/{shareCode}.
+     * Matches firestore.rules exactly: 5-minute expiresAt under the 6-minute server ceiling.
+     */
+    suspend fun publishSharedLayout(
+        profile: ControllerProfile,
+        authorName: String
+    ): Result<SharedLayoutCodeResult> {
+        val uid = runCatching { requireAuthenticatedUid() }.getOrElse { return Result.failure(it) }
+        var lastError: Exception? = null
+
+        repeat(3) {
+            val code = generateShareCode()
+            val path = "$COLLECTION_SHARED_LAYOUTS/$code"
+            val docRef = db.collection(COLLECTION_SHARED_LAYOUTS).document(code)
+            val expiresAtMs = System.currentTimeMillis() + SHARE_CODE_LIFETIME_MS
+            val payload = toSharedLayoutCreatePayload(
+                ownerUid = uid,
+                authorName = authorName,
+                profile = profile,
+                expiresAtMs = expiresAtMs
+            )
+
+            try {
+                val existing = docRef.get().await()
+                if (!existing.exists()) {
+                    docRef.set(payload).await()
+                    return Result.success(
+                        SharedLayoutCodeResult(
+                            shareCode = code,
+                            profileName = profile.name,
+                            expiresAtMs = expiresAtMs
+                        )
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                FirestoreErrorHandler.handleFirestoreError(e, OperationType.CREATE, path)
+                lastError = e
+            }
+        }
+        return Result.failure(lastError ?: IllegalStateException("Could not generate a unique share code."))
+    }
+
+    /**
+     * Fetches a shared layout by its 6-character share code from /shared_layouts/{code}.
+     * Returns Result.success(null) if the code does not exist or has expired.
+     */
+    suspend fun fetchSharedLayoutByCode(rawCode: String): Result<FetchedSharedLayout?> {
+        runCatching { requireAuthenticatedUid() }.getOrElse { return Result.failure(it) }
+        val code = normalizeShareCode(rawCode)
+        if (!isValidShareCode(code)) {
+            return Result.success(null)
+        }
+        val path = "$COLLECTION_SHARED_LAYOUTS/$code"
+        val docRef = db.collection(COLLECTION_SHARED_LAYOUTS).document(code)
+
+        return try {
+            val doc = docRef.get().await()
+            if (!doc.exists()) {
+                return Result.success(null)
+            }
+            val data = doc.getData(DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                ?: return Result.success(null)
+            val expiresAt = (data["expiresAt"] as? Timestamp)?.toDate()?.time
+            if (expiresAt != null && expiresAt <= System.currentTimeMillis()) {
+                return Result.success(null)
+            }
+            val decoded = fromSharedLayoutDocumentMap(code, data)
+            Result.success(decoded)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Expired documents from other users fail rules with PERMISSION_DENIED — treat gracefully as expired/not found.
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.GET, path)
+            val msg = e.message.orEmpty()
+            if (msg.contains("PERMISSION_DENIED", ignoreCase = true)) {
+                Result.success(null)
+            } else {
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
      * Real-time observation flow scoped strictly to the authenticated user's layouts subcollection.
      * Callers must only collect this when userId matches an authenticated session.
      */
@@ -198,14 +357,36 @@ class CloudLayoutSyncRepository(
     companion object {
         private const val COLLECTION_USERS = "users"
         private const val COLLECTION_LAYOUTS = "layouts"
+        private const val COLLECTION_SETTINGS = "settings"
+        private const val COLLECTION_SHARED_LAYOUTS = "shared_layouts"
+        private const val DOC_PREFERENCES = "preferences"
         private const val MAX_ID_LENGTH = 128
         private const val MAX_NAME_LENGTH = 80
         private const val MAX_GAME_TITLE_LENGTH = 100
         private const val MAX_PHOTO_URL_LENGTH = 500
         private const val MAX_CONTROLS_PER_LAYOUT = 40
         private const val MAX_COMBINED_IMAGE_BASE64_CHARS = 700_000
+        const val SHARE_CODE_LIFETIME_MS = 5 * 60 * 1000L
 
         private val VALID_ID_REGEX = Regex("^[a-zA-Z0-9_\\-]+$")
+        private val VALID_SHARE_CODE_REGEX = Regex("^[A-Z0-9]{6,16}$")
+        // Unambiguous uppercase alphanumeric characters (excludes 0/O and 1/I)
+        private const val SHARE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        private val secureRandom = SecureRandom()
+
+        fun generateShareCode(length: Int = 6): String {
+            val safeLen = length.coerceIn(6, 12)
+            return buildString(safeLen) {
+                repeat(safeLen) {
+                    append(SHARE_CODE_ALPHABET[secureRandom.nextInt(SHARE_CODE_ALPHABET.length)])
+                }
+            }
+        }
+
+        fun normalizeShareCode(raw: String): String =
+            raw.uppercase().filter { it in 'A'..'Z' || it in '0'..'9' }.take(16)
+
+        fun isValidShareCode(code: String): Boolean = VALID_SHARE_CODE_REGEX.matches(code)
 
         /**
          * Ensures layout document IDs strictly match firestore.rules isValidId():
@@ -255,6 +436,115 @@ class CloudLayoutSyncRepository(
             "clientUpdatedAt" to profile.updatedAt.coerceAtLeast(0L),
             "updatedAt" to FieldValue.serverTimestamp()
         )
+
+        /**
+         * Exact create payload matching firestore.rules /users/{userId}/settings/{settingId} allow create.
+         */
+        fun toSettingsCreatePayload(uid: String, snapshot: CloudAppearanceSnapshot): Map<String, Any> = mapOf(
+            "userId" to uid,
+            "gameFilterJson" to snapshot.gameFilterJson.take(160_000),
+            "crosshairJson" to snapshot.crosshairJson.take(160_000),
+            "colorSchemeJson" to snapshot.colorSchemeJson.take(8_000),
+            "fontConfigJson" to snapshot.fontConfigJson.take(4_000),
+            "floatingBubbleJson" to snapshot.floatingBubbleJson.take(4_000),
+            "darkTheme" to snapshot.darkTheme,
+            "clientUpdatedAt" to snapshot.clientUpdatedAt.coerceAtLeast(0L),
+            "createdAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+
+        /**
+         * Exact update payload matching firestore.rules /users/{userId}/settings/{settingId} allow update.
+         */
+        fun toSettingsUpdatePayload(snapshot: CloudAppearanceSnapshot): Map<String, Any> = mapOf(
+            "gameFilterJson" to snapshot.gameFilterJson.take(160_000),
+            "crosshairJson" to snapshot.crosshairJson.take(160_000),
+            "colorSchemeJson" to snapshot.colorSchemeJson.take(8_000),
+            "fontConfigJson" to snapshot.fontConfigJson.take(4_000),
+            "floatingBubbleJson" to snapshot.floatingBubbleJson.take(4_000),
+            "darkTheme" to snapshot.darkTheme,
+            "clientUpdatedAt" to snapshot.clientUpdatedAt.coerceAtLeast(0L),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+
+        fun fromSettingsDocumentMap(data: Map<String, Any?>): CloudAppearanceSnapshot? {
+            val gameFilterJson = data["gameFilterJson"] as? String ?: return null
+            val crosshairJson = data["crosshairJson"] as? String ?: return null
+            val colorSchemeJson = data["colorSchemeJson"] as? String ?: return null
+            val fontConfigJson = data["fontConfigJson"] as? String ?: return null
+            val floatingBubbleJson = data["floatingBubbleJson"] as? String ?: return null
+            val darkTheme = (data["darkTheme"] as? Boolean) ?: true
+            val clientUpdatedAt = (data["clientUpdatedAt"] as? Number)?.toLong()?.coerceAtLeast(1L)
+                ?: System.currentTimeMillis()
+
+            return CloudAppearanceSnapshot(
+                gameFilterJson = gameFilterJson,
+                crosshairJson = crosshairJson,
+                colorSchemeJson = colorSchemeJson,
+                fontConfigJson = fontConfigJson,
+                floatingBubbleJson = floatingBubbleJson,
+                darkTheme = darkTheme,
+                clientUpdatedAt = clientUpdatedAt
+            )
+        }
+
+        /**
+         * Exact create payload matching firestore.rules /shared_layouts/{shareCode} allow create.
+         * Never includes an "id" key inside the document body.
+         */
+        fun toSharedLayoutCreatePayload(
+            ownerUid: String,
+            authorName: String,
+            profile: ControllerProfile,
+            expiresAtMs: Long = System.currentTimeMillis() + SHARE_CODE_LIFETIME_MS
+        ): Map<String, Any> = mapOf(
+            "ownerId" to ownerUid,
+            "authorName" to authorName.trim().ifEmpty { "XenosPad Player" }.take(MAX_NAME_LENGTH),
+            "name" to profile.name.trim().ifEmpty { "Shared Layout" }.take(MAX_NAME_LENGTH),
+            "gameTitle" to profile.gameTitle.trim().ifEmpty { "Cloud Game" }.take(MAX_GAME_TITLE_LENGTH),
+            "genre" to profile.genre.name.take(32),
+            "globalOpacity" to profile.globalOpacity.toDouble().coerceIn(0.2, 1.0),
+            "gridSnap" to profile.gridSnap,
+            "controls" to serializeControls(profile.controls),
+            "createdAt" to FieldValue.serverTimestamp(),
+            "expiresAt" to Timestamp(Date(expiresAtMs))
+        )
+
+        fun fromSharedLayoutDocumentMap(
+            shareCode: String,
+            data: Map<String, Any?>
+        ): FetchedSharedLayout? {
+            val name = (data["name"] as? String)?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            val authorName = (data["authorName"] as? String)?.trim()?.ifEmpty { "XenosPad Player" }
+                ?: "XenosPad Player"
+            val gameTitle = (data["gameTitle"] as? String)?.trim()?.ifEmpty { "Cloud Game" }
+                ?: "Cloud Game"
+            val genreName = data["genre"] as? String
+            val genre = GameGenre.entries.firstOrNull { it.name == genreName } ?: GameGenre.CUSTOM
+            val globalOpacity = ((data["globalOpacity"] as? Number)?.toFloat() ?: 0.85f).coerceIn(0.2f, 1.0f)
+            val gridSnap = (data["gridSnap"] as? Boolean) ?: true
+            val rawControls = data["controls"] as? List<*> ?: emptyList<Any?>()
+            val controls = rawControls.mapNotNull { entry ->
+                (entry as? Map<*, *>)?.let { mapToControl(it) }
+            }.map { it.copy(id = "ctrl_${UUID.randomUUID().toString().take(8)}") }
+
+            val profile = ControllerProfile(
+                id = "shared_${UUID.randomUUID().toString().take(8)}",
+                name = name,
+                gameTitle = gameTitle,
+                genre = genre,
+                controls = controls,
+                globalOpacity = globalOpacity,
+                gridSnap = gridSnap,
+                isActive = false,
+                updatedAt = System.currentTimeMillis()
+            )
+            return FetchedSharedLayout(
+                shareCode = shareCode,
+                authorName = authorName,
+                profile = profile
+            )
+        }
 
         fun serializeControls(controls: List<VirtualControl>): List<Map<String, Any>> {
             var remainingImageBudget = MAX_COMBINED_IMAGE_BASE64_CHARS
@@ -449,3 +739,4 @@ class CloudLayoutSyncRepository(
         }
     }
 }
+

@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -23,6 +24,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.FolderCopy
@@ -248,6 +253,7 @@ private fun NexusPadAppShell(
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     val cloudUser by viewModel.cloudUser.collectAsStateWithLifecycle()
     val cloudSyncState by viewModel.cloudSyncState.collectAsStateWithLifecycle()
+    val shareCodeState by viewModel.shareCodeState.collectAsStateWithLifecycle()
     val hasUpdateBadge = updateState is UpdateUiState.UpdateAvailable || updateState is UpdateUiState.ReadyToInstall
 
     var showOverlayPermissionDialog by remember { mutableStateOf(false) }
@@ -372,15 +378,17 @@ private fun NexusPadAppShell(
                             Row(
                                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Gamepad,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_xenospad_fg),
+                                    contentDescription = "XenosPad logo",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(RoundedCornerShape(8.dp))
                                 )
-                                Spacer(Modifier.size(8.dp))
+                                Spacer(Modifier.size(10.dp))
                                 Text(
-                                    text = "NexusPad",
+                                    text = "XenosPad",
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -539,8 +547,12 @@ private fun NexusPadAppShell(
                                 activeProfileId = activeProfile?.id,
                                 cloudUser = cloudUser,
                                 cloudSyncState = cloudSyncState,
+                                shareCodeState = shareCodeState,
                                 onCloudSignIn = { viewModel.signInForCloudSave(activity) },
                                 onCloudSyncNow = viewModel::backupAllLayoutsToCloud,
+                                onCreateShareCode = viewModel::createShareCodeForProfile,
+                                onImportByShareCode = viewModel::importProfileByShareCode,
+                                onDismissShareCode = viewModel::dismissShareCodeState,
                                 onSetActive = viewModel::setActiveProfile,
                                 onEditProfile = { id ->
                                     viewModel.openEditor(id)
@@ -649,10 +661,13 @@ private fun NexusPadAppShell(
                                 cloudUser = cloudUser,
                                 cloudSyncState = cloudSyncState,
                                 localProfileCount = profiles.size,
+                                hasHardwareGyro = viewModel.hasGyroSensor,
                                 onCloudSignIn = { viewModel.signInForCloudSave(activity) },
                                 onCloudBackupNow = viewModel::backupAllLayoutsToCloud,
                                 onCloudRestore = viewModel::restoreLayoutsFromCloud,
                                 onCloudSignOut = viewModel::signOutCloudSave,
+                                onGyroAimChange = viewModel::updateGyroAim,
+                                onPerfHudChange = viewModel::updatePerfHud,
                                 onVibrationModeChange = viewModel::setVibrationMode,
                                 onOpacityChange = viewModel::setGlobalOpacity,
                                 onGridSnapChange = viewModel::setGridSnapEnabled,

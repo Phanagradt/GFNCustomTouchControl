@@ -10,12 +10,14 @@ import com.example.cloud.CloudAuthResult
 import com.example.cloud.CloudLayoutSyncRepository
 import com.example.cloud.CloudUserInfo
 import com.example.cloud.GoogleAuthManager
+import com.example.cloud.SharedLayoutCodeResult
 import com.example.data.NexusDatabase
 import com.example.data.OverlaySettings
 import com.example.data.PreferencesRepository
 import com.example.data.ProfileRepository
 import com.example.data.VibrationMode
 import com.example.filter.GameFilterBridge
+import com.example.input.GyroAimEngine
 import com.example.input.InputBridge
 import com.example.model.AppColorSchemeConfig
 import com.example.model.AppFontConfig
@@ -36,7 +38,9 @@ import com.example.model.FloatingBubbleStyle
 import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
 import com.example.model.GameGenre
+import com.example.model.GyroAimConfig
 import com.example.model.InputBinding
+import com.example.model.PerfHudConfig
 import com.example.model.PresetProfiles
 import com.example.model.ProfileTemplate
 import com.example.model.RecordingFps
@@ -58,6 +62,7 @@ import com.google.firebase.auth.auth
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -75,6 +80,15 @@ sealed interface CloudSaveUiState {
     data object Syncing : CloudSaveUiState
     data class Synced(val cloudLayoutCount: Int, val syncedAtMs: Long) : CloudSaveUiState
     data class Error(val message: String) : CloudSaveUiState
+}
+
+sealed interface ShareCodeUiState {
+    data object Idle : ShareCodeUiState
+    data object Creating : ShareCodeUiState
+    data class Created(val result: SharedLayoutCodeResult) : ShareCodeUiState
+    data object Importing : ShareCodeUiState
+    data class Imported(val profileName: String, val authorName: String) : ShareCodeUiState
+    data class Error(val message: String) : ShareCodeUiState
 }
 
 data class SystemReadiness(
@@ -140,14 +154,21 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     private val _hasLoadedSettings = MutableStateFlow(false)
     val hasLoadedSettings: StateFlow<Boolean> = _hasLoadedSettings.asStateFlow()
 
+    val hasGyroSensor: Boolean = GyroAimEngine.hasGyroscope(application)
+
     private val _cloudUser = MutableStateFlow<CloudUserInfo?>(GoogleAuthManager.currentUser())
     val cloudUser: StateFlow<CloudUserInfo?> = _cloudUser.asStateFlow()
 
     private val _cloudSyncState = MutableStateFlow<CloudSaveUiState>(CloudSaveUiState.Idle)
     val cloudSyncState: StateFlow<CloudSaveUiState> = _cloudSyncState.asStateFlow()
 
+    private val _shareCodeState = MutableStateFlow<ShareCodeUiState>(ShareCodeUiState.Idle)
+    val shareCodeState: StateFlow<ShareCodeUiState> = _shareCodeState.asStateFlow()
+
     private var updateJob: Job? = null
     private var cloudSyncJob: Job? = null
+    private var appearancePushJob: Job? = null
+    private var shareCodeJob: Job? = null
     private var lastSyncedUid: String? = null
     private var didAutoCheckUpdates = false
     private var didAttemptSilentSignIn = false
@@ -204,6 +225,8 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
         firebaseAuth?.removeAuthStateListener(authStateListener)
         cloudSyncJob?.cancel()
+        appearancePushJob?.cancel()
+        shareCodeJob?.cancel()
         updateJob?.cancel()
     }
 
@@ -282,6 +305,9 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                     firstError = res.exceptionOrNull()
                 }
             }
+            val appearanceSnapshot = prefsRepo.exportCloudAppearanceSnapshot()
+            cloudRepo.pushAppearanceSettings(appearanceSnapshot)
+
             if (firstError != null && pushedCount == 0) {
                 val msg = firstError.localizedMessage ?: "Could not back up layouts to cloud"
                 _cloudSyncState.value = CloudSaveUiState.Error(msg)
@@ -292,7 +318,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                     cloudLayoutCount = pushedCount,
                     syncedAtMs = now
                 )
-                _snackbarMessage.value = "Backed up $pushedCount layouts to Cloud Save"
+                _snackbarMessage.value = "Backed up $pushedCount layouts + filters & theme to Cloud Save"
             }
         }
     }
@@ -349,6 +375,23 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
+            // Also sync Filters, Crosshair, Color Scheme, Font Preset, Floating Bubble & Dark Theme
+            var restoredAppearance = false
+            val localAppearance = prefsRepo.exportCloudAppearanceSnapshot()
+            val cloudAppearance = cloudRepo.fetchAppearanceSettings().getOrNull()
+            if (cloudAppearance != null &&
+                (forceCloudWins ||
+                    localAppearance.clientUpdatedAt <= 0L ||
+                    cloudAppearance.clientUpdatedAt > localAppearance.clientUpdatedAt)
+            ) {
+                prefsRepo.applyCloudAppearanceSnapshot(cloudAppearance)
+                restoredAppearance = true
+            } else if (!forceCloudWins &&
+                (cloudAppearance == null || localAppearance.clientUpdatedAt > cloudAppearance.clientUpdatedAt)
+            ) {
+                cloudRepo.pushAppearanceSettings(localAppearance)
+            }
+
             val totalCloudIds = (cloudProfiles.map { CloudLayoutSyncRepository.sanitizeLayoutId(it.id) } +
                 plan.toPushToCloud.map { CloudLayoutSyncRepository.sanitizeLayoutId(it.id) }).toSet()
             _cloudSyncState.value = CloudSaveUiState.Synced(
@@ -356,19 +399,92 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                 syncedAtMs = System.currentTimeMillis()
             )
 
-            if (showToast || plan.toSaveLocally.isNotEmpty()) {
+            if (showToast || plan.toSaveLocally.isNotEmpty() || restoredAppearance) {
                 _snackbarMessage.value = when {
                     plan.toSaveLocally.isNotEmpty() && uploadedCount > 0 ->
-                        "Cloud Save: restored ${plan.toSaveLocally.size}, backed up $uploadedCount layouts"
-                    plan.toSaveLocally.isNotEmpty() ->
-                        "Restored ${plan.toSaveLocally.size} layouts from Cloud Save"
+                        "Cloud Save: restored ${plan.toSaveLocally.size}, backed up $uploadedCount layouts + theme"
+                    plan.toSaveLocally.isNotEmpty() || restoredAppearance ->
+                        "Restored ${plan.toSaveLocally.size} layouts, filters & theme from Cloud Save"
                     uploadedCount > 0 ->
-                        "Backed up $uploadedCount layouts to Cloud Save"
+                        "Backed up $uploadedCount layouts, filters & theme to Cloud Save"
                     else ->
-                        "Cloud Save up to date (${totalCloudIds.size} layouts)"
+                        "Cloud Save up to date (${totalCloudIds.size} layouts + theme)"
                 }
             }
         }
+    }
+
+    private fun scheduleCloudAppearancePush() {
+        if (_cloudUser.value == null) return
+        appearancePushJob?.cancel()
+        appearancePushJob = viewModelScope.launch {
+            delay(1200L)
+            if (_cloudUser.value == null) return@launch
+            val snapshot = prefsRepo.exportCloudAppearanceSnapshot()
+            cloudRepo.pushAppearanceSettings(snapshot)
+        }
+    }
+
+    fun createShareCodeForProfile(profile: ControllerProfile) {
+        val user = _cloudUser.value
+        if (user == null) {
+            _shareCodeState.value = ShareCodeUiState.Error(
+                "Sign in with Google first to create a 6-digit share code."
+            )
+            return
+        }
+        shareCodeJob?.cancel()
+        _shareCodeState.value = ShareCodeUiState.Creating
+        shareCodeJob = viewModelScope.launch {
+            cloudRepo.publishSharedLayout(profile, user.displayName)
+                .onSuccess { result ->
+                    _shareCodeState.value = ShareCodeUiState.Created(result)
+                }
+                .onFailure { err ->
+                    _shareCodeState.value = ShareCodeUiState.Error(
+                        err.localizedMessage ?: "Could not generate share code"
+                    )
+                }
+        }
+    }
+
+    fun importProfileByShareCode(rawCode: String) {
+        if (_cloudUser.value == null) {
+            _shareCodeState.value = ShareCodeUiState.Error(
+                "Sign in with Google first to import a 6-digit share code."
+            )
+            return
+        }
+        shareCodeJob?.cancel()
+        _shareCodeState.value = ShareCodeUiState.Importing
+        shareCodeJob = viewModelScope.launch {
+            cloudRepo.fetchSharedLayoutByCode(rawCode)
+                .onSuccess { fetched ->
+                    if (fetched == null) {
+                        _shareCodeState.value = ShareCodeUiState.Error(
+                            "Code not found or expired. Ask your friend for a fresh 6-digit code."
+                        )
+                    } else {
+                        val saved = profileRepo.saveProfile(fetched.profile)
+                        pushProfileToCloudIfSignedIn(saved)
+                        _shareCodeState.value = ShareCodeUiState.Imported(
+                            profileName = saved.name,
+                            authorName = fetched.authorName
+                        )
+                        _snackbarMessage.value = "Imported \"${saved.name}\" from ${fetched.authorName}"
+                    }
+                }
+                .onFailure { err ->
+                    _shareCodeState.value = ShareCodeUiState.Error(
+                        err.localizedMessage ?: "Failed to fetch shared layout"
+                    )
+                }
+        }
+    }
+
+    fun dismissShareCodeState() {
+        shareCodeJob?.cancel()
+        _shareCodeState.value = ShareCodeUiState.Idle
     }
 
     private fun pushProfileToCloudIfSignedIn(profile: ControllerProfile) {
@@ -522,7 +638,10 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     fun setGridSnapEnabled(enabled: Boolean) = viewModelScope.launch { prefsRepo.setGridSnapEnabled(enabled) }
     fun setGridDivisions(divisions: Int) = viewModelScope.launch { prefsRepo.setGridDivisions(divisions) }
     fun setControllerNotation(notation: ControllerNotation) = viewModelScope.launch { prefsRepo.setControllerNotation(notation) }
-    fun setDarkTheme(dark: Boolean) = viewModelScope.launch { prefsRepo.setDarkTheme(dark) }
+    fun setDarkTheme(dark: Boolean) = viewModelScope.launch {
+        prefsRepo.setDarkTheme(dark)
+        scheduleCloudAppearancePush()
+    }
     fun setShowTelemetryOverlay(show: Boolean) = viewModelScope.launch { prefsRepo.setShowTelemetryOverlay(show) }
     fun setAutoLaunchGeForceNow(enabled: Boolean) = viewModelScope.launch { prefsRepo.setAutoLaunchGeForceNow(enabled) }
     fun setFloatingKeyboardDefault(enabled: Boolean) = viewModelScope.launch { prefsRepo.setFloatingKeyboardDefault(enabled) }
@@ -552,13 +671,28 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { prefsRepo.setAutoCheckUpdates(enabled) }
     }
 
+    // Gyroscope Aiming & Performance HUD
+    fun updateGyroAim(config: GyroAimConfig) {
+        viewModelScope.launch { prefsRepo.updateGyroAim(config) }
+    }
+
+    fun updatePerfHud(config: PerfHudConfig) {
+        viewModelScope.launch { prefsRepo.updatePerfHud(config) }
+    }
+
     // Personalization: App Color Scheme, Custom Fonts, Floating Bubble, Custom Test BG, What's New
     fun updateColorScheme(config: AppColorSchemeConfig) {
-        viewModelScope.launch { prefsRepo.updateColorScheme(config) }
+        viewModelScope.launch {
+            prefsRepo.updateColorScheme(config)
+            scheduleCloudAppearancePush()
+        }
     }
 
     fun updateFontConfig(config: AppFontConfig) {
-        viewModelScope.launch { prefsRepo.updateFontConfig(config) }
+        viewModelScope.launch {
+            prefsRepo.updateFontConfig(config)
+            scheduleCloudAppearancePush()
+        }
     }
 
     fun importCustomFont(uri: Uri) {
@@ -582,7 +716,10 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateFloatingBubble(config: FloatingBubbleConfig) {
-        viewModelScope.launch { prefsRepo.updateFloatingBubble(config) }
+        viewModelScope.launch {
+            prefsRepo.updateFloatingBubble(config)
+            scheduleCloudAppearancePush()
+        }
     }
 
     fun importCustomBubbleIcon(uri: Uri) {
@@ -640,7 +777,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         if (slug == null) {
             if (!silent) {
                 _updateState.value = UpdateUiState.Error(
-                    "Enter your GitHub repository (e.g. username/NexusPad) to check for releases."
+                    "Enter your GitHub repository (e.g. username/XenosPad) to check for releases."
                 )
             }
             return
@@ -675,7 +812,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                                 latestTag = release.tagName,
                                 checkedAtMs = System.currentTimeMillis()
                             )
-                            _snackbarMessage.value = "NexusPad is up to date (v$currentVersion)"
+                            _snackbarMessage.value = "XenosPad is up to date (v$currentVersion)"
                         }
                     }
                 }
@@ -769,15 +906,18 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     // Crosshair HUD
     fun updateCrosshair(crosshair: CrosshairSettings) = viewModelScope.launch {
         prefsRepo.updateCrosshair(crosshair)
+        scheduleCloudAppearancePush()
     }
 
     fun selectCrosshairPreset(preset: CrosshairPreset) = viewModelScope.launch {
         val next = preset.applyTo(settings.value.crosshair)
         prefsRepo.updateCrosshair(next)
+        scheduleCloudAppearancePush()
     }
 
     fun resetCrosshair() = viewModelScope.launch {
         prefsRepo.updateCrosshair(CrosshairSettings(enabled = settings.value.crosshair.enabled))
+        scheduleCloudAppearancePush()
         _snackbarMessage.value = "Crosshair reset to default"
     }
 
@@ -786,6 +926,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         GameFilterBridge.selectLiveSlot(slot)
         viewModelScope.launch {
             prefsRepo.setActiveFilterSlot(slot)
+            scheduleCloudAppearancePush()
         }
     }
 
@@ -797,6 +938,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         GameFilterBridge.updateLiveStyle(style)
         viewModelScope.launch {
             prefsRepo.updateFilterStyle(style)
+            scheduleCloudAppearancePush()
         }
     }
 
@@ -807,6 +949,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
             GameFilterBridge.syncFromPersisted(current.withResetSlot(activeSlot))
             viewModelScope.launch {
                 prefsRepo.resetFilterSlot(activeSlot)
+                scheduleCloudAppearancePush()
                 _snackbarMessage.value = "Reset Style $activeSlot to default"
             }
         }
@@ -825,6 +968,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     GameFilterBridge.updateLiveStyle(updated)
                     prefsRepo.updateFilterStyle(updated)
+                    scheduleCloudAppearancePush()
                     _snackbarMessage.value = "Custom sticker applied to Style $slot"
                 }
                 .onFailure { err ->

@@ -38,10 +38,17 @@ import com.example.model.ReplayBufferPreset
 import com.example.model.SpecialFxMode
 import com.example.model.StickerPreset
 import com.example.model.TargetPlatformMode
+import android.view.Surface
+import com.example.data.CloudAppearanceSnapshot
+import com.example.input.GyroAimEngine
 import com.example.model.FloatingBubbleConfig
 import com.example.model.FloatingBubbleStyle
+import com.example.model.GyroActivationMode
+import com.example.model.GyroAimConfig
+import com.example.model.PerfHudConfig
 import com.example.model.TouchpadMode
 import com.example.service.KeyboardWordPredictor
+import com.example.service.PerformanceMonitor
 import com.example.ui.components.computeOverlayBlurRadius
 import com.example.ui.components.computeOverlayDimAmount
 import com.example.update.GitHubUpdateManager
@@ -995,6 +1002,12 @@ class ExampleUnitTest {
         val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
         val adapter = moshi.adapter(AppColorSchemeConfig::class.java)
 
+        val defaultScheme = AppColorSchemeConfig()
+        assertEquals(AppThemePreset.XENOS_DEFAULT, defaultScheme.preset)
+        assertEquals(0xFF8E9CFFL, defaultScheme.effectivePrimaryHex())
+        assertTrue(AppThemePreset.entries.contains(AppThemePreset.GEFORCE_LIME))
+        assertEquals(0xFF8CE000L, AppThemePreset.GEFORCE_LIME.primaryHex)
+
         val preset = AppColorSchemeConfig(preset = AppThemePreset.CYBER_PINK)
         assertEquals(AppThemePreset.CYBER_PINK.primaryHex, preset.effectivePrimaryHex())
         assertEquals(AppThemePreset.CYBER_PINK.secondaryHex, preset.effectiveSecondaryHex())
@@ -1168,6 +1181,204 @@ class ExampleUnitTest {
             assertFalse("$lang cloudSaveSignInButton should be translated", s.cloudSaveSignInButton == english.cloudSaveSignInButton)
         }
     }
+
+    @Test
+    fun `cloud appearance settings payload matches firestore rules schema and round trips cleanly`() {
+        val snapshot = CloudAppearanceSnapshot(
+            gameFilterJson = """{"activeSlot":1}""",
+            crosshairJson = """{"enabled":true,"style":"DOT"}""",
+            colorSchemeJson = """{"preset":"CYBER_PINK"}""",
+            fontConfigJson = """{"preset":"ORBITRON"}""",
+            floatingBubbleJson = """{"sizeDp":56.0,"opacity":0.85}""",
+            darkTheme = true,
+            clientUpdatedAt = 1_760_123_456_000L
+        )
+
+        val createPayload = CloudLayoutSyncRepository.toSettingsCreatePayload("uid_player_99", snapshot)
+        val expectedCreateKeys = setOf(
+            "userId", "gameFilterJson", "crosshairJson", "colorSchemeJson",
+            "fontConfigJson", "floatingBubbleJson", "darkTheme",
+            "clientUpdatedAt", "createdAt", "updatedAt"
+        )
+        assertEquals(expectedCreateKeys, createPayload.keys)
+        assertFalse("Must never include id field", "id" in createPayload)
+        assertEquals("uid_player_99", createPayload["userId"])
+
+        val updatePayload = CloudLayoutSyncRepository.toSettingsUpdatePayload(snapshot)
+        val expectedUpdateKeys = setOf(
+            "gameFilterJson", "crosshairJson", "colorSchemeJson",
+            "fontConfigJson", "floatingBubbleJson", "darkTheme",
+            "clientUpdatedAt", "updatedAt"
+        )
+        assertEquals(expectedUpdateKeys, updatePayload.keys)
+        assertFalse("Update payload must not mutate userId", "userId" in updatePayload)
+        assertFalse("Update payload must not mutate createdAt", "createdAt" in updatePayload)
+
+        val restored = CloudLayoutSyncRepository.fromSettingsDocumentMap(createPayload)
+        assertNotNull(restored)
+        assertEquals(snapshot.gameFilterJson, restored?.gameFilterJson)
+        assertEquals(snapshot.crosshairJson, restored?.crosshairJson)
+        assertEquals(snapshot.colorSchemeJson, restored?.colorSchemeJson)
+        assertEquals(snapshot.fontConfigJson, restored?.fontConfigJson)
+        assertEquals(snapshot.floatingBubbleJson, restored?.floatingBubbleJson)
+        assertEquals(snapshot.darkTheme, restored?.darkTheme)
+        assertEquals(snapshot.clientUpdatedAt, restored?.clientUpdatedAt)
+    }
+
+    @Test
+    fun `six digit layout share codes validate normalize and match firestore rules schema`() {
+        repeat(20) {
+            val code = CloudLayoutSyncRepository.generateShareCode()
+            assertEquals(6, code.length)
+            assertTrue("Generated share code must match ^[A-Z0-9]{6}$", CloudLayoutSyncRepository.isValidShareCode(code))
+        }
+
+        assertEquals("AB39KX", CloudLayoutSyncRepository.normalizeShareCode(" ab3-9kx "))
+        assertTrue(CloudLayoutSyncRepository.isValidShareCode("AB39KX"))
+        assertFalse(CloudLayoutSyncRepository.isValidShareCode("AB39"))
+        assertFalse(CloudLayoutSyncRepository.isValidShareCode("AB39KX99999999999"))
+        assertFalse(CloudLayoutSyncRepository.isValidShareCode("AB39K!"))
+
+        val profile = PresetProfiles.fpsPrecisionPreset(isActive = true)
+        val nowMs = 1_760_200_000_000L
+        val expiresMs = nowMs + 5 * 60 * 1000L
+        val payload = CloudLayoutSyncRepository.toSharedLayoutCreatePayload(
+            ownerUid = "uid_owner_7",
+            authorName = "ProPlayer",
+            profile = profile,
+            expiresAtMs = expiresMs
+        )
+        val expectedKeys = setOf(
+            "ownerId", "authorName", "name", "gameTitle", "genre",
+            "globalOpacity", "gridSnap", "controls", "createdAt", "expiresAt"
+        )
+        assertEquals(expectedKeys, payload.keys)
+        assertFalse("Shared layout must never include id in body", "id" in payload)
+
+        val fetched = CloudLayoutSyncRepository.fromSharedLayoutDocumentMap("AB39KX", payload)
+        assertNotNull(fetched)
+        assertEquals("AB39KX", fetched?.shareCode)
+        assertEquals("ProPlayer", fetched?.authorName)
+        assertEquals(profile.name, fetched?.profile?.name)
+        assertEquals(profile.controls.size, fetched?.profile?.controls?.size)
+        assertFalse(fetched!!.profile.isActive)
+    }
+
+    @Test
+    fun `gyroscope aim engine remaps display rotations applies deadzone invert and tracks ADS gating`() {
+        val baseConfig = GyroAimConfig(
+            enabled = true,
+            sensitivity = 1.0f,
+            deadzoneRadPerSec = 0.10f,
+            smoothing = 0.25f,
+            invertX = false,
+            invertY = false,
+            activationMode = GyroActivationMode.HOLD_ADS
+        )
+
+        // Small jitter below deadzone yields exact zero
+        val (zeroDx, zeroDy) = GyroAimEngine.computeAimDeltaPx(
+            gyroX = 0.04f,
+            gyroY = -0.05f,
+            gyroZ = 0.02f,
+            dtSec = 0.016f,
+            displayRotation = Surface.ROTATION_90,
+            config = baseConfig
+        )
+        assertEquals(0f, zeroDx, 0.0001f)
+        assertEquals(0f, zeroDy, 0.0001f)
+
+        // Landscape left (ROTATION_90) vs Landscape right (ROTATION_270) invert axes accurately
+        val (dx90, dy90) = GyroAimEngine.computeAimDeltaPx(
+            gyroX = -1.0f,
+            gyroY = 0.8f,
+            gyroZ = 0f,
+            dtSec = 0.016f,
+            displayRotation = Surface.ROTATION_90,
+            config = baseConfig
+        )
+        val (dx270, dy270) = GyroAimEngine.computeAimDeltaPx(
+            gyroX = -1.0f,
+            gyroY = 0.8f,
+            gyroZ = 0f,
+            dtSec = 0.016f,
+            displayRotation = Surface.ROTATION_270,
+            config = baseConfig
+        )
+        assertTrue(dx90 > 0f)
+        assertTrue(dy90 > 0f)
+        assertEquals(-dx90, dx270, 0.01f)
+        assertEquals(-dy90, dy270, 0.01f)
+
+        // Portrait (ROTATION_0) and Invert X / Y flags
+        val (dxPort, dyPort) = GyroAimEngine.computeAimDeltaPx(
+            gyroX = -1.0f,
+            gyroY = -1.0f,
+            gyroZ = 0f,
+            dtSec = 0.016f,
+            displayRotation = Surface.ROTATION_0,
+            config = baseConfig
+        )
+        val (dxInv, dyInv) = GyroAimEngine.computeAimDeltaPx(
+            gyroX = -1.0f,
+            gyroY = -1.0f,
+            gyroZ = 0f,
+            dtSec = 0.016f,
+            displayRotation = Surface.ROTATION_0,
+            config = baseConfig.copy(invertX = true, invertY = true)
+        )
+        assertTrue(dxPort > 0f && dyPort > 0f)
+        assertEquals(-dxPort, dxInv, 0.01f)
+        assertEquals(-dyPort, dyInv, 0.01f)
+
+        // Verify InputBridge ADS state tracks LT / RMB press & release
+        assertFalse(InputBridge.isAdsActive.value)
+        val rmb = CommandCatalog.findById("mouse_right")
+        InputBridge.pressControl("ads_rmb", "RMB", rmb)
+        assertTrue(InputBridge.isAdsActive.value)
+        InputBridge.releaseControl("ads_rmb", "RMB", rmb)
+        assertFalse(InputBridge.isAdsActive.value)
+
+        // Moshi round-trip for GyroAimConfig and PerfHudConfig
+        val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        val gyroAdapter = moshi.adapter(GyroAimConfig::class.java)
+        val perfAdapter = moshi.adapter(PerfHudConfig::class.java)
+        assertEquals(baseConfig, gyroAdapter.fromJson(gyroAdapter.toJson(baseConfig)))
+        val perf = PerfHudConfig(enabled = true, showFps = true, showBattery = true, showTemp = true, showRam = true, opacity = 0.9f)
+        assertEquals(perf, perfAdapter.fromJson(perfAdapter.toJson(perf)))
+    }
+
+    @Test
+    fun `performance monitor computes accurate 60fps and 120fps from frame timestamps`() {
+        assertEquals(0, PerformanceMonitor.computeFpsFromFrameTimesNanos(emptyList()))
+        assertEquals(0, PerformanceMonitor.computeFpsFromFrameTimesNanos(listOf(1_000_000_000L)))
+
+        // 60 intervals spanning 1 second -> 60 FPS
+        val frames60 = (0..60).map { i -> i * 16_666_667L }
+        assertEquals(60, PerformanceMonitor.computeFpsFromFrameTimesNanos(frames60))
+
+        // 120 intervals spanning 1 second -> 120 FPS
+        val frames120 = (0..120).map { i -> i * 8_333_333L }
+        assertEquals(120, PerformanceMonitor.computeFpsFromFrameTimesNanos(frames120))
+    }
+
+    @Test
+    fun `new gyro perf hud share code and live edit strings are localized across all 5 languages`() {
+        val english = AppLocalization.stringsFor(AppLanguage.ENGLISH)
+        listOf(AppLanguage.THAI, AppLanguage.SPANISH, AppLanguage.JAPANESE, AppLanguage.CHINESE).forEach { lang ->
+            val s = AppLocalization.stringsFor(lang)
+            assertTrue("$lang gyroAimTitle blank", s.gyroAimTitle.isNotBlank())
+            assertTrue("$lang perfHudTitle blank", s.perfHudTitle.isNotBlank())
+            assertTrue("$lang shareCodeCreateTitle blank", s.shareCodeCreateTitle.isNotBlank())
+            assertTrue("$lang liveEditToolbarTitle blank", s.liveEditToolbarTitle.isNotBlank())
+            assertTrue("$lang liveEditTile blank", s.liveEditTile.isNotBlank())
+            assertFalse("$lang gyroAimTitle should be translated", s.gyroAimTitle == english.gyroAimTitle)
+            assertFalse("$lang perfHudTitle should be translated", s.perfHudTitle == english.perfHudTitle)
+            assertFalse("$lang shareCodeCreateTitle should be translated", s.shareCodeCreateTitle == english.shareCodeCreateTitle)
+            assertFalse("$lang liveEditTile should be translated", s.liveEditTile == english.liveEditTile)
+        }
+    }
 }
+
 
 

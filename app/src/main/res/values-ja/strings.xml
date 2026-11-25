@@ -1,8 +1,8 @@
 <resources>
-    <string name="app_name">NexusPad</string>
-    <string name="ime_service_label">NexusPad ゲームパッド＆キーボード</string>
+    <string name="app_name">XenosPad</string>
+    <string name="ime_service_label">XenosPad ゲームパッド＆キーボード</string>
     <string name="overlay_channel_name">仮想コントローラーオーバーレイ</string>
     <string name="overlay_channel_description">クラウドゲーム上に仮想パッド、キーボード、クロスヘアを表示します。</string>
-    <string name="accessibility_service_label">NexusPad マウスジェスチャー</string>
-    <string name="accessibility_service_description">NexusPad の仮想マウスボタン（左/右/中央クリック、スクロール）を実行します。個人データは収集しません。</string>
+    <string name="accessibility_service_label">XenosPad マウスジェスチャー</string>
+    <string name="accessibility_service_description">XenosPad の仮想マウスボタン（左/右/中央クリック、スクロール）を実行します。個人データは収集しません。</string>
 </resources>

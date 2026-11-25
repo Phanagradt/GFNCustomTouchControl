@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -45,6 +46,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,7 +66,10 @@ import com.example.model.GameGenre
 import com.example.model.LocalNexusStrings
 import com.example.model.ProfileTemplate
 import com.example.ui.CloudSaveUiState
+import com.example.ui.ShareCodeUiState
 import com.example.ui.components.CloudSaveCompactBanner
+import com.example.ui.components.ShareCodeExportDialog
+import com.example.ui.components.ShareCodeImportDialog
 import com.example.ui.theme.MacroViolet
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TurboAmber
@@ -75,8 +80,12 @@ fun ProfilesScreen(
     activeProfileId: String?,
     cloudUser: CloudUserInfo?,
     cloudSyncState: CloudSaveUiState,
+    shareCodeState: ShareCodeUiState,
     onCloudSignIn: () -> Unit,
     onCloudSyncNow: () -> Unit,
+    onCreateShareCode: (ControllerProfile) -> Unit,
+    onImportByShareCode: (String) -> Unit,
+    onDismissShareCode: () -> Unit,
     onSetActive: (String) -> Unit,
     onEditProfile: (String) -> Unit,
     onDuplicateProfile: (ControllerProfile) -> Unit,
@@ -90,6 +99,15 @@ fun ProfilesScreen(
     var searchQuery by remember { mutableStateOf("") }
     var selectedGenre by remember { mutableStateOf<GameGenre?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
+    var showShareExportDialog by remember { mutableStateOf(false) }
+    var showShareImportDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(shareCodeState) {
+        if (shareCodeState is ShareCodeUiState.Imported) {
+            showShareImportDialog = false
+            onDismissShareCode()
+        }
+    }
 
     val filtered = remember(profiles, searchQuery, selectedGenre) {
         profiles.filter { profile ->
@@ -133,15 +151,30 @@ fun ProfilesScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    OutlinedButton(
-                        onClick = onImportJsonClick,
-                        modifier = Modifier
-                            .height(48.dp)
-                            .testTag("profiles_import_json_button")
-                    ) {
-                        Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(strings.profilesImport)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                onDismissShareCode()
+                                showShareImportDialog = true
+                            },
+                            modifier = Modifier
+                                .height(48.dp)
+                                .testTag("profiles_enter_share_code_button")
+                        ) {
+                            Icon(Icons.Default.QrCode2, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(strings.shareCodeEnterButton, maxLines = 1)
+                        }
+                        OutlinedButton(
+                            onClick = onImportJsonClick,
+                            modifier = Modifier
+                                .height(48.dp)
+                                .testTag("profiles_import_json_button")
+                        ) {
+                            Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(strings.profilesImport, maxLines = 1)
+                        }
                     }
                 }
 
@@ -222,6 +255,12 @@ fun ProfilesScreen(
                             canDelete = profiles.size > 1,
                             onSetActive = { onSetActive(profile.id) },
                             onEdit = { onEditProfile(profile.id) },
+                            onShareCode = {
+                                showShareExportDialog = true
+                                if (cloudUser != null) {
+                                    onCreateShareCode(profile)
+                                }
+                            },
                             onDuplicate = { onDuplicateProfile(profile) },
                             onExport = { onExportProfileClick(profile) },
                             onDelete = { onDeleteProfile(profile.id) }
@@ -253,6 +292,39 @@ fun ProfilesScreen(
             }
         )
     }
+
+    if (showShareExportDialog) {
+        ShareCodeExportDialog(
+            state = shareCodeState,
+            isSignedIn = cloudUser != null,
+            onSignInClick = {
+                showShareExportDialog = false
+                onDismissShareCode()
+                onCloudSignIn()
+            },
+            onDismiss = {
+                showShareExportDialog = false
+                onDismissShareCode()
+            }
+        )
+    }
+
+    if (showShareImportDialog) {
+        ShareCodeImportDialog(
+            state = shareCodeState,
+            isSignedIn = cloudUser != null,
+            onSignInClick = {
+                showShareImportDialog = false
+                onDismissShareCode()
+                onCloudSignIn()
+            },
+            onImportCode = onImportByShareCode,
+            onDismiss = {
+                showShareImportDialog = false
+                onDismissShareCode()
+            }
+        )
+    }
 }
 
 @Composable
@@ -262,6 +334,7 @@ private fun ProfileCard(
     canDelete: Boolean,
     onSetActive: () -> Unit,
     onEdit: () -> Unit,
+    onShareCode: () -> Unit,
     onDuplicate: () -> Unit,
     onExport: () -> Unit,
     onDelete: () -> Unit
@@ -329,6 +402,16 @@ private fun ProfileCard(
                 }
 
                 Row {
+                    IconButton(
+                        onClick = onShareCode,
+                        modifier = Modifier.testTag("share_code_profile_${profile.id}")
+                    ) {
+                        Icon(
+                            Icons.Default.QrCode2,
+                            contentDescription = strings.shareCodeAction,
+                            tint = TacticalCyan
+                        )
+                    }
                     IconButton(
                         onClick = onDuplicate,
                         modifier = Modifier.testTag("duplicate_profile_${profile.id}")

@@ -327,7 +327,7 @@ fun GameFilterScreen(
                             .clip(RoundedCornerShape(16.dp))
                             .border(
                                 1.5.dp,
-                                if (crosshair.enabled) GeForceLime else MaterialTheme.colorScheme.outline,
+                                if (crosshair.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                                 RoundedCornerShape(16.dp)
                             )
                     ) {
@@ -358,7 +358,7 @@ fun GameFilterScreen(
                                 } else {
                                     "CROSSHAIR: OFF"
                                 },
-                                color = if (crosshair.enabled) GeForceLime else Color(0xFFB4C3D6),
+                                color = if (crosshair.enabled) MaterialTheme.colorScheme.primary else Color(0xFFB4C3D6),
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 10.sp,
@@ -418,7 +418,7 @@ private fun LiveGpuShaderPreviewCard(
             .border(
                 1.5.dp,
                 when {
-                    isGpuShaderActive && effectiveStyle != null -> GeForceLime
+                    isGpuShaderActive && effectiveStyle != null -> MaterialTheme.colorScheme.primary
                     effectiveStyle != null -> TacticalCyan
                     else -> MaterialTheme.colorScheme.outline
                 },
@@ -501,13 +501,13 @@ private fun LiveGpuShaderPreviewCard(
                         .size(28.dp)
                         .clip(CircleShape)
                         .background(Color(0xEE0B1018))
-                        .border(1.5.dp, GeForceLime, CircleShape),
+                        .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.SwapHoriz,
                         contentDescription = "Drag Splitscreen Divider",
-                        tint = GeForceLime,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -539,7 +539,7 @@ private fun LiveGpuShaderPreviewCard(
             ) {
                 Text(
                     text = strings.filterFiltered,
-                    color = GeForceLime,
+                    color = MaterialTheme.colorScheme.primary,
                     fontFamily = JetBrainsMonoFontFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = 9.sp,
@@ -585,7 +585,7 @@ private fun LiveGpuShaderPreviewCard(
                 Icon(
                     imageVector = Icons.Default.Memory,
                     contentDescription = null,
-                    tint = if (effectiveStyle != null) GeForceLime else Color(0xFF8C9EB5),
+                    tint = if (effectiveStyle != null) MaterialTheme.colorScheme.primary else Color(0xFF8C9EB5),
                     modifier = Modifier.size(12.dp)
                 )
                 Text(
@@ -594,7 +594,7 @@ private fun LiveGpuShaderPreviewCard(
                         activeStyle != null -> "GLSL S${activeStyle.slot} • ${activeStyle.activeModuleCount()} MODULES"
                         else -> "FILTER: OFF"
                     },
-                    color = if (effectiveStyle != null) GeForceLime else Color(0xFFB4C3D6),
+                    color = if (effectiveStyle != null) MaterialTheme.colorScheme.primary else Color(0xFFB4C3D6),
                     fontFamily = JetBrainsMonoFontFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = 10.sp
@@ -685,7 +685,7 @@ private fun LiveGpuShaderPreviewCard(
             Icon(
                 imageVector = Icons.Default.Tune,
                 contentDescription = null,
-                tint = if (isGpuShaderActive) GeForceLime else TacticalCyan,
+                tint = if (isGpuShaderActive) MaterialTheme.colorScheme.primary else TacticalCyan,
                 modifier = Modifier.size(14.dp)
             )
             Text(

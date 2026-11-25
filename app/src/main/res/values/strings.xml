@@ -1,8 +1,8 @@
 <resources>
-    <string name="app_name">NexusPad</string>
-    <string name="ime_service_label">NexusPad Gamepad &amp; Keyboard</string>
+    <string name="app_name">XenosPad</string>
+    <string name="ime_service_label">XenosPad Gamepad &amp; Keyboard</string>
     <string name="overlay_channel_name">Virtual Controller Overlay</string>
     <string name="overlay_channel_description">Controls the floating virtual gamepad and keyboard HUD over cloud games.</string>
-    <string name="accessibility_service_label">NexusPad Mouse Gestures</string>
-    <string name="accessibility_service_description">Dispatches virtual Left Click, Right Click, Middle Click, and Scroll gestures for NexusPad overlay mouse buttons. Does not read or collect personal data.</string>
+    <string name="accessibility_service_label">XenosPad Mouse Gestures</string>
+    <string name="accessibility_service_description">Dispatches virtual Left Click, Right Click, Middle Click, and Scroll gestures for XenosPad overlay mouse buttons. Does not read or collect personal data.</string>
 </resources>

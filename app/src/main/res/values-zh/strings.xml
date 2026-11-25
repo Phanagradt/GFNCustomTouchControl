@@ -1,8 +1,8 @@
 <resources>
-    <string name="app_name">NexusPad</string>
-    <string name="ime_service_label">NexusPad 手柄与键盘</string>
+    <string name="app_name">XenosPad</string>
+    <string name="ime_service_label">XenosPad 手柄与键盘</string>
     <string name="overlay_channel_name">虚拟控制器悬浮层</string>
     <string name="overlay_channel_description">在云游戏画面上方显示虚拟手柄、键盘与准星。</string>
-    <string name="accessibility_service_label">NexusPad 鼠标手势</string>
-    <string name="accessibility_service_description">为 NexusPad 悬浮鼠标按钮执行左键、右键、中键与滚轮手势，不读取或收集个人数据。</string>
+    <string name="accessibility_service_label">XenosPad 鼠标手势</string>
+    <string name="accessibility_service_description">为 XenosPad 悬浮鼠标按钮执行左键、右键、中键与滚轮手势，不读取或收集个人数据。</string>
 </resources>

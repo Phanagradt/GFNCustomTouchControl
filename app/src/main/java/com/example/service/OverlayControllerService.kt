@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Keyboard
@@ -63,13 +64,17 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.ScreenRotation
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import android.widget.Toast
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -109,12 +114,14 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.MainActivity
 import com.example.R
 import com.example.capture.CaptureBridge
+import com.example.cloud.CloudLayoutSyncRepository
 import com.example.data.NexusDatabase
 import com.example.data.OverlaySettings
 import com.example.data.PreferencesRepository
 import com.example.data.ProfileRepository
 import com.example.filter.FreestyleGlTextureView
 import com.example.filter.GameFilterBridge
+import com.example.input.GyroAimEngine
 import com.example.input.InputBridge
 import com.example.model.AppColorSchemeConfig
 import com.example.model.AppFontConfig
@@ -128,7 +135,9 @@ import com.example.model.CrosshairSettings
 import com.example.model.FloatingBubbleConfig
 import com.example.model.FloatingBubbleStyle
 import com.example.model.GameFilterState
+import com.example.model.GyroAimConfig
 import com.example.model.LocalNexusStrings
+import com.example.model.PerfHudConfig
 import com.example.model.ReplayBufferPreset
 import com.example.model.TargetPlatformMode
 import com.example.model.VirtualControl
@@ -136,10 +145,14 @@ import com.example.ui.components.CrosshairOverlayCanvas
 import com.example.ui.components.CrosshairPanelContent
 import com.example.ui.components.FloatingBubbleVisual
 import com.example.ui.components.GeForceFilterPanelContent
+import com.example.ui.components.LiveOverlayEditToolbar
+import com.example.ui.components.PerformanceHudPill
 import com.example.ui.components.ScreenFilterOverlayCanvas
 import com.example.ui.components.VirtualControlCanvasItem
 import com.example.ui.components.computeOverlayBlurRadius
 import com.example.ui.components.computeOverlayDimAmount
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.MacroCoral
@@ -223,6 +236,13 @@ class OverlayControllerService : Service() {
     private var crosshairPanelView: ComposeView? = null
     private var layoutPickerPanelView: ComposeView? = null
     private var captureBannerView: ComposeView? = null
+    private var perfHudView: ComposeView? = null
+    private var perfHudParams: WindowManager.LayoutParams? = null
+    private var liveEditToolbarView: ComposeView? = null
+    private var liveEditToolbarParams: WindowManager.LayoutParams? = null
+
+    private var gyroAimEngine: GyroAimEngine? = null
+    private var performanceMonitor: PerformanceMonitor? = null
 
     private val buttonsVisible = MutableStateFlow(true)
     private val bubbleLocked = MutableStateFlow(false)
@@ -235,13 +255,21 @@ class OverlayControllerService : Service() {
 
     private val filterStateFlow = MutableStateFlow(GameFilterState.default())
     private val crosshairFlow = MutableStateFlow(CrosshairSettings())
+    private val gyroAimFlow = MutableStateFlow(GyroAimConfig())
+    private val perfHudFlow = MutableStateFlow(PerfHudConfig())
+    private val liveEditModeFlow = MutableStateFlow(false)
+    private val liveEditDraftProfileFlow = MutableStateFlow<ControllerProfile?>(null)
+    private val liveEditSelectedIdFlow = MutableStateFlow<String?>(null)
+    private val liveEditSnapGridFlow = MutableStateFlow(true)
+    private val liveEditControlEntryMap = linkedMapOf<String, Pair<ComposeView, WindowManager.LayoutParams>>()
+
     private val appLanguageFlow = MutableStateFlow(AppLanguage.SYSTEM)
     private val targetModeFlow = MutableStateFlow(TargetPlatformMode.GEFORCE_NOW)
     private val replayDurationSecFlow = MutableStateFlow(30)
     private val colorSchemeFlow = MutableStateFlow(AppColorSchemeConfig())
     private val fontConfigFlow = MutableStateFlow(AppFontConfig())
     private val floatingBubbleFlow = MutableStateFlow(FloatingBubbleConfig())
-    private val activeProfileName = MutableStateFlow("NexusPad")
+    private val activeProfileName = MutableStateFlow("XenosPad")
     private val activeProfileIdFlow = MutableStateFlow<String?>(null)
     private val allProfilesFlow = MutableStateFlow<List<ControllerProfile>>(emptyList())
 
@@ -275,6 +303,9 @@ class OverlayControllerService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+
+        gyroAimEngine = GyroAimEngine(applicationContext)
+        performanceMonitor = PerformanceMonitor(applicationContext)
 
         InputBridge.setOverlayRunning(true)
         InputBridge.attachFloatKeyboardHandler {
@@ -317,11 +348,34 @@ class OverlayControllerService : Service() {
             runCatching { windowManager.updateViewLayout(bubble, bp) }
         }
 
+        // Clamp Perf HUD pill inside updated screen bounds
+        perfHudView?.let { hud ->
+            val hp = perfHudParams ?: return@let
+            hp.x = hp.x.coerceIn(0, (screenW - 220).coerceAtLeast(0))
+            hp.y = hp.y.coerceIn(0, (screenH - 80).coerceAtLeast(0))
+            runCatching { windowManager.updateViewLayout(hud, hp) }
+        }
+
+        // Clamp Live Edit toolbar inside updated screen bounds
+        liveEditToolbarView?.let { tb ->
+            val tp = liveEditToolbarParams ?: return@let
+            tp.x = tp.x.coerceIn(0, (screenW - 360).coerceAtLeast(0))
+            tp.y = tp.y.coerceIn(0, (screenH - 180).coerceAtLeast(0))
+            runCatching { windowManager.updateViewLayout(tb, tp) }
+        }
+
         // Re-layout virtual controls edge-to-edge across the new orientation dimensions
         clearControlWindows()
-        val profile = lastRenderedProfile
-        if (buttonsVisible.value && profile != null) {
-            renderControlWindows(profile, lastRenderedSettings)
+        if (liveEditModeFlow.value) {
+            val draft = liveEditDraftProfileFlow.value
+            if (draft != null) {
+                renderLiveEditControlWindows(draft, lastRenderedSettings)
+            }
+        } else {
+            val profile = lastRenderedProfile
+            if (buttonsVisible.value && profile != null) {
+                renderControlWindows(profile, lastRenderedSettings)
+            }
         }
         if (floatingKeyboardOpen.value) {
             dismissFloatingKeyboardOverlay()
@@ -442,6 +496,26 @@ class OverlayControllerService : Service() {
                     }
             }
 
+            launch {
+                prefsRepo.settingsFlow
+                    .map { it.gyroAim }
+                    .distinctUntilChanged()
+                    .collect { cfg ->
+                        gyroAimFlow.value = cfg
+                        gyroAimEngine?.updateConfig(cfg, pauseForEdit = liveEditModeFlow.value)
+                    }
+            }
+
+            launch {
+                prefsRepo.settingsFlow
+                    .map { it.perfHud }
+                    .distinctUntilChanged()
+                    .collect { cfg ->
+                        perfHudFlow.value = cfg
+                        syncPerfHudOverlay(cfg)
+                    }
+            }
+
             val controlSettingsFlow = prefsRepo.settingsFlow
                 .map { s ->
                     s.copy(
@@ -455,7 +529,10 @@ class OverlayControllerService : Service() {
                         fontConfig = AppFontConfig(),
                         floatingBubble = FloatingBubbleConfig(),
                         customTestBgPath = "",
-                        lastSeenWhatsNewVersionCode = 0
+                        lastSeenWhatsNewVersionCode = 0,
+                        gyroAim = GyroAimConfig(),
+                        perfHud = PerfHudConfig(),
+                        appearanceUpdatedAtMs = 0L
                     )
                 }
                 .distinctUntilChanged()
@@ -469,8 +546,11 @@ class OverlayControllerService : Service() {
             }.collect { (profile, settings, visible) ->
                 lastRenderedProfile = profile
                 lastRenderedSettings = settings
-                activeProfileName.value = profile?.name ?: "NexusPad"
+                activeProfileName.value = profile?.name ?: "XenosPad"
                 activeProfileIdFlow.value = profile?.id
+                if (liveEditModeFlow.value) {
+                    return@collect
+                }
                 clearControlWindows()
                 InputBridge.releaseAll()
                 if (visible && profile != null) {
@@ -982,6 +1062,8 @@ class OverlayControllerService : Service() {
                 val recElapsedMs by CaptureBridge.recordingElapsedMs.collectAsState()
                 val colorScheme by colorSchemeFlow.collectAsState()
                 val fontConfig by fontConfigFlow.collectAsState()
+                val gyroAim by gyroAimFlow.collectAsState()
+                val perfHud by perfHudFlow.collectAsState()
                 val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
 
                 CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
@@ -997,6 +1079,9 @@ class OverlayControllerService : Service() {
                             canSwitchProfile = profileCount > 0,
                             activeFilterSlot = filterState.activeSlot,
                             crosshairEnabled = crosshair.enabled,
+                            gyroEnabled = gyroAim.enabled,
+                            hasHardwareGyro = gyroAimEngine?.hasHardwareGyro == true,
+                            perfHudEnabled = perfHud.enabled,
                             targetMode = targetMode,
                             isReplayOn = isReplayOn,
                             replayDurationSec = replaySec,
@@ -1010,6 +1095,22 @@ class OverlayControllerService : Service() {
                             onOpenLayouts = {
                                 leftMenuOpen.value = false
                                 layoutPickerPanelOpen.value = true
+                            },
+                            onStartLiveEdit = {
+                                leftMenuOpen.value = false
+                                enterLiveEditMode()
+                            },
+                            onToggleGyro = {
+                                val next = gyroAim.copy(enabled = !gyroAim.enabled)
+                                gyroAimFlow.value = next
+                                gyroAimEngine?.updateConfig(next, pauseForEdit = liveEditModeFlow.value)
+                                serviceScope.launch { prefsRepoRef?.updateGyroAim(next) }
+                            },
+                            onTogglePerfHud = {
+                                val next = perfHud.copy(enabled = !perfHud.enabled)
+                                perfHudFlow.value = next
+                                syncPerfHudOverlay(next)
+                                serviceScope.launch { prefsRepoRef?.updatePerfHud(next) }
                             },
                             onToggleTargetMode = {
                                 val next = if (targetMode == TargetPlatformMode.GEFORCE_NOW) {
@@ -1618,6 +1719,18 @@ class OverlayControllerService : Service() {
     }
 
     private fun ensureFloatingChromeOnTop() {
+        perfHudView?.let { hud ->
+            val hp = perfHudParams ?: return@let
+            runCatching { windowManager.removeViewImmediate(hud) }
+            runCatching { windowManager.addView(hud, hp) }
+        }
+        if (liveEditModeFlow.value) {
+            liveEditToolbarView?.let { tb ->
+                val tp = liveEditToolbarParams ?: return@let
+                runCatching { windowManager.removeViewImmediate(tb) }
+                runCatching { windowManager.addView(tb, tp) }
+            }
+        }
         if (floatingKeyboardOpen.value) {
             floatingKeyboardView?.let { kb ->
                 val kp = floatingKeyboardParams ?: return@let
@@ -1645,6 +1758,440 @@ class OverlayControllerService : Service() {
         if (layoutPickerPanelOpen.value) {
             dismissFloatingLayoutPickerPanel()
             showFloatingLayoutPickerPanel()
+        }
+    }
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    private fun syncPerfHudOverlay(config: PerfHudConfig) {
+        if (!config.enabled) {
+            performanceMonitor?.stop()
+            dismissPerfHudOverlay()
+            return
+        }
+        performanceMonitor?.start()
+        if (perfHudView != null) return
+
+        val density = resources.displayMetrics.density
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayWindowType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_SPLIT_TOUCH,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (14 * density).roundToInt()
+            y = (14 * density).roundToInt()
+            applyFullScreenOverlayFlags(this)
+        }
+        perfHudParams = params
+
+        val view = ComposeView(this).apply {
+            attachLifecycle(this)
+            setContent {
+                val stats by (performanceMonitor?.stats
+                    ?: remember { MutableStateFlow(PerfStatsSnapshot()) }).collectAsState()
+                val hudCfg by perfHudFlow.collectAsState()
+                val colorScheme by colorSchemeFlow.collectAsState()
+                val accent = Color(colorScheme.effectivePrimaryHex())
+
+                var downRawX = remember { 0f }
+                var downRawY = remember { 0f }
+                var startWinX = remember { 0 }
+                var startWinY = remember { 0 }
+
+                NexusPadTheme(darkTheme = true, colorSchemeConfig = colorScheme) {
+                    PerformanceHudPill(
+                        stats = stats,
+                        config = hudCfg,
+                        accentColor = accent,
+                        modifier = Modifier.pointerInteropFilter { event ->
+                            val currentParams = perfHudParams ?: return@pointerInteropFilter false
+                            val currentView = perfHudView ?: return@pointerInteropFilter false
+                            when (event.actionMasked) {
+                                MotionEvent.ACTION_DOWN -> {
+                                    downRawX = event.rawX
+                                    downRawY = event.rawY
+                                    startWinX = currentParams.x
+                                    startWinY = currentParams.y
+                                    true
+                                }
+                                MotionEvent.ACTION_MOVE -> {
+                                    val (screenW, screenH) = realScreenSize()
+                                    val vw = currentView.width.coerceAtLeast((120 * density).roundToInt())
+                                    val vh = currentView.height.coerceAtLeast((32 * density).roundToInt())
+                                    currentParams.x = (startWinX + (event.rawX - downRawX).roundToInt())
+                                        .coerceIn(0, (screenW - vw).coerceAtLeast(0))
+                                    currentParams.y = (startWinY + (event.rawY - downRawY).roundToInt())
+                                        .coerceIn(0, (screenH - vh).coerceAtLeast(0))
+                                    runCatching { windowManager.updateViewLayout(currentView, currentParams) }
+                                    true
+                                }
+                                else -> true
+                            }
+                        }
+                    )
+                }
+            }
+        }
+        perfHudView = view
+        runCatching { windowManager.addView(view, params) }
+    }
+
+    private fun dismissPerfHudOverlay() {
+        perfHudView?.let { runCatching { windowManager.removeViewImmediate(it) } }
+        perfHudView = null
+        perfHudParams = null
+    }
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    private fun enterLiveEditMode() {
+        val currentProfile = lastRenderedProfile ?: return
+        leftMenuOpen.value = false
+        filterPanelOpen.value = false
+        crosshairPanelOpen.value = false
+        layoutPickerPanelOpen.value = false
+        buttonsVisible.value = true
+        InputBridge.releaseAll()
+
+        liveEditDraftProfileFlow.value = currentProfile
+        liveEditSelectedIdFlow.value = currentProfile.controls.firstOrNull()?.id
+        liveEditSnapGridFlow.value = currentProfile.gridSnap
+        liveEditModeFlow.value = true
+        gyroAimEngine?.updateConfig(gyroAimFlow.value, pauseForEdit = true)
+
+        clearControlWindows()
+        renderLiveEditControlWindows(currentProfile, lastRenderedSettings)
+        showLiveEditToolbar()
+        ensureFloatingChromeOnTop()
+    }
+
+    private fun exitLiveEditMode(saveChanges: Boolean) {
+        val draft = liveEditDraftProfileFlow.value
+        val snap = liveEditSnapGridFlow.value
+        liveEditModeFlow.value = false
+        liveEditDraftProfileFlow.value = null
+        liveEditSelectedIdFlow.value = null
+        dismissLiveEditToolbar()
+        gyroAimEngine?.updateConfig(gyroAimFlow.value, pauseForEdit = false)
+
+        if (saveChanges && draft != null) {
+            val saved = draft.copy(
+                gridSnap = snap,
+                updatedAt = System.currentTimeMillis()
+            )
+            lastRenderedProfile = saved
+            serviceScope.launch {
+                profileRepoRef?.saveProfile(saved)
+                if (Firebase.auth.currentUser != null) {
+                    runCatching {
+                        CloudLayoutSyncRepository(applicationContext).pushLayout(saved)
+                    }
+                }
+                val strings = AppLocalization.stringsFor(appLanguageFlow.value)
+                Toast.makeText(applicationContext, strings.liveEditSavedToast, Toast.LENGTH_SHORT).show()
+            }
+            clearControlWindows()
+            if (buttonsVisible.value) {
+                renderControlWindows(saved, lastRenderedSettings)
+            }
+        } else {
+            clearControlWindows()
+            val persisted = lastRenderedProfile
+            if (buttonsVisible.value && persisted != null) {
+                renderControlWindows(persisted, lastRenderedSettings)
+            }
+        }
+        ensureFloatingChromeOnTop()
+    }
+
+    private fun adjustSelectedLiveEditControl(sizeDeltaDp: Float = 0f, opacityDelta: Float = 0f) {
+        val selectedId = liveEditSelectedIdFlow.value ?: return
+        val draft = liveEditDraftProfileFlow.value ?: return
+        val updatedControls = draft.controls.map { ctrl ->
+            if (ctrl.id == selectedId) {
+                ctrl.copy(
+                    sizeDp = (ctrl.sizeDp + sizeDeltaDp).coerceIn(32f, 240f),
+                    opacity = (ctrl.opacity + opacityDelta).coerceIn(0.18f, 1.0f)
+                )
+            } else {
+                ctrl
+            }
+        }
+        val nextDraft = draft.copy(controls = updatedControls)
+        liveEditDraftProfileFlow.value = nextDraft
+
+        // Resize the live control's WindowManager bounds immediately when size changes
+        if (sizeDeltaDp != 0f) {
+            val updatedCtrl = updatedControls.firstOrNull { it.id == selectedId } ?: return
+            val entry = liveEditControlEntryMap[selectedId] ?: return
+            val (view, params) = entry
+            val (screenW, screenH) = realScreenSize()
+            val density = resources.displayMetrics.density
+            val newW = (controlWidthDp(updatedCtrl) * density).roundToInt()
+            val newH = (controlHeightDp(updatedCtrl) * density).roundToInt()
+            params.width = newW
+            params.height = newH
+            params.x = (updatedCtrl.xPercent * screenW - newW / 2f)
+                .roundToInt()
+                .coerceIn(0, (screenW - newW).coerceAtLeast(0))
+            params.y = (updatedCtrl.yPercent * screenH - newH / 2f)
+                .roundToInt()
+                .coerceIn(0, (screenH - newH).coerceAtLeast(0))
+            runCatching { windowManager.updateViewLayout(view, params) }
+        }
+    }
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    private fun showLiveEditToolbar() {
+        dismissLiveEditToolbar()
+        val (screenW, _) = realScreenSize()
+        val density = resources.displayMetrics.density
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayWindowType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_SPLIT_TOUCH,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (screenW * 0.16f).roundToInt().coerceAtLeast((8 * density).roundToInt())
+            y = (12 * density).roundToInt()
+            applyFullScreenOverlayFlags(this)
+        }
+        liveEditToolbarParams = params
+
+        val view = ComposeView(this).apply {
+            attachLifecycle(this)
+            setContent {
+                val draft by liveEditDraftProfileFlow.collectAsState()
+                val selectedId by liveEditSelectedIdFlow.collectAsState()
+                val snapGrid by liveEditSnapGridFlow.collectAsState()
+                val appLang by appLanguageFlow.collectAsState()
+                val colorScheme by colorSchemeFlow.collectAsState()
+                val fontConfig by fontConfigFlow.collectAsState()
+                val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
+                val accent = Color(colorScheme.effectivePrimaryHex())
+                val selectedControl = remember(draft, selectedId) {
+                    draft?.controls?.firstOrNull { it.id == selectedId }
+                }
+
+                var downRawX = remember { 0f }
+                var downRawY = remember { 0f }
+                var startWinX = remember { 0 }
+                var startWinY = remember { 0 }
+                var draggingToolbar = remember { false }
+                val touchSlop = remember { ViewConfiguration.get(this@OverlayControllerService).scaledTouchSlop }
+
+                CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
+                    NexusPadTheme(
+                        darkTheme = true,
+                        colorSchemeConfig = colorScheme,
+                        fontConfig = fontConfig
+                    ) {
+                        LiveOverlayEditToolbar(
+                            profileName = draft?.name ?: activeProfileName.value,
+                            selectedControl = selectedControl,
+                            snapToGrid = snapGrid,
+                            accentColor = accent,
+                            onSizeDelta = { delta -> adjustSelectedLiveEditControl(sizeDeltaDp = delta) },
+                            onOpacityDelta = { delta -> adjustSelectedLiveEditControl(opacityDelta = delta) },
+                            onToggleSnap = { liveEditSnapGridFlow.value = !liveEditSnapGridFlow.value },
+                            onCancel = { exitLiveEditMode(saveChanges = false) },
+                            onSave = { exitLiveEditMode(saveChanges = true) },
+                            modifier = Modifier.pointerInteropFilter { event ->
+                                val tp = liveEditToolbarParams ?: return@pointerInteropFilter false
+                                val tv = liveEditToolbarView ?: return@pointerInteropFilter false
+                                when (event.actionMasked) {
+                                    MotionEvent.ACTION_DOWN -> {
+                                        downRawX = event.rawX
+                                        downRawY = event.rawY
+                                        startWinX = tp.x
+                                        startWinY = tp.y
+                                        draggingToolbar = false
+                                        false
+                                    }
+                                    MotionEvent.ACTION_MOVE -> {
+                                        val dx = event.rawX - downRawX
+                                        val dy = event.rawY - downRawY
+                                        if (!draggingToolbar && kotlin.math.hypot(dx.toDouble(), dy.toDouble()) > touchSlop) {
+                                            draggingToolbar = true
+                                        }
+                                        if (draggingToolbar) {
+                                            val (sw, sh) = realScreenSize()
+                                            val vw = tv.width.coerceAtLeast((240 * density).roundToInt())
+                                            val vh = tv.height.coerceAtLeast((56 * density).roundToInt())
+                                            tp.x = (startWinX + dx.roundToInt()).coerceIn(0, (sw - vw).coerceAtLeast(0))
+                                            tp.y = (startWinY + dy.roundToInt()).coerceIn(0, (sh - vh).coerceAtLeast(0))
+                                            runCatching { windowManager.updateViewLayout(tv, tp) }
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                    else -> {
+                                        val wasDrag = draggingToolbar
+                                        draggingToolbar = false
+                                        wasDrag
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        liveEditToolbarView = view
+        runCatching { windowManager.addView(view, params) }
+    }
+
+    private fun dismissLiveEditToolbar() {
+        liveEditToolbarView?.let { runCatching { windowManager.removeViewImmediate(it) } }
+        liveEditToolbarView = null
+        liveEditToolbarParams = null
+    }
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    private fun renderLiveEditControlWindows(profile: ControllerProfile, settings: OverlaySettings) {
+        val (screenW, screenH) = realScreenSize()
+        val density = resources.displayMetrics.density
+
+        profile.controls.forEach { initialControl ->
+            val widthDp = controlWidthDp(initialControl)
+            val heightDp = controlHeightDp(initialControl)
+            val wPx = (widthDp * density).roundToInt()
+            val hPx = (heightDp * density).roundToInt()
+
+            val xPx = (initialControl.xPercent * screenW - wPx / 2f)
+                .roundToInt()
+                .coerceIn(0, (screenW - wPx).coerceAtLeast(0))
+            val yPx = (initialControl.yPercent * screenH - hPx / 2f)
+                .roundToInt()
+                .coerceIn(0, (screenH - hPx).coerceAtLeast(0))
+
+            // In Live Edit mode ALL controls (even pass-through touchpads) are touchable & draggable
+            val params = WindowManager.LayoutParams(
+                wPx,
+                hPx,
+                overlayWindowType(),
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_SPLIT_TOUCH,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = xPx
+                y = yPx
+                applyFullScreenOverlayFlags(this)
+            }
+
+            val controlId = initialControl.id
+            val view = ComposeView(this).apply {
+                attachLifecycle(this)
+                setContent {
+                    val draft by liveEditDraftProfileFlow.collectAsState()
+                    val selectedId by liveEditSelectedIdFlow.collectAsState()
+                    val liveCtrl = remember(draft, controlId) {
+                        draft?.controls?.firstOrNull { it.id == controlId } ?: initialControl
+                    }
+                    val isSelected = selectedId == controlId
+
+                    var downRawX = remember { 0f }
+                    var downRawY = remember { 0f }
+                    var startWinX = remember { 0 }
+                    var startWinY = remember { 0 }
+
+                    NexusPadTheme {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInteropFilter { event ->
+                                    val entry = liveEditControlEntryMap[controlId]
+                                        ?: return@pointerInteropFilter false
+                                    val (ctrlView, ctrlParams) = entry
+                                    when (event.actionMasked) {
+                                        MotionEvent.ACTION_DOWN -> {
+                                            liveEditSelectedIdFlow.value = controlId
+                                            downRawX = event.rawX
+                                            downRawY = event.rawY
+                                            startWinX = ctrlParams.x
+                                            startWinY = ctrlParams.y
+                                            true
+                                        }
+                                        MotionEvent.ACTION_MOVE -> {
+                                            val (sw, sh) = realScreenSize()
+                                            val rawNewX = (startWinX + (event.rawX - downRawX).roundToInt())
+                                                .coerceIn(0, (sw - ctrlParams.width).coerceAtLeast(0))
+                                            val rawNewY = (startWinY + (event.rawY - downRawY).roundToInt())
+                                                .coerceIn(0, (sh - ctrlParams.height).coerceAtLeast(0))
+
+                                            val rawXPercent = ((rawNewX + ctrlParams.width / 2f) / sw.coerceAtLeast(1))
+                                                .coerceIn(0.03f, 0.97f)
+                                            val rawYPercent = ((rawNewY + ctrlParams.height / 2f) / sh.coerceAtLeast(1))
+                                                .coerceIn(0.04f, 0.96f)
+
+                                            val snapStep = 1f / settings.gridDivisions.coerceIn(4, 32)
+                                            val finalXPercent = if (liveEditSnapGridFlow.value) {
+                                                (kotlin.math.round(rawXPercent / snapStep) * snapStep).coerceIn(0.03f, 0.97f)
+                                            } else {
+                                                rawXPercent
+                                            }
+                                            val finalYPercent = if (liveEditSnapGridFlow.value) {
+                                                (kotlin.math.round(rawYPercent / snapStep) * snapStep).coerceIn(0.04f, 0.96f)
+                                            } else {
+                                                rawYPercent
+                                            }
+
+                                            ctrlParams.x = (finalXPercent * sw - ctrlParams.width / 2f)
+                                                .roundToInt()
+                                                .coerceIn(0, (sw - ctrlParams.width).coerceAtLeast(0))
+                                            ctrlParams.y = (finalYPercent * sh - ctrlParams.height / 2f)
+                                                .roundToInt()
+                                                .coerceIn(0, (sh - ctrlParams.height).coerceAtLeast(0))
+                                            runCatching { windowManager.updateViewLayout(ctrlView, ctrlParams) }
+
+                                            val currentDraft = liveEditDraftProfileFlow.value
+                                            if (currentDraft != null) {
+                                                liveEditDraftProfileFlow.value = currentDraft.copy(
+                                                    controls = currentDraft.controls.map { c ->
+                                                        if (c.id == controlId) {
+                                                            c.copy(xPercent = finalXPercent, yPercent = finalYPercent)
+                                                        } else {
+                                                            c
+                                                        }
+                                                    }
+                                                )
+                                            }
+                                            true
+                                        }
+                                        else -> true
+                                    }
+                                }
+                        ) {
+                            VirtualControlCanvasItem(
+                                control = liveCtrl,
+                                notation = settings.controllerNotation,
+                                globalOpacity = settings.globalOpacity,
+                                vibrationMode = settings.vibrationMode,
+                                isEditMode = true,
+                                isSelected = isSelected,
+                                isPressed = false,
+                                isToggled = false,
+                                onSelect = { liveEditSelectedIdFlow.value = controlId },
+                                onDragDelta = { _, _ -> }
+                            )
+                        }
+                    }
+                }
+            }
+            controlViews += view
+            controlViewParams += params
+            liveEditControlEntryMap[controlId] = view to params
+            runCatching { windowManager.addView(view, params) }
         }
     }
 
@@ -1737,6 +2284,7 @@ class OverlayControllerService : Service() {
         }
         controlViews.clear()
         controlViewParams.clear()
+        liveEditControlEntryMap.clear()
     }
 
     private fun attachLifecycle(view: ComposeView) {
@@ -1782,7 +2330,7 @@ class OverlayControllerService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("NexusPad Floating Bubble Active")
+            .setContentTitle("XenosPad Floating Bubble Active")
             .setContentText("Tap the floating bubble anytime to open the Left HUD Menu.")
             .setOngoing(true)
             .setContentIntent(openAppIntent)
@@ -1792,7 +2340,13 @@ class OverlayControllerService : Service() {
 
     override fun onDestroy() {
         collectorJob?.cancel()
+        gyroAimEngine?.stop()
+        gyroAimEngine = null
+        performanceMonitor?.stop()
+        performanceMonitor = null
         InputBridge.attachFloatKeyboardHandler(null)
+        dismissLiveEditToolbar()
+        dismissPerfHudOverlay()
         dismissFloatingKeyboardOverlay()
         dismissFloatingLayoutPickerPanel()
         dismissFloatingCrosshairPanel()
@@ -1892,6 +2446,9 @@ private fun LeftSideOverlayMenu(
     canSwitchProfile: Boolean,
     activeFilterSlot: Int,
     crosshairEnabled: Boolean,
+    gyroEnabled: Boolean,
+    hasHardwareGyro: Boolean,
+    perfHudEnabled: Boolean,
     targetMode: TargetPlatformMode,
     isReplayOn: Boolean,
     replayDurationSec: Int,
@@ -1900,6 +2457,9 @@ private fun LeftSideOverlayMenu(
     onDismiss: () -> Unit,
     onToggleButtons: () -> Unit,
     onOpenLayouts: () -> Unit,
+    onStartLiveEdit: () -> Unit,
+    onToggleGyro: () -> Unit,
+    onTogglePerfHud: () -> Unit,
     onToggleTargetMode: () -> Unit,
     onOpenFilters: () -> Unit,
     onOpenCrosshair: () -> Unit,
@@ -1927,13 +2487,24 @@ private fun LeftSideOverlayMenu(
         }
     }
 
+    val themePrimary = MaterialTheme.colorScheme.primary
+    val themeSurface = MaterialTheme.colorScheme.surface
+    val themeOutline = MaterialTheme.colorScheme.outline
+
     val actions = listOf(
         DockActionItem(
             label = strings.menuLayouts,
             icon = Icons.Default.Layers,
-            tint = if (canSwitchProfile) GeForceLime else Color(0xFF607087),
+            tint = if (canSwitchProfile) themePrimary else Color(0xFF607087),
             enabled = canSwitchProfile,
             onClick = onOpenLayouts
+        ),
+        DockActionItem(
+            label = strings.liveEditTile,
+            icon = Icons.Default.Edit,
+            tint = if (canSwitchProfile) themePrimary else Color(0xFF607087),
+            enabled = canSwitchProfile,
+            onClick = onStartLiveEdit
         ),
         DockActionItem(
             label = if (buttonsVisible) strings.menuHidePad else strings.menuShowPad,
@@ -1942,21 +2513,38 @@ private fun LeftSideOverlayMenu(
             onClick = onToggleButtons
         ),
         DockActionItem(
+            label = strings.gyroHudTile,
+            icon = Icons.Default.ScreenRotation,
+            tint = when {
+                !hasHardwareGyro -> Color(0xFF607087)
+                gyroEnabled -> themePrimary
+                else -> TacticalCyan
+            },
+            enabled = hasHardwareGyro,
+            onClick = onToggleGyro
+        ),
+        DockActionItem(
+            label = strings.perfHudTile,
+            icon = Icons.Default.Speed,
+            tint = if (perfHudEnabled) themePrimary else TacticalCyan,
+            onClick = onTogglePerfHud
+        ),
+        DockActionItem(
             label = "${strings.menuTargetMode}: ${targetMode.shortLabel}",
             icon = Icons.Default.Gamepad,
-            tint = if (targetMode == TargetPlatformMode.ANDROID_NATIVE) TacticalCyan else GeForceLime,
+            tint = if (targetMode == TargetPlatformMode.ANDROID_NATIVE) TacticalCyan else themePrimary,
             onClick = onToggleTargetMode
         ),
         DockActionItem(
             label = if (activeFilterSlot in 1..3) "${strings.menuFilter} S$activeFilterSlot" else strings.menuFilter,
             icon = Icons.Default.Tune,
-            tint = if (activeFilterSlot in 1..3) GeForceLime else TacticalCyan,
+            tint = if (activeFilterSlot in 1..3) themePrimary else TacticalCyan,
             onClick = onOpenFilters
         ),
         DockActionItem(
             label = strings.menuCrosshair,
             icon = Icons.Default.CenterFocusStrong,
-            tint = if (crosshairEnabled) GeForceLime else TacticalCyan,
+            tint = if (crosshairEnabled) themePrimary else TacticalCyan,
             onClick = onOpenCrosshair
         ),
         DockActionItem(
@@ -1968,13 +2556,13 @@ private fun LeftSideOverlayMenu(
         DockActionItem(
             label = if (isReplayOn) "${strings.galleryReplayOn} (${ReplayBufferPreset.formatDuration(replayDurationSec)})" else strings.menuReplay,
             icon = Icons.Default.Replay,
-            tint = if (isReplayOn) GeForceLime else TacticalCyan,
+            tint = if (isReplayOn) themePrimary else TacticalCyan,
             onClick = onToggleReplay
         ),
         DockActionItem(
             label = strings.menuSaveReplay,
             icon = Icons.Default.Save,
-            tint = if (isReplayOn) GeForceLime else Color(0xFF607087),
+            tint = if (isReplayOn) themePrimary else Color(0xFF607087),
             enabled = isReplayOn,
             onClick = onSaveReplay
         ),
@@ -1993,7 +2581,7 @@ private fun LeftSideOverlayMenu(
         DockActionItem(
             label = strings.menuFloatKb,
             icon = Icons.Default.Keyboard,
-            tint = GeForceLime,
+            tint = themePrimary,
             onClick = onOpenFloatingKeyboard
         ),
         DockActionItem(
@@ -2024,14 +2612,14 @@ private fun LeftSideOverlayMenu(
     ) {
         val maxH = (maxHeight * 0.90f).coerceAtLeast(260.dp)
         Surface(
-            color = Color(0xF00D121A),
+            color = themeSurface.copy(alpha = 0.95f),
             shape = RoundedCornerShape(18.dp),
             modifier = Modifier
                 .width(248.dp)
                 .heightIn(max = maxH)
                 .offset { IntOffset(slideX.value.roundToInt(), 0) }
                 .alpha(alphaAnim.value)
-                .border(1.2.dp, Color(0xFF2B384C), RoundedCornerShape(18.dp))
+                .border(1.2.dp, themeOutline.copy(alpha = 0.75f), RoundedCornerShape(18.dp))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -2051,8 +2639,8 @@ private fun LeftSideOverlayMenu(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "NEXUSPAD HUD",
-                            color = GeForceLime,
+                            text = "XENOSPAD HUD",
+                            color = themePrimary,
                             fontFamily = JetBrainsMonoFontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp

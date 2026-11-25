@@ -65,10 +65,10 @@ class NexusStrings internal constructor() {
     var cockpitImeTitle: String = "Gamepad & Built-In Keyboard IME"; internal set
     var cockpitImeSelected: String = "Active for key dispatch & built-in typing keyboard"; internal set
     var cockpitImeEnabled: String = "Enabled — tap to select as active input method"; internal set
-    var cockpitImeDisabled: String = "Enable NexusPad IME for game keys & built-in keyboard"; internal set
+    var cockpitImeDisabled: String = "Enable XenosPad IME for game keys & built-in keyboard"; internal set
     var cockpitMouseTitle: String = "Mouse Click & Scroll Gestures"; internal set
     var cockpitMouseReady: String = "Enabled — Left, Right, Middle click & Scroll active"; internal set
-    var cockpitMouseMissing: String = "Enable NexusPad Mouse Gestures for LMB, RMB, MMB & Scroll"; internal set
+    var cockpitMouseMissing: String = "Enable XenosPad Mouse Gestures for LMB, RMB, MMB & Scroll"; internal set
     var cockpitGfnTitle: String = "GeForce NOW Stream Target"; internal set
     var cockpitGfnInstalled: String = "Detected com.nvidia.geforcenow — ready to launch"; internal set
     var cockpitGfnMissing: String = "Launch Play Store or verify layouts in Test Sandbox"; internal set
@@ -192,7 +192,7 @@ class NexusStrings internal constructor() {
     var languageCardTitle: String = "APP LANGUAGE"; internal set
     var languageSubtitle: String = "Automatically uses your phone's system language by default"; internal set
     var targetModeCardTitle: String = "GAME COMPATIBILITY MODE"; internal set
-    var targetModeSubtitle: String = "Choose whether NexusPad targets GeForce NOW cloud PC or native Android games"; internal set
+    var targetModeSubtitle: String = "Choose whether XenosPad targets GeForce NOW cloud PC or native Android games"; internal set
     var targetModeGfnTitle: String = "GeForce NOW (Cloud PC)"; internal set
     var targetModeGfnSubtitle: String = "Linux scan codes + center mouse camera & GFN touch gestures"; internal set
     var targetModeAndroidTitle: String = "Android Games (Roblox, Minecraft, etc.)"; internal set
@@ -212,7 +212,7 @@ class NexusStrings internal constructor() {
     var fontCardSubtitle: String = "Pick a built-in gaming font or upload your own .ttf / .otf file (e.g. from DaFont.com)"; internal set
     var fontUploadButton: String = "Upload Font (.ttf / .otf)"; internal set
     var fontUploadedLabel: String = "Uploaded Font"; internal set
-    var fontSamplePreview: String = "NEXUSPAD • Ready to play 12345 — สวัสดี"; internal set
+    var fontSamplePreview: String = "XENOSPAD • Ready to play 12345 — สวัสดี"; internal set
     var bubbleCardTitle: String = "FLOATING BUBBLE SIZE & UI"; internal set
     var bubbleCardSubtitle: String = "Customize your floating overlay button shape, size, opacity, color, or custom image"; internal set
     var bubbleStyleLabel: String = "Bubble Shape & Style"; internal set
@@ -232,7 +232,7 @@ class NexusStrings internal constructor() {
     var recResolutionLabel: String = "Resolution"; internal set
     var recFpsLabel: String = "Frame Rate (FPS)"; internal set
     var recEncoderProfileLabel: String = "TARGET H.264 ENCODER PROFILE"; internal set
-    var recAutoFallbackNote: String = "Auto-Fallback: If your phone's hardware H.264 encoder caps 1440p or 90/120 FPS, NexusPad automatically steps down to the highest stable resolution & FPS without failing."; internal set
+    var recAutoFallbackNote: String = "Auto-Fallback: If your phone's hardware H.264 encoder caps 1440p or 90/120 FPS, XenosPad automatically steps down to the highest stable resolution & FPS without failing."; internal set
 
     // Setup: App Updates
     var updatesCardTitle: String = "APP UPDATES (GITHUB RELEASES)"; internal set
@@ -240,11 +240,11 @@ class NexusStrings internal constructor() {
     var updatesInstalledVersion: String = "Installed Version"; internal set
     var updatesSigningKeyLabel: String = "Signing Key SHA-256"; internal set
     var updatesRepoLabel: String = "GitHub Repository (owner/repo)"; internal set
-    var updatesRepoPlaceholder: String = "e.g. yourname/NexusPad"; internal set
+    var updatesRepoPlaceholder: String = "e.g. yourname/XenosPad"; internal set
     var updatesRepoAutoHint: String = "Auto-configured from GitHub Actions. Same signing key preserves all app data on every update."; internal set
     var updatesRepoManualHint: String = "Paste your GitHub repo slug or URL. GitHub Actions builds auto-fill this automatically."; internal set
     var updatesAutoCheckTitle: String = "Auto-Check on App Launch"; internal set
-    var updatesAutoCheckSub: String = "Silently check GitHub Releases for newer APKs when NexusPad opens"; internal set
+    var updatesAutoCheckSub: String = "Silently check GitHub Releases for newer APKs when XenosPad opens"; internal set
     var updatesCheckButton: String = "Check for Updates"; internal set
     var updatesChecking: String = "Checking GitHub Releases..."; internal set
     var updatesUpToDate: String = "You're up to date!"; internal set
@@ -254,7 +254,7 @@ class NexusStrings internal constructor() {
     var updatesCancelDownload: String = "Cancel Download"; internal set
     var updatesReadyTitle: String = "Ready to install"; internal set
     var updatesReadyKeepsData: String = "Signature verified! Tap below to update in-place — all layouts, filters, and gallery are preserved."; internal set
-    var updatesReadyNeedPerm: String = "One-time setup: Android will ask to enable \"Install unknown apps\" for NexusPad, then tap Install Update again."; internal set
+    var updatesReadyNeedPerm: String = "One-time setup: Android will ask to enable \"Install unknown apps\" for XenosPad, then tap Install Update again."; internal set
     var updatesInstallButton: String = "Install Update (Keeps Data)"; internal set
     var updatesAllowAndInstall: String = "Allow & Install Update"; internal set
     var updatesSigMismatchTitle: String = "One-Time Reinstall Needed (Key Changed)"; internal set
@@ -266,7 +266,7 @@ class NexusStrings internal constructor() {
     var setupPermsCardTitle: String = "ANDROID OVERLAY & IME PERMISSIONS"; internal set
     var setupPerm1Title: String = "1. Display Over Other Apps"; internal set
     var setupPerm1Desc: String = "Allows floating virtual buttons and analog sticks to appear above GeForce NOW."; internal set
-    var setupPerm2Title: String = "2. Enable NexusPad IME & Keyboard"; internal set
+    var setupPerm2Title: String = "2. Enable XenosPad IME & Keyboard"; internal set
     var setupPerm2Desc: String = "Dispatches real KeyEvents for gamepad/keyboard binds and provides a built-in virtual typing keyboard."; internal set
     var setupPerm3Title: String = "3. Mouse Click & Scroll Gestures"; internal set
     var setupPerm3Desc: String = "Accessibility gesture engine for Left Click, Right Click, Middle Click, and Scroll Up/Down."; internal set
@@ -291,11 +291,11 @@ class NexusStrings internal constructor() {
     var setupAutoLaunchSub: String = "Open GeForce NOW automatically when starting overlay"; internal set
     var setupDarkModeTitle: String = "Tactical Dark Cockpit"; internal set
     var setupDarkModeSub: String = "High-contrast obsidian theme for low-glare play"; internal set
-    var setupInfoNote: String = "Note: On non-rooted Android devices, virtual buttons dispatch real KeyEvents through the NexusPad IME bridge for keyboard and digital gamepad bindings. Multi-touch is supported simultaneously across all overlay buttons and sticks."; internal set
+    var setupInfoNote: String = "Note: On non-rooted Android devices, virtual buttons dispatch real KeyEvents through the XenosPad IME bridge for keyboard and digital gamepad bindings. Multi-touch is supported simultaneously across all overlay buttons and sticks."; internal set
 
     // Overlay Permission Dialog
     var permDialogTitle: String = "Enable Floating Game Overlay"; internal set
-    var permDialogBody: String = "To display your custom virtual controller buttons and keyboard hotkeys on top of GeForce NOW, grant NexusPad the \"Display over other apps\" permission in Android Settings."; internal set
+    var permDialogBody: String = "To display your custom virtual controller buttons and keyboard hotkeys on top of GeForce NOW, grant XenosPad the \"Display over other apps\" permission in Android Settings."; internal set
 
     // Overlay Menu
     var menuChooseLayoutHeader: String = "CHOOSE LAYOUT"; internal set
@@ -318,11 +318,11 @@ class NexusStrings internal constructor() {
     var menuLock: String = "Lock"; internal set
     var menuUnlock: String = "Unlock"; internal set
     var menuStop: String = "Stop"; internal set
-    var menuOpenApp: String = "Open NexusPad"; internal set
+    var menuOpenApp: String = "Open XenosPad"; internal set
 
     // What's New Popup
     var whatsNewBadge: String = "WHAT'S NEW"; internal set
-    var whatsNewTitle: String = "Welcome to NexusPad"; internal set
+    var whatsNewTitle: String = "Welcome to XenosPad"; internal set
     var whatsNewSubtitle: String = "Here's everything new in this release:"; internal set
     var whatsNewGotIt: String = "Awesome, Let's Play!"; internal set
     var whatsNewItems: List<Pair<String, String>> = listOf(
@@ -334,22 +334,76 @@ class NexusStrings internal constructor() {
     ); internal set
 
     // Cloud Layout Save (Optional Google Sign-In)
-    var cloudSaveTitle: String = "CLOUD LAYOUT SAVE"; internal set
-    var cloudSaveSubtitle: String = "Optional account for Cloud Save only — automatically backs up & restores your layouts across app updates and reinstalls."; internal set
+    var cloudSaveTitle: String = "CLOUD SAVE & SYNC"; internal set
+    var cloudSaveSubtitle: String = "Optional Google account for Cloud Save — automatically backs up & restores your layouts, Freestyle filters, crosshair, and theme across updates."; internal set
     var cloudSaveSignInButton: String = "Sign up / Log in with Google"; internal set
     var cloudSaveSigningIn: String = "Signing in with Google..."; internal set
     var cloudSaveSignInShort: String = "Sign In"; internal set
     var cloudSaveActiveBadge: String = "AUTO-BACKUP ON"; internal set
     var cloudSaveSignedOutLabel: String = "Cloud Save: Local Only"; internal set
-    var cloudSaveSignedOutHint: String = "Sign in with Google so you never lose layouts after an update"; internal set
-    var cloudSaveSyncing: String = "Syncing layouts with cloud..."; internal set
-    var cloudSaveBackedUpSuffix: String = "layouts backed up"; internal set
-    var cloudSaveAutoSaveHint: String = "Every layout edit auto-saves to your account"; internal set
+    var cloudSaveSignedOutHint: String = "Sign in with Google to sync layouts, filters, crosshair & theme"; internal set
+    var cloudSaveSyncing: String = "Syncing layouts, filters & theme..."; internal set
+    var cloudSaveBackedUpSuffix: String = "layouts + theme synced"; internal set
+    var cloudSaveAutoSaveHint: String = "Layouts, filters, crosshair & theme auto-save to cloud"; internal set
     var cloudSaveBackupNow: String = "Back Up Now"; internal set
     var cloudSaveRestore: String = "Restore"; internal set
     var cloudSaveSyncShort: String = "Sync"; internal set
     var cloudSaveSignOut: String = "Sign Out"; internal set
-    var cloudSaveSignOutNote: String = "Signing out keeps all layouts on this device."; internal set
+    var cloudSaveSignOutNote: String = "Signing out keeps all layouts & settings on this device."; internal set
+
+    // Gyroscope Aiming (Tilt-to-Aim)
+    var gyroAimTitle: String = "GYROSCOPE AIMING (TILT-TO-AIM)"; internal set
+    var gyroAimSubtitle: String = "Tilt your phone to fine-tune camera aim using the hardware gyroscope sensor."; internal set
+    var gyroEnableLabel: String = "Enable Gyroscope Aiming"; internal set
+    var gyroModeLabel: String = "Activation Mode"; internal set
+    var gyroModeAlways: String = "Always On"; internal set
+    var gyroModeHoldAds: String = "Hold ADS (LT / RMB)"; internal set
+    var gyroSensitivityLabel: String = "Gyro Sensitivity"; internal set
+    var gyroDeadzoneLabel: String = "Deadzone Filter"; internal set
+    var gyroSmoothingLabel: String = "Motion Smoothing"; internal set
+    var gyroInvertX: String = "Invert X"; internal set
+    var gyroInvertY: String = "Invert Y"; internal set
+    var gyroNoHardware: String = "No hardware gyroscope detected on this device."; internal set
+    var gyroHudTile: String = "Gyro Aim"; internal set
+
+    // Performance HUD Overlay
+    var perfHudTitle: String = "PERFORMANCE HUD OVERLAY"; internal set
+    var perfHudSubtitle: String = "Compact draggable GeForce-style bar showing live FPS, Battery %, and Temperature over games."; internal set
+    var perfHudEnableLabel: String = "Show Performance HUD"; internal set
+    var perfHudShowFps: String = "FPS"; internal set
+    var perfHudShowBattery: String = "Battery"; internal set
+    var perfHudShowTemp: String = "Temp °C"; internal set
+    var perfHudShowRam: String = "RAM %"; internal set
+    var perfHudOpacityLabel: String = "HUD Opacity"; internal set
+    var perfHudTile: String = "Perf HUD"; internal set
+
+    // 6-Digit Layout Share Codes
+    var shareCodeAction: String = "Share Code"; internal set
+    var shareCodeEnterButton: String = "Share Code"; internal set
+    var shareCodeCreateTitle: String = "6-DIGIT SHARE CODE"; internal set
+    var shareCodeCreateSubtitle: String = "Give this temporary 5-minute code to a friend so they can import a copy of this layout."; internal set
+    var shareCodeGenerating: String = "Generating share code..."; internal set
+    var shareCodeCopyButton: String = "Copy Code"; internal set
+    var shareCodeCopied: String = "Share code copied!"; internal set
+    var shareCodeExpiresNote: String = "Expires automatically in 5 minutes"; internal set
+    var shareCodeImportTitle: String = "IMPORT BY SHARE CODE"; internal set
+    var shareCodeImportSubtitle: String = "Enter a friend's 6-character layout code to save a copy into your profiles."; internal set
+    var shareCodeInputLabel: String = "6-character code (e.g. NXP48K)"; internal set
+    var shareCodeImportButton: String = "Import Layout"; internal set
+    var shareCodeImporting: String = "Fetching shared layout..."; internal set
+    var shareCodeSignInRequired: String = "Sign in with Google first to create or import 6-digit share codes."; internal set
+    var shareCodeNotFound: String = "Code not found or expired. Ask your friend for a new code."; internal set
+
+    // Live Edit Over Game
+    var liveEditTile: String = "Edit Layout"; internal set
+    var liveEditToolbarTitle: String = "LIVE EDIT"; internal set
+    var liveEditDragHint: String = "Drag controls directly over the game • Tap to adjust"; internal set
+    var liveEditSizeLabel: String = "Size"; internal set
+    var liveEditOpacityLabel: String = "Alpha"; internal set
+    var liveEditSnapLabel: String = "Snap"; internal set
+    var liveEditSaveButton: String = "Save"; internal set
+    var liveEditCancelButton: String = "Cancel"; internal set
+    var liveEditSavedToast: String = "Layout saved!"; internal set
 }
 
 private inline fun buildNexusStrings(block: NexusStrings.() -> Unit): NexusStrings =
@@ -430,7 +484,7 @@ object AppLocalization {
         cockpitImeTitle = "จอยเกมและคีย์บอร์ดในตัว (IME)"
         cockpitImeSelected = "พร้อมส่งปุ่มเกมและใช้งานคีย์บอร์ดพิมพ์ในตัว"
         cockpitImeEnabled = "เปิดไว้แล้ว — แตะเพื่อเลือกเป็นคีย์บอร์ดหลัก"
-        cockpitImeDisabled = "เปิดใช้งาน NexusPad IME สำหรับปุ่มเกมและคีย์บอร์ด"
+        cockpitImeDisabled = "เปิดใช้งาน XenosPad IME สำหรับปุ่มเกมและคีย์บอร์ด"
         cockpitMouseTitle = "ระบบคลิกเมาส์และเลื่อนลูกกลิ้ง"
         cockpitMouseReady = "เปิดอยู่ — คลิกซ้าย ขวา กลาง และเลื่อนเมาส์พร้อมใช้งาน"
         cockpitMouseMissing = "เปิดบริการช่วยการเข้าถึงสำหรับ LMB, RMB, MMB และการเลื่อน"
@@ -569,7 +623,7 @@ object AppLocalization {
         fontCardSubtitle = "เลือกฟอนต์เกมมิ่งในตัว หรืออัปโหลดไฟล์ .ttf / .otf เอง (เช่น จาก DaFont.com)"
         fontUploadButton = "อัปโหลดฟอนต์ (.ttf / .otf)"
         fontUploadedLabel = "ฟอนต์ที่อัปโหลด"
-        fontSamplePreview = "NEXUSPAD • พร้อมลุยเกม 12345 — สวัสดีครับ"
+        fontSamplePreview = "XENOSPAD • พร้อมลุยเกม 12345 — สวัสดีครับ"
         bubbleCardTitle = "ขนาดและดีไซน์ฟองลอย (FLOATING BUBBLE)"
         bubbleCardSubtitle = "ปรับรูปทรง ขนาด ความโปร่งแสง สี หรืออัปโหลดรูปไอคอนฟองลอยเอง"
         bubbleStyleLabel = "รูปแบบฟองลอย"
@@ -595,11 +649,11 @@ object AppLocalization {
         updatesInstalledVersion = "เวอร์ชันที่ติดตั้งอยู่"
         updatesSigningKeyLabel = "ลายเซ็นคีย์ SHA-256"
         updatesRepoLabel = "คลัง GitHub (owner/repo)"
-        updatesRepoPlaceholder = "เช่น yourname/NexusPad"
+        updatesRepoPlaceholder = "เช่น yourname/XenosPad"
         updatesRepoAutoHint = "ตั้งค่าอัตโนมัติจาก GitHub Actions ใช้ลายเซ็นเดียวกันทุกเวอร์ชันเพื่อเก็บข้อมูลเดิมไว้ครบ"
         updatesRepoManualHint = "วางชื่อ owner/repo หรือลิงก์ GitHub ระบบจะอัปเดตให้อัตโนมัติ"
         updatesAutoCheckTitle = "ตรวจสอบอัปเดตอัตโนมัติเมื่อเปิดแอป"
-        updatesAutoCheckSub = "เช็กเวอร์ชันใหม่บน GitHub Releases เบื้องหลังทุกครั้งที่เปิด NexusPad"
+        updatesAutoCheckSub = "เช็กเวอร์ชันใหม่บน GitHub Releases เบื้องหลังทุกครั้งที่เปิด XenosPad"
         updatesCheckButton = "ตรวจสอบอัปเดต"
         updatesChecking = "กำลังตรวจสอบ GitHub Releases..."
         updatesUpToDate = "คุณใช้เวอร์ชันล่าสุดแล้ว!"
@@ -609,7 +663,7 @@ object AppLocalization {
         updatesCancelDownload = "ยกเลิกการดาวน์โหลด"
         updatesReadyTitle = "พร้อมติดตั้ง"
         updatesReadyKeepsData = "ตรวจสอบลายเซ็นตรงกันแล้ว! แตะด้านล่างเพื่ออัปเดตทับทันที โดยเก็บเลย์เอาต์ ฟิลเตอร์ และแกลเลอรีเดิมไว้ครบ"
-        updatesReadyNeedPerm = "ตั้งค่าครั้งแรก: Android จะขอสิทธิ์ \"ติดตั้งแอปที่ไม่รู้จัก\" สำหรับ NexusPad จากนั้นกดติดตั้งอีกครั้ง"
+        updatesReadyNeedPerm = "ตั้งค่าครั้งแรก: Android จะขอสิทธิ์ \"ติดตั้งแอปที่ไม่รู้จัก\" สำหรับ XenosPad จากนั้นกดติดตั้งอีกครั้ง"
         updatesInstallButton = "ติดตั้งอัปเดต (เก็บข้อมูลเดิม)"
         updatesAllowAndInstall = "อนุญาตและติดตั้งอัปเดต"
         updatesSigMismatchTitle = "ต้องลบติดตั้งใหม่ 1 ครั้ง (คีย์เก่าไม่ตรงกัน)"
@@ -620,7 +674,7 @@ object AppLocalization {
         setupPermsCardTitle = "สิทธิ์โอเวอร์เลย์และคีย์บอร์ด ANDROID"
         setupPerm1Title = "1. แสดงทับแอปอื่น (Display Over Other Apps)"
         setupPerm1Desc = "อนุญาตให้แสดงปุ่มเสมือนและจอยอนาล็อกลอยเหนือ GeForce NOW"
-        setupPerm2Title = "2. เปิดใช้งาน NexusPad IME และคีย์บอร์ด"
+        setupPerm2Title = "2. เปิดใช้งาน XenosPad IME และคีย์บอร์ด"
         setupPerm2Desc = "ส่งคำสั่งปุ่มจริงสำหรับจอย/คีย์บอร์ด และเปิดคีย์บอร์ดพิมพ์ในตัว"
         setupPerm3Title = "3. ระบบคลิกเมาส์และเลื่อน (Accessibility)"
         setupPerm3Desc = "บริการช่วยการเข้าถึงสำหรับคลิกซ้าย คลิกขวา คลิกกลาง และเลื่อนลูกกลิ้ง"
@@ -645,10 +699,10 @@ object AppLocalization {
         setupAutoLaunchSub = "เปิดแอป GeForce NOW ทันทีเมื่อเริ่มโอเวอร์เลย์"
         setupDarkModeTitle = "ธีมมืด (Tactical Dark)"
         setupDarkModeSub = "โทนสีเข้มสบายตา คอนทราสต์สูงสำหรับเล่นเกม"
-        setupInfoNote = "หมายเหตุ: บนเครื่อง Android ที่ไม่ได้รูท ปุ่มเสมือนจะส่ง KeyEvent จริงผ่าน NexusPad IME และรองรับมัลติทัชพร้อมกันทุกปุ่มและจอยอนาล็อก"
+        setupInfoNote = "หมายเหตุ: บนเครื่อง Android ที่ไม่ได้รูท ปุ่มเสมือนจะส่ง KeyEvent จริงผ่าน XenosPad IME และรองรับมัลติทัชพร้อมกันทุกปุ่มและจอยอนาล็อก"
 
         permDialogTitle = "เปิดสิทธิ์แสดงโอเวอร์เลย์ทับหน้าจอ"
-        permDialogBody = "เพื่อให้ปุ่มเสมือนและคีย์ลัดแสดงทับ GeForce NOW ได้ กรุณาเปิดสิทธิ์ \"แสดงทับแอปอื่น\" ให้กับ NexusPad ในการตั้งค่า Android"
+        permDialogBody = "เพื่อให้ปุ่มเสมือนและคีย์ลัดแสดงทับ GeForce NOW ได้ กรุณาเปิดสิทธิ์ \"แสดงทับแอปอื่น\" ให้กับ XenosPad ในการตั้งค่า Android"
 
         menuChooseLayoutHeader = "เลือกรูปแบบเลย์เอาต์"
         menuDragKbHint = "ลากคีย์บอร์ดขึ้นเหนือแถบงานได้อิสระ"
@@ -670,10 +724,10 @@ object AppLocalization {
         menuLock = "ล็อกปุ่ม"
         menuUnlock = "ปลดล็อก"
         menuStop = "ปิดโอเวอร์เลย์"
-        menuOpenApp = "เปิดแอป NexusPad"
+        menuOpenApp = "เปิดแอป XenosPad"
 
         whatsNewBadge = "มีอะไรใหม่"
-        whatsNewTitle = "ยินดีต้อนรับสู่ NexusPad"
+        whatsNewTitle = "ยินดีต้อนรับสู่ XenosPad"
         whatsNewSubtitle = "อัปเดตและฟีเจอร์ใหม่ทั้งหมดในเวอร์ชันนี้:"
         whatsNewGotIt = "เยี่ยมเลย เริ่มใช้งาน!"
         whatsNewItems = listOf(
@@ -684,22 +738,72 @@ object AppLocalization {
             "คีย์บอร์ดในตัวมีแอนิเมชัน + เดาคำอัตโนมัติ" to "เพิ่มแอนิเมชันเด้งเมื่อกดปุ่ม ป๊อปอัปตัวอักษร และแถบแนะนำคำ/แก้คำผิดภาษาไทย-อังกฤษสไตล์ Gboard"
         )
 
-        cloudSaveTitle = "สำรองเลย์เอาต์บนคลาวด์ (CLOUD SAVE)"
-        cloudSaveSubtitle = "ล็อกอินเฉพาะเพื่อสำรองเลย์เอาต์บนคลาวด์เท่านั้น — อัปเดตหรือติดตั้งแอปใหม่เลย์เอาต์จะกลับมาอัตโนมัติ ไม่ต้องแบ็กอัปเอง"
+        cloudSaveTitle = "สำรองคลาวด์ & ซิงก์ (CLOUD SAVE)"
+        cloudSaveSubtitle = "ล็อกอิน Google เฉพาะเพื่อสำรองคลาวด์ — สำรองและกู้คืนเลย์เอาต์ ฟิลเตอร์ เป้าเล็ง และธีมอัตโนมัติเมื่ออัปเดตแอป"
         cloudSaveSignInButton = "สมัคร / เข้าสู่ระบบด้วย Google"
         cloudSaveSigningIn = "กำลังเข้าสู่ระบบด้วย Google..."
         cloudSaveSignInShort = "เข้าสู่ระบบ"
         cloudSaveActiveBadge = "สำรองอัตโนมัติเปิดอยู่"
         cloudSaveSignedOutLabel = "คลาวด์เซฟ: เก็บในเครื่องเท่านั้น"
-        cloudSaveSignedOutHint = "เข้าสู่ระบบ Google เพื่อเก็บเลย์เอาต์ไว้อัตโนมัติเมื่ออัปเดตแอป"
-        cloudSaveSyncing = "กำลังซิงก์เลย์เอาต์กับคลาวด์..."
-        cloudSaveBackedUpSuffix = "เลย์เอาต์ที่สำรองแล้ว"
-        cloudSaveAutoSaveHint = "ทุกการแก้ไขเลย์เอาต์จะถูกบันทึกขึ้นคลาวด์อัตโนมัติ"
+        cloudSaveSignedOutHint = "เข้าสู่ระบบ Google เพื่อซิงก์เลย์เอาต์ ฟิลเตอร์ เป้าเล็ง และธีม"
+        cloudSaveSyncing = "กำลังซิงก์เลย์เอาต์ ฟิลเตอร์ และธีม..."
+        cloudSaveBackedUpSuffix = "เลย์เอาต์ + ธีมซิงก์แล้ว"
+        cloudSaveAutoSaveHint = "เลย์เอาต์ ฟิลเตอร์ เป้าเล็ง และธีมบันทึกขึ้นคลาวด์อัตโนมัติ"
         cloudSaveBackupNow = "สำรองตอนนี้"
         cloudSaveRestore = "กู้คืนจากคลาวด์"
         cloudSaveSyncShort = "ซิงก์"
         cloudSaveSignOut = "ออกจากระบบ"
-        cloudSaveSignOutNote = "การออกจากระบบจะยังคงเลย์เอาต์ทั้งหมดไว้ในเครื่องนี้"
+        cloudSaveSignOutNote = "การออกจากระบบจะยังคงเลย์เอาต์และการตั้งค่าทั้งหมดไว้ในเครื่องนี้"
+
+        gyroAimTitle = "เล็งด้วยไจโรสโคป (TILT-TO-AIM)"
+        gyroAimSubtitle = "เอียงโทรศัพท์เพื่อปรับมุมกล้องอย่างละเอียดด้วยเซ็นเซอร์ไจโรสโคปจริง"
+        gyroEnableLabel = "เปิดใช้งานการเล็งด้วยไจโร"
+        gyroModeLabel = "โหมดการทำงาน"
+        gyroModeAlways = "เปิดตลอดเวลา"
+        gyroModeHoldAds = "เฉพาะตอนกดเล็ง (LT / RMB)"
+        gyroSensitivityLabel = "ความไวไจโร"
+        gyroDeadzoneLabel = "กันสั่น (Deadzone)"
+        gyroSmoothingLabel = "ความนุ่มนวล"
+        gyroInvertX = "กลับด้านแกน X"
+        gyroInvertY = "กลับด้านแกน Y"
+        gyroNoHardware = "อุปกรณ์นี้ไม่พบเซ็นเซอร์ไจโรสโคป"
+        gyroHudTile = "ไจโรเล็ง"
+
+        perfHudTitle = "แถบแสดงสถานะเครื่อง (PERF HUD)"
+        perfHudSubtitle = "แถบลอยสไตล์ GeForce ลากย้ายได้ แสดง FPS แบตเตอรี่ และอุณหภูมิแบบเรียลไทม์บนเกม"
+        perfHudEnableLabel = "แสดงแถบ Performance HUD"
+        perfHudShowFps = "FPS"
+        perfHudShowBattery = "แบตเตอรี่"
+        perfHudShowTemp = "อุณหภูมิ °C"
+        perfHudShowRam = "RAM %"
+        perfHudOpacityLabel = "ความทึบของ HUD"
+        perfHudTile = "สถานะเครื่อง"
+
+        shareCodeAction = "รหัสแชร์"
+        shareCodeEnterButton = "ใส่รหัสแชร์"
+        shareCodeCreateTitle = "รหัสแชร์เลย์เอาต์ 6 หลัก"
+        shareCodeCreateSubtitle = "ส่งรหัสชั่วคราว 5 นาทีนี้ให้เพื่อนเพื่อนำเข้าเลย์เอาต์ของคุณได้ทันที"
+        shareCodeGenerating = "กำลังสร้างรหัสแชร์..."
+        shareCodeCopyButton = "คัดลอกรหัส"
+        shareCodeCopied = "คัดลอกรหัสแชร์แล้ว!"
+        shareCodeExpiresNote = "รหัสจะหมดอายุอัตโนมัติใน 5 นาที"
+        shareCodeImportTitle = "นำเข้าด้วยรหัสแชร์"
+        shareCodeImportSubtitle = "กรอกรหัส 6 หลักจากเพื่อนเพื่อบันทึกลงในโปรไฟล์ของคุณ"
+        shareCodeInputLabel = "รหัส 6 หลัก (เช่น NXP48K)"
+        shareCodeImportButton = "นำเข้าเลย์เอาต์"
+        shareCodeImporting = "กำลังดึงข้อมูลเลย์เอาต์..."
+        shareCodeSignInRequired = "กรุณาเข้าสู่ระบบ Google ก่อนสร้างหรือนำเข้ารหัสแชร์ 6 หลัก"
+        shareCodeNotFound = "ไม่พบรหัสนี้หรือรหัสหมดอายุแล้ว ลองขอรหัสใหม่จากเพื่อน"
+
+        liveEditTile = "แก้เลย์เอาต์"
+        liveEditToolbarTitle = "แก้ไขบนเกมสด"
+        liveEditDragHint = "ลากปุ่มบนหน้าจอเกมได้ทันที • แตะเพื่อปรับขนาด/ความทึบ"
+        liveEditSizeLabel = "ขนาด"
+        liveEditOpacityLabel = "ความทึบ"
+        liveEditSnapLabel = "ดูดเส้นกริด"
+        liveEditSaveButton = "บันทึก"
+        liveEditCancelButton = "ยกเลิก"
+        liveEditSavedToast = "บันทึกเลย์เอาต์เรียบร้อย!"
     }
 
     private fun buildSpanishStrings(): NexusStrings = buildNexusStrings {
@@ -745,10 +849,10 @@ object AppLocalization {
         cockpitImeTitle = "Gamepad y Teclado IME Integrado"
         cockpitImeSelected = "Activo para teclas de juego y teclado integrado"
         cockpitImeEnabled = "Activado — toca para seleccionarlo como método activo"
-        cockpitImeDisabled = "Activa NexusPad IME para teclas y teclado integrado"
+        cockpitImeDisabled = "Activa XenosPad IME para teclas y teclado integrado"
         cockpitMouseTitle = "Gestos de Clic y Rueda de Ratón"
         cockpitMouseReady = "Activo — Clic Izquierdo, Derecho, Central y Scroll"
-        cockpitMouseMissing = "Activa Accesibilidad de NexusPad para LMB, RMB y MMB"
+        cockpitMouseMissing = "Activa Accesibilidad de XenosPad para LMB, RMB y MMB"
         cockpitGfnTitle = "Destino GeForce NOW"
         cockpitGfnInstalled = "GeForce NOW detectado — listo para abrir"
         cockpitGfnMissing = "Abre Play Store o prueba en la zona de Pruebas"
@@ -884,7 +988,7 @@ object AppLocalization {
         fontCardSubtitle = "Elige una fuente gamer o sube tu archivo .ttf / .otf (ej. DaFont.com)"
         fontUploadButton = "Subir Fuente (.ttf / .otf)"
         fontUploadedLabel = "Fuente Subida"
-        fontSamplePreview = "NEXUSPAD • Listo para jugar 12345"
+        fontSamplePreview = "XENOSPAD • Listo para jugar 12345"
         bubbleCardTitle = "TAMAÑO Y DISEÑO DE BURBUJA"
         bubbleCardSubtitle = "Personaliza forma, tamaño, opacidad, color o icono de la burbuja flotante"
         bubbleStyleLabel = "Estilo de Burbuja"
@@ -903,14 +1007,14 @@ object AppLocalization {
         recResolutionLabel = "Resolución"
         recFpsLabel = "Fotogramas (FPS)"
         recEncoderProfileLabel = "PERFIL DE CODIFICADOR H.264"
-        recAutoFallbackNote = "Auto-ajuste: si el hardware limita 1440p o 90/120 FPS, NexusPad selecciona automáticamente el máximo estable."
+        recAutoFallbackNote = "Auto-ajuste: si el hardware limita 1440p o 90/120 FPS, XenosPad selecciona automáticamente el máximo estable."
 
         updatesCardTitle = "ACTUALIZACIONES (GITHUB RELEASES)"
         updatesCardSubtitle = "Comprueba si hay nuevas versiones en GitHub Releases y abre la página oficial de descarga."
         updatesInstalledVersion = "Versión Instalada"
         updatesSigningKeyLabel = "Firma SHA-256"
         updatesRepoLabel = "Repositorio GitHub (owner/repo)"
-        updatesRepoPlaceholder = "ej. tunombre/NexusPad"
+        updatesRepoPlaceholder = "ej. tunombre/XenosPad"
         updatesRepoAutoHint = "Configurado desde GitHub Actions. Misma firma digital para actualizar encima sin borrar datos."
         updatesRepoManualHint = "Pega tu slug o URL de GitHub."
         updatesAutoCheckTitle = "Comprobar al Abrir"
@@ -924,7 +1028,7 @@ object AppLocalization {
         updatesCancelDownload = "Cancelar Descarga"
         updatesReadyTitle = "Lista para instalar"
         updatesReadyKeepsData = "¡Firma verificada! Toca abajo para actualizar conservando todos tus diseños y galería."
-        updatesReadyNeedPerm = "Permiso único: permite \"Instalar apps desconocidas\" para NexusPad y vuelve a tocar Instalar."
+        updatesReadyNeedPerm = "Permiso único: permite \"Instalar apps desconocidas\" para XenosPad y vuelve a tocar Instalar."
         updatesInstallButton = "Instalar Actualización"
         updatesAllowAndInstall = "Permitir e Instalar"
         updatesSigMismatchTitle = "Reinstalación Única Necesaria"
@@ -935,7 +1039,7 @@ object AppLocalization {
         setupPermsCardTitle = "PERMISOS DE OVERLAY E IME"
         setupPerm1Title = "1. Mostrar sobre otras apps"
         setupPerm1Desc = "Permite mostrar controles virtuales sobre GeForce NOW."
-        setupPerm2Title = "2. Activar NexusPad IME y Teclado"
+        setupPerm2Title = "2. Activar XenosPad IME y Teclado"
         setupPerm2Desc = "Envía eventos de teclado/gamepad reales y activa el teclado integrado."
         setupPerm3Title = "3. Gestos de Ratón y Scroll"
         setupPerm3Desc = "Servicio de accesibilidad para LMB, RMB, MMB y desplazamiento."
@@ -960,7 +1064,7 @@ object AppLocalization {
         setupAutoLaunchSub = "Inicia GeForce NOW al encender el overlay"
         setupDarkModeTitle = "Modo Oscuro Táctico"
         setupDarkModeSub = "Tema obsidiana de alto contraste"
-        setupInfoNote = "Nota: Sin root, los botones virtuales envían KeyEvents reales mediante NexusPad IME con soporte multitáctil completo."
+        setupInfoNote = "Nota: Sin root, los botones virtuales envían KeyEvents reales mediante XenosPad IME con soporte multitáctil completo."
 
         permDialogTitle = "Activar Overlay Flotante"
         permDialogBody = "Para mostrar tus botones virtuales sobre GeForce NOW, concede el permiso \"Mostrar sobre otras apps\" en Ajustes de Android."
@@ -985,10 +1089,10 @@ object AppLocalization {
         menuLock = "Bloquear"
         menuUnlock = "Desbloq."
         menuStop = "Detener"
-        menuOpenApp = "Abrir NexusPad"
+        menuOpenApp = "Abrir XenosPad"
 
         whatsNewBadge = "NOVEDADES"
-        whatsNewTitle = "Bienvenido a NexusPad"
+        whatsNewTitle = "Bienvenido a XenosPad"
         whatsNewSubtitle = "Todo lo nuevo en esta actualización:"
         whatsNewGotIt = "¡Genial, a Jugar!"
         whatsNewItems = listOf(
@@ -999,22 +1103,72 @@ object AppLocalization {
             "Teclado Animado con Autocorrección" to "Animaciones al pulsar cada tecla, vista previa flotante y sugerencias de palabras estilo Gboard."
         )
 
-        cloudSaveTitle = "GUARDADO EN LA NUBE (LAYOUTS)"
-        cloudSaveSubtitle = "Cuenta opcional solo para Cloud Save: respalda y restaura tus diseños automáticamente tras cada actualización."
+        cloudSaveTitle = "GUARDADO Y SINCRONIZACIÓN EN LA NUBE"
+        cloudSaveSubtitle = "Cuenta opcional de Google: respalda y restaura diseños, filtros Freestyle, mira y tema automáticamente."
         cloudSaveSignInButton = "Registrarse / Entrar con Google"
         cloudSaveSigningIn = "Iniciando sesión con Google..."
         cloudSaveSignInShort = "Entrar"
         cloudSaveActiveBadge = "RESPALDO ACTIVO"
         cloudSaveSignedOutLabel = "Cloud Save: Solo Local"
-        cloudSaveSignedOutHint = "Inicia sesión con Google para no perder tus diseños al actualizar"
-        cloudSaveSyncing = "Sincronizando diseños con la nube..."
-        cloudSaveBackedUpSuffix = "diseños respaldados"
-        cloudSaveAutoSaveHint = "Cada cambio en tus diseños se guarda automáticamente"
+        cloudSaveSignedOutHint = "Inicia sesión con Google para sincronizar diseños, filtros, mira y tema"
+        cloudSaveSyncing = "Sincronizando diseños, filtros y tema..."
+        cloudSaveBackedUpSuffix = "diseños + tema"
+        cloudSaveAutoSaveHint = "Diseños, filtros, mira y tema se guardan solos"
         cloudSaveBackupNow = "Respaldar Ahora"
         cloudSaveRestore = "Restaurar"
         cloudSaveSyncShort = "Sinc."
         cloudSaveSignOut = "Cerrar Sesión"
-        cloudSaveSignOutNote = "Al cerrar sesión se mantienen todos tus diseños locales."
+        cloudSaveSignOutNote = "Al cerrar sesión se mantienen todos tus diseños y ajustes locales."
+
+        gyroAimTitle = "APUNTADO CON GIROSCOPIO (TILT-TO-AIM)"
+        gyroAimSubtitle = "Inclina tu teléfono para ajustar la cámara con precisión mediante el giroscopio físico."
+        gyroEnableLabel = "Activar Giroscopio"
+        gyroModeLabel = "Modo de Activación"
+        gyroModeAlways = "Siempre Activo"
+        gyroModeHoldAds = "Al Apuntar (LT / RMB)"
+        gyroSensitivityLabel = "Sensibilidad Giro"
+        gyroDeadzoneLabel = "Zona Muerta"
+        gyroSmoothingLabel = "Suavizado"
+        gyroInvertX = "Invertir X"
+        gyroInvertY = "Invertir Y"
+        gyroNoHardware = "No se detectó sensor de giroscopio en este dispositivo."
+        gyroHudTile = "Giroscopio"
+
+        perfHudTitle = "HUD DE RENDIMIENTO (FPS / TEMP)"
+        perfHudSubtitle = "Barra flotante compacta estilo GeForce con FPS en vivo, batería y temperatura sobre el juego."
+        perfHudEnableLabel = "Mostrar HUD de Rendimiento"
+        perfHudShowFps = "FPS"
+        perfHudShowBattery = "Batería"
+        perfHudShowTemp = "Temp °C"
+        perfHudShowRam = "RAM %"
+        perfHudOpacityLabel = "Opacidad del HUD"
+        perfHudTile = "HUD FPS"
+
+        shareCodeAction = "Código"
+        shareCodeEnterButton = "Código"
+        shareCodeCreateTitle = "CÓDIGO DE COMPARTIR (6 DÍGITOS)"
+        shareCodeCreateSubtitle = "Comparte este código temporal de 5 minutos para que un amigo importe una copia del diseño."
+        shareCodeGenerating = "Generando código..."
+        shareCodeCopyButton = "Copiar Código"
+        shareCodeCopied = "¡Código copiado!"
+        shareCodeExpiresNote = "Expira automáticamente en 5 minutos"
+        shareCodeImportTitle = "IMPORTAR CON CÓDIGO"
+        shareCodeImportSubtitle = "Ingresa el código de 6 caracteres de un amigo para guardar su diseño."
+        shareCodeInputLabel = "Código de 6 caracteres (ej. NXP48K)"
+        shareCodeImportButton = "Importar Diseño"
+        shareCodeImporting = "Buscando diseño compartido..."
+        shareCodeSignInRequired = "Inicia sesión con Google para crear o importar códigos de 6 dígitos."
+        shareCodeNotFound = "Código no encontrado o expirado. Pide un código nuevo."
+
+        liveEditTile = "Editar HUD"
+        liveEditToolbarTitle = "EDICIÓN EN VIVO"
+        liveEditDragHint = "Arrastra botones sobre el juego • Toca para ajustar"
+        liveEditSizeLabel = "Tam."
+        liveEditOpacityLabel = "Opac."
+        liveEditSnapLabel = "Grilla"
+        liveEditSaveButton = "Guardar"
+        liveEditCancelButton = "Cancelar"
+        liveEditSavedToast = "¡Diseño guardado!"
     }
 
     private fun buildJapaneseStrings(): NexusStrings = buildNexusStrings {
@@ -1060,7 +1214,7 @@ object AppLocalization {
         cockpitImeTitle = "ゲームパッド＆内蔵キーボード IME"
         cockpitImeSelected = "キー送信と内蔵キーボードが有効です"
         cockpitImeEnabled = "有効 — タップして入力方法として選択"
-        cockpitImeDisabled = "NexusPad IME を有効にしてキー入力を使用"
+        cockpitImeDisabled = "XenosPad IME を有効にしてキー入力を使用"
         cockpitMouseTitle = "マウスクリック・スクロール操作"
         cockpitMouseReady = "有効 — 左・右・中クリック＆スクロール対応"
         cockpitMouseMissing = "ユーザー補助で LMB / RMB / MMB を有効化"
@@ -1199,7 +1353,7 @@ object AppLocalization {
         fontCardSubtitle = "内蔵フォントを選ぶか DaFont 等の .ttf / .otf をアップロード"
         fontUploadButton = "フォントをアップロード (.ttf/.otf)"
         fontUploadedLabel = "読み込み済みフォント"
-        fontSamplePreview = "NEXUSPAD • ゲーム準備完了 12345"
+        fontSamplePreview = "XENOSPAD • ゲーム準備完了 12345"
         bubbleCardTitle = "フローティングバブルのサイズ・UI"
         bubbleCardSubtitle = "バブルの形・大きさ・透明度・色・カスタムアイコンを変更"
         bubbleStyleLabel = "バブルスタイル"
@@ -1225,7 +1379,7 @@ object AppLocalization {
         updatesInstalledVersion = "現在のバージョン"
         updatesSigningKeyLabel = "署名鍵 SHA-256"
         updatesRepoLabel = "GitHub リポジトリ (owner/repo)"
-        updatesRepoPlaceholder = "例: yourname/NexusPad"
+        updatesRepoPlaceholder = "例: yourname/XenosPad"
         updatesRepoAutoHint = "GitHub Actions から自動設定済み。同一署名鍵でデータを保持したまま更新します。"
         updatesRepoManualHint = "GitHub リポジトリの owner/repo を入力してください。"
         updatesAutoCheckTitle = "起動時に自動チェック"
@@ -1250,7 +1404,7 @@ object AppLocalization {
         setupPermsCardTitle = "オーバーレイ・IME 権限"
         setupPerm1Title = "1. 他のアプリの上に表示"
         setupPerm1Desc = "GeForce NOW 上に仮想コントローラーを表示します。"
-        setupPerm2Title = "2. NexusPad IME・キーボードを有効化"
+        setupPerm2Title = "2. XenosPad IME・キーボードを有効化"
         setupPerm2Desc = "実キーイベント送信と内蔵キーボードを使用可能にします。"
         setupPerm3Title = "3. マウスクリック・スクロール補助"
         setupPerm3Desc = "左・右・中クリックとスクロール用のユーザー補助サービス。"
@@ -1275,7 +1429,7 @@ object AppLocalization {
         setupAutoLaunchSub = "オーバーレイ開始時に自動で GeForce NOW を開く"
         setupDarkModeTitle = "ダークコックピット"
         setupDarkModeSub = "ゲームに集中できる高コントラスト暗色テーマ"
-        setupInfoNote = "注: 非root端末でも NexusPad IME 経由でマルチタッチ対応のキー入力が可能です。"
+        setupInfoNote = "注: 非root端末でも XenosPad IME 経由でマルチタッチ対応のキー入力が可能です。"
 
         permDialogTitle = "フローティング権限を有効化"
         permDialogBody = "GeForce NOW 上にコントローラーを表示するため、Android 設定で「他のアプリの上に重ねて表示」を許可してください。"
@@ -1303,7 +1457,7 @@ object AppLocalization {
         menuOpenApp = "アプリを開く"
 
         whatsNewBadge = "新機能"
-        whatsNewTitle = "NexusPad へようこそ"
+        whatsNewTitle = "XenosPad へようこそ"
         whatsNewSubtitle = "今回のアップデート内容："
         whatsNewGotIt = "了解、プレイ開始！"
         whatsNewItems = listOf(
@@ -1314,22 +1468,72 @@ object AppLocalization {
             "キーボードアニメーション＆予測変換" to "キー押下ポップアップと Gboard 風の自動修正・単語予測バーを搭載しました。"
         )
 
-        cloudSaveTitle = "クラウド保存（レイアウト専用）"
-        cloudSaveSubtitle = "クラウド保存専用の任意アカウントです。アプリアップデートや再インストール後もレイアウトを自動復元できます。"
+        cloudSaveTitle = "クラウド保存＆同期"
+        cloudSaveSubtitle = "クラウド保存専用の任意アカウントです。レイアウト・フィルター・クロスヘア・テーマを自動同期します。"
         cloudSaveSignInButton = "Google で登録 / ログイン"
         cloudSaveSigningIn = "Google でログイン中..."
         cloudSaveSignInShort = "ログイン"
         cloudSaveActiveBadge = "自動バックアップON"
         cloudSaveSignedOutLabel = "クラウド保存: ローカルのみ"
-        cloudSaveSignedOutHint = "Google ログインで更新時のレイアウト消失を防止"
-        cloudSaveSyncing = "クラウドと同期中..."
-        cloudSaveBackedUpSuffix = "件バックアップ済み"
-        cloudSaveAutoSaveHint = "レイアウト編集ごとに自動でクラウド保存されます"
+        cloudSaveSignedOutHint = "Google ログインでレイアウト・フィルター・照準・テーマを同期"
+        cloudSaveSyncing = "レイアウト・フィルター・テーマを同期中..."
+        cloudSaveBackedUpSuffix = "件 + テーマ同期済"
+        cloudSaveAutoSaveHint = "レイアウト・フィルター・照準・テーマを自動保存"
         cloudSaveBackupNow = "今すぐ保存"
         cloudSaveRestore = "クラウドから復元"
         cloudSaveSyncShort = "同期"
         cloudSaveSignOut = "ログアウト"
-        cloudSaveSignOutNote = "ログアウトしても端末内のレイアウトは残ります。"
+        cloudSaveSignOutNote = "ログアウトしても端末内のレイアウトと設定は残ります。"
+
+        gyroAimTitle = "ジャイロエイム（傾き照準）"
+        gyroAimSubtitle = "端末のジャイロセンサーを使って傾きでカメラ照準を微調整します。"
+        gyroEnableLabel = "ジャイロエイムを有効化"
+        gyroModeLabel = "起動モード"
+        gyroModeAlways = "常時オン"
+        gyroModeHoldAds = "ADS長押し時 (LT / RMB)"
+        gyroSensitivityLabel = "ジャイロ感度"
+        gyroDeadzoneLabel = "デッドゾーン"
+        gyroSmoothingLabel = "スムージング"
+        gyroInvertX = "X軸反転"
+        gyroInvertY = "Y軸反転"
+        gyroNoHardware = "この端末にジャイロセンサーが検出されません。"
+        gyroHudTile = "ジャイロ"
+
+        perfHudTitle = "パフォーマンスHUD（FPS / 温度）"
+        perfHudSubtitle = "ゲーム上に移動可能なGeForce風の小型バーでFPS・バッテリー・温度をリアルタイム表示します。"
+        perfHudEnableLabel = "パフォーマンスHUDを表示"
+        perfHudShowFps = "FPS"
+        perfHudShowBattery = "バッテリー"
+        perfHudShowTemp = "温度 °C"
+        perfHudShowRam = "RAM %"
+        perfHudOpacityLabel = "HUD不透明度"
+        perfHudTile = "性能HUD"
+
+        shareCodeAction = "共有コード"
+        shareCodeEnterButton = "コード入力"
+        shareCodeCreateTitle = "6桁レイアウト共有コード"
+        shareCodeCreateSubtitle = "5分間有効なコードをフレンドに伝えると、このレイアウトのコピーを取り込めます。"
+        shareCodeGenerating = "共有コードを作成中..."
+        shareCodeCopyButton = "コードをコピー"
+        shareCodeCopied = "共有コードをコピーしました！"
+        shareCodeExpiresNote = "5分後に自動で期限切れになります"
+        shareCodeImportTitle = "共有コードから取り込み"
+        shareCodeImportSubtitle = "フレンドの6桁コードを入力してプロフィールに追加します。"
+        shareCodeInputLabel = "6桁コード（例: NXP48K）"
+        shareCodeImportButton = "取り込む"
+        shareCodeImporting = "レイアウトを取得中..."
+        shareCodeSignInRequired = "6桁共有コードの作成・取り込みには Google ログインが必要です。"
+        shareCodeNotFound = "コードが見つからないか期限切れです。新しいコードを受け取ってください。"
+
+        liveEditTile = "ライブ編集"
+        liveEditToolbarTitle = "ライブ編集"
+        liveEditDragHint = "ゲーム上で直接ボタンをドラッグ • タップで調整"
+        liveEditSizeLabel = "サイズ"
+        liveEditOpacityLabel = "透明度"
+        liveEditSnapLabel = "グリッド"
+        liveEditSaveButton = "保存"
+        liveEditCancelButton = "中止"
+        liveEditSavedToast = "レイアウトを保存しました！"
     }
 
     private fun buildChineseStrings(): NexusStrings = buildNexusStrings {
@@ -1375,7 +1579,7 @@ object AppLocalization {
         cockpitImeTitle = "手柄与内置键盘输入法 (IME)"
         cockpitImeSelected = "已激活按键传输与内置打字键盘"
         cockpitImeEnabled = "已启用 — 点击切换为当前输入法"
-        cockpitImeDisabled = "启用 NexusPad 输入法以支持按键和内置键盘"
+        cockpitImeDisabled = "启用 XenosPad 输入法以支持按键和内置键盘"
         cockpitMouseTitle = "鼠标点击与滚轮手势"
         cockpitMouseReady = "已启用 — 支持左键、右键、中键和滚轮"
         cockpitMouseMissing = "开启无障碍服务以支持 LMB、RMB、MMB 和滚轮"
@@ -1514,7 +1718,7 @@ object AppLocalization {
         fontCardSubtitle = "选择内置电竞字体或上传 .ttf / .otf 字体文件 (如 DaFont.com)"
         fontUploadButton = "上传字体 (.ttf / .otf)"
         fontUploadedLabel = "已上传字体"
-        fontSamplePreview = "NEXUSPAD • 准备开战 12345"
+        fontSamplePreview = "XENOSPAD • 准备开战 12345"
         bubbleCardTitle = "悬浮球大小与样式"
         bubbleCardSubtitle = "自定义悬浮球形状、尺寸、透明度、颜色或专属图标"
         bubbleStyleLabel = "悬浮球样式"
@@ -1540,11 +1744,11 @@ object AppLocalization {
         updatesInstalledVersion = "当前安装版本"
         updatesSigningKeyLabel = "签名指纹 SHA-256"
         updatesRepoLabel = "GitHub 仓库 (owner/repo)"
-        updatesRepoPlaceholder = "例如 yourname/NexusPad"
+        updatesRepoPlaceholder = "例如 yourname/XenosPad"
         updatesRepoAutoHint = "由 GitHub Actions 自动配置。固定签名确保每次升级无损保留数据。"
         updatesRepoManualHint = "输入您的 GitHub 仓库 owner/repo 或链接。"
         updatesAutoCheckTitle = "启动时自动检查更新"
-        updatesAutoCheckSub = "打开 NexusPad 时在后台静默检查 GitHub 新版本"
+        updatesAutoCheckSub = "打开 XenosPad 时在后台静默检查 GitHub 新版本"
         updatesCheckButton = "检查更新"
         updatesChecking = "正在检查 GitHub Releases..."
         updatesUpToDate = "已是最新版本！"
@@ -1565,7 +1769,7 @@ object AppLocalization {
         setupPermsCardTitle = "悬浮窗与输入法权限"
         setupPerm1Title = "1. 显示在其他应用上层"
         setupPerm1Desc = "允许在 GeForce NOW 上方显示虚拟按键与摇杆。"
-        setupPerm2Title = "2. 启用 NexusPad 输入法与键盘"
+        setupPerm2Title = "2. 启用 XenosPad 输入法与键盘"
         setupPerm2Desc = "发送真实按键事件并启用内置虚拟键盘。"
         setupPerm3Title = "3. 鼠标点击与滚轮无障碍服务"
         setupPerm3Desc = "用于左键、右键、中键及滚轮手势模拟。"
@@ -1590,7 +1794,7 @@ object AppLocalization {
         setupAutoLaunchSub = "启动悬浮层时自动打开 GeForce NOW"
         setupDarkModeTitle = "暗黑战术主题"
         setupDarkModeSub = "高对比度深色界面，减少反光干扰"
-        setupInfoNote = "提示：无需 Root，虚拟按钮通过 NexusPad IME 发送真实按键事件，全面支持多点触控。"
+        setupInfoNote = "提示：无需 Root，虚拟按钮通过 XenosPad IME 发送真实按键事件，全面支持多点触控。"
 
         permDialogTitle = "开启悬浮窗权限"
         permDialogBody = "要在 GeForce NOW 上方显示虚拟手柄与按键，请在安卓设置中授予“显示在其他应用上层”权限。"
@@ -1618,7 +1822,7 @@ object AppLocalization {
         menuOpenApp = "打开应用"
 
         whatsNewBadge = "更新内容"
-        whatsNewTitle = "欢迎使用 NexusPad"
+        whatsNewTitle = "欢迎使用 XenosPad"
         whatsNewSubtitle = "本版本全新升级内容："
         whatsNewGotIt = "太棒了，开始游戏！"
         whatsNewItems = listOf(
@@ -1629,22 +1833,72 @@ object AppLocalization {
             "虚拟键盘按键动画与智能联想" to "新增按键缩放弹窗动画以及 Gboard 风格中英泰联想词与自动纠错栏。"
         )
 
-        cloudSaveTitle = "云端配置备份 (CLOUD SAVE)"
-        cloudSaveSubtitle = "仅用于云端保存布局的可选账号 — 每次更新或重装应用后自动恢复你的所有按键布局。"
+        cloudSaveTitle = "云端同步与备份 (CLOUD SAVE)"
+        cloudSaveSubtitle = "可选 Google 账号 — 自动云端备份并恢复你的按键布局、画质滤镜、准星与主题样式。"
         cloudSaveSignInButton = "使用 Google 注册 / 登录"
         cloudSaveSigningIn = "正在使用 Google 登录..."
         cloudSaveSignInShort = "登录"
         cloudSaveActiveBadge = "自动云备份已开启"
         cloudSaveSignedOutLabel = "云端备份：仅本地保存"
-        cloudSaveSignedOutHint = "登录 Google 即可在更新应用时自动保留布局"
-        cloudSaveSyncing = "正在同步云端布局..."
-        cloudSaveBackedUpSuffix = "个布局已备份"
-        cloudSaveAutoSaveHint = "每次编辑布局都会自动同步到你的云端账号"
+        cloudSaveSignedOutHint = "登录 Google 自动同步布局、滤镜、准星与主题"
+        cloudSaveSyncing = "正在同步布局、滤镜与主题..."
+        cloudSaveBackedUpSuffix = "个布局 + 主题已同步"
+        cloudSaveAutoSaveHint = "布局、滤镜、准星与主题均会自动同步到云端"
         cloudSaveBackupNow = "立即备份"
         cloudSaveRestore = "从云端恢复"
         cloudSaveSyncShort = "同步"
         cloudSaveSignOut = "退出登录"
-        cloudSaveSignOutNote = "退出登录不会删除本设备上的本地布局。"
+        cloudSaveSignOutNote = "退出登录不会删除本设备上的本地布局与设置。"
+
+        gyroAimTitle = "陀螺仪体感瞄准 (TILT-TO-AIM)"
+        gyroAimSubtitle = "使用手机硬件陀螺仪传感器，通过倾斜机身微调游戏视角瞄准。"
+        gyroEnableLabel = "开启陀螺仪瞄准"
+        gyroModeLabel = "触发模式"
+        gyroModeAlways = "始终开启"
+        gyroModeHoldAds = "按住开镜时 (LT / RMB)"
+        gyroSensitivityLabel = "陀螺仪灵敏度"
+        gyroDeadzoneLabel = "防抖死区"
+        gyroSmoothingLabel = "平滑滤波"
+        gyroInvertX = "反转 X 轴"
+        gyroInvertY = "反转 Y 轴"
+        gyroNoHardware = "当前设备未检测到硬件陀螺仪传感器。"
+        gyroHudTile = "陀螺仪"
+
+        perfHudTitle = "性能监控悬浮条 (PERF HUD)"
+        perfHudSubtitle = "可拖动的 GeForce 风格悬浮条，在游戏上方实时显示 FPS、电量与温度。"
+        perfHudEnableLabel = "显示性能监控悬浮条"
+        perfHudShowFps = "帧率 FPS"
+        perfHudShowBattery = "电量"
+        perfHudShowTemp = "温度 °C"
+        perfHudShowRam = "内存 %"
+        perfHudOpacityLabel = "悬浮条透明度"
+        perfHudTile = "性能条"
+
+        shareCodeAction = "分享码"
+        shareCodeEnterButton = "输入分享码"
+        shareCodeCreateTitle = "6 位布局分享码"
+        shareCodeCreateSubtitle = "将此 5 分钟临时代码发给好友，即可一键导入该按键布局副本。"
+        shareCodeGenerating = "正在生成分享码..."
+        shareCodeCopyButton = "复制代码"
+        shareCodeCopied = "分享码已复制！"
+        shareCodeExpiresNote = "将在 5 分钟后自动失效"
+        shareCodeImportTitle = "通过分享码导入"
+        shareCodeImportSubtitle = "输入好友的 6 位布局代码并保存到你的布局列表中。"
+        shareCodeInputLabel = "6 位分享码（例如 NXP48K）"
+        shareCodeImportButton = "导入布局"
+        shareCodeImporting = "正在获取分享布局..."
+        shareCodeSignInRequired = "请先登录 Google 账号以创建或导入 6 位分享码。"
+        shareCodeNotFound = "未找到该分享码或已过期，请向好友获取新代码。"
+
+        liveEditTile = "实时编辑"
+        liveEditToolbarTitle = "游戏内实时编辑"
+        liveEditDragHint = "直接在游戏画面上拖动按钮 • 点击选中调节"
+        liveEditSizeLabel = "大小"
+        liveEditOpacityLabel = "透明度"
+        liveEditSnapLabel = "吸附"
+        liveEditSaveButton = "保存"
+        liveEditCancelButton = "取消"
+        liveEditSavedToast = "布局已保存！"
     }
 }
 

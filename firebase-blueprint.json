@@ -161,6 +161,67 @@
         "createdAt",
         "expiresAt"
       ]
+    },
+    "UserSettingsBackup": {
+      "title": "UserSettingsBackup",
+      "description": "Cloud-synced Freestyle Filters, Crosshair, App Theme, Font preset, and Floating Bubble preferences belonging to a user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "gameFilterJson": {
+          "type": "string",
+          "description": "Moshi-serialized GameFilterState across all 3 Freestyle slots."
+        },
+        "crosshairJson": {
+          "type": "string",
+          "description": "Moshi-serialized CrosshairSettings."
+        },
+        "colorSchemeJson": {
+          "type": "string",
+          "description": "Moshi-serialized AppColorSchemeConfig."
+        },
+        "fontConfigJson": {
+          "type": "string",
+          "description": "Moshi-serialized AppFontConfig (preset synced; device-local paths omitted)."
+        },
+        "floatingBubbleJson": {
+          "type": "string",
+          "description": "Moshi-serialized FloatingBubbleConfig (style, size, opacity, accent)."
+        },
+        "darkTheme": {
+          "type": "boolean",
+          "description": "Whether dark mode is enabled."
+        },
+        "clientUpdatedAt": {
+          "type": "integer",
+          "description": "Client modification epoch milliseconds."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp written via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp written via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "gameFilterJson",
+        "crosshairJson",
+        "colorSchemeJson",
+        "fontConfigJson",
+        "floatingBubbleJson",
+        "darkTheme",
+        "clientUpdatedAt",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -175,6 +236,12 @@
         "$ref": "#/entities/UserLayout"
       },
       "description": "User-owned cloud-backed layouts synced across app updates."
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": {
+        "$ref": "#/entities/UserSettingsBackup"
+      },
+      "description": "User-owned cloud-backed Freestyle filters, crosshair, and visual theme settings."
     },
     "/shared_layouts/{shareCode}": {
       "schema": {

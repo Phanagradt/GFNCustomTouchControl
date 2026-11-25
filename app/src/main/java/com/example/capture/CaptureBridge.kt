@@ -258,7 +258,7 @@ object CaptureBridge {
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/NexusPad")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/XenosPad")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
             val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return
@@ -278,7 +278,7 @@ object CaptureBridge {
             val values = ContentValues().apply {
                 put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
                 put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-                put(MediaStore.Video.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/NexusPad")
+                put(MediaStore.Video.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/XenosPad")
                 put(MediaStore.Video.Media.IS_PENDING, 1)
             }
             val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values) ?: return

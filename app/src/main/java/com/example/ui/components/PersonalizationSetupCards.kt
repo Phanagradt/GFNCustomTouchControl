@@ -176,7 +176,7 @@ fun FloatingBubbleVisual(
             ) {
                 Icon(
                     imageVector = if (isPanelOpen) Icons.Default.Close else Icons.Default.Gamepad,
-                    contentDescription = "Open NexusPad Menu",
+                    contentDescription = "Open XenosPad Menu",
                     tint = accentColor,
                     modifier = Modifier.size((iconSize.value * 0.85f).dp)
                 )
@@ -200,7 +200,7 @@ fun FloatingBubbleVisual(
             }
             Icon(
                 imageVector = if (isPanelOpen) Icons.Default.Close else Icons.Default.Gamepad,
-                contentDescription = "Open NexusPad Menu",
+                contentDescription = "Open XenosPad Menu",
                 tint = accentColor,
                 modifier = Modifier.size(iconSize)
             )

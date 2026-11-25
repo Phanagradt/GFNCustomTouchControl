@@ -249,7 +249,7 @@ class ScreenCaptureService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START_WITH_PROJECTION -> {
-                if (!promoteForeground("NexusPad Screen Capture Active")) {
+                if (!promoteForeground("XenosPad Screen Capture Active")) {
                     return START_NOT_STICKY
                 }
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
@@ -867,7 +867,7 @@ class ScreenCaptureService : Service() {
 
         recordingStartMs = System.currentTimeMillis()
         CaptureBridge.setRecordingState(true, 0L)
-        promoteForeground("Recording ${captureWidth}×${captureHeight} @ ${captureFps} FPS • NexusPad")
+        promoteForeground("Recording ${captureWidth}×${captureHeight} @ ${captureFps} FPS • XenosPad")
         CaptureBridge.postBanner("Recording Started (${captureWidth}×${captureHeight} • ${captureFps} FPS)")
 
         recordingTickerJob?.cancel()
@@ -1058,7 +1058,7 @@ class ScreenCaptureService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "NexusPad Capture & Instant Replay",
+                "XenosPad Capture & Instant Replay",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Notification for GeForce-style screen recording, replay buffer, and screenshots."
@@ -1082,7 +1082,7 @@ class ScreenCaptureService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("NexusPad Shadow Capture")
+            .setContentTitle("XenosPad Shadow Capture")
             .setContentText(contentText)
             .setOngoing(true)
             .setContentIntent(openAppIntent)

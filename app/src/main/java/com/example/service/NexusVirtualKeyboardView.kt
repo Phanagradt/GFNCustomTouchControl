@@ -146,8 +146,8 @@ class NexusVirtualKeyboardView(
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
 
             val brand = TextView(context).apply {
-                text = if (isFloatingMode) "FLOATING KB" else "NEXUSPAD KB"
-                setTextColor(Color.parseColor("#8CE000"))
+                text = if (isFloatingMode) "FLOATING KB" else "XENOSPAD KB"
+                setTextColor(Color.parseColor("#8E9CFF"))
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
                 paint.isFakeBoldText = true
                 maxLines = 1
@@ -158,9 +158,9 @@ class NexusVirtualKeyboardView(
 
             autoChipView = createUtilityChip(
                 label = "AUTO",
-                textHex = "#8CE000",
-                bgHex = "#1B2E12",
-                strokeHex = "#8CE000"
+                textHex = "#8E9CFF",
+                bgHex = "#252244",
+                strokeHex = "#8E9CFF"
             ) {
                 autoCorrectEnabled = !autoCorrectEnabled
                 updateAutoChipStyle()
@@ -168,7 +168,7 @@ class NexusVirtualKeyboardView(
             }
             addView(autoChipView)
 
-            langChipView = createUtilityChip("🌐 ${currentLanguage.badge}", "#8CE000") {
+            langChipView = createUtilityChip("🌐 ${currentLanguage.badge}", "#8E9CFF") {
                 currentLanguage = if (currentLanguage == KeyboardLanguage.ENGLISH) {
                     KeyboardLanguage.THAI
                 } else {
@@ -221,8 +221,8 @@ class NexusVirtualKeyboardView(
         if (!::autoChipView.isInitialized) return
         if (autoCorrectEnabled) {
             autoChipView.text = "AUTO"
-            autoChipView.setTextColor(Color.parseColor("#8CE000"))
-            autoChipView.background = keyDrawable("#1B2E12", "#8CE000", radiusDp = 8f)
+            autoChipView.setTextColor(Color.parseColor("#8E9CFF"))
+            autoChipView.background = keyDrawable("#252244", "#8E9CFF", radiusDp = 8f)
         } else {
             autoChipView.text = "RAW"
             autoChipView.setTextColor(Color.parseColor("#9FB0C7"))
@@ -250,7 +250,7 @@ class NexusVirtualKeyboardView(
                 text = if (isHighlightedAuto) "✓ $word" else word
                 setTextColor(
                     Color.parseColor(
-                        if (isHighlightedAuto) "#8CE000" else "#E2ECF8"
+                        if (isHighlightedAuto) "#8E9CFF" else "#E2ECF8"
                     )
                 )
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
@@ -259,8 +259,8 @@ class NexusVirtualKeyboardView(
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
                 background = keyDrawable(
-                    bgHex = if (isHighlightedAuto) "#1E3312" else "#141C2A",
-                    strokeHex = if (isHighlightedAuto) "#8CE000" else "#263348",
+                    bgHex = if (isHighlightedAuto) "#252244" else "#1A182B",
+                    strokeHex = if (isHighlightedAuto) "#8E9CFF" else "#263348",
                     radiusDp = 10f
                 )
                 layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
@@ -393,11 +393,11 @@ class NexusVirtualKeyboardView(
         if (!anchor.isAttachedToWindow) return
 
         val previewView = keyPreviewTextView ?: TextView(context).apply {
-            setTextColor(Color.parseColor("#8CE000"))
+            setTextColor(Color.parseColor("#8E9CFF"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
             paint.isFakeBoldText = true
             gravity = Gravity.CENTER
-            background = keyDrawable("#162336", "#8CE000", radiusDp = 12f, strokeWidthDp = 1.6f)
+            background = keyDrawable("#162336", "#8E9CFF", radiusDp = 12f, strokeWidthDp = 1.6f)
             elevation = 12f * density
             keyPreviewTextView = this
         }
@@ -544,9 +544,9 @@ class NexusVirtualKeyboardView(
                 ShiftMode.ONCE -> "⬆"
                 ShiftMode.CAPS -> "⇪"
             }
-            val shiftBg = if (shiftMode == ShiftMode.OFF) "#131A26" else "#233616"
-            val shiftStroke = if (shiftMode == ShiftMode.OFF) "#2B384E" else "#8CE000"
-            val shiftText = if (shiftMode == ShiftMode.OFF) "#D8E4F2" else "#8CE000"
+            val shiftBg = if (shiftMode == ShiftMode.OFF) "#1B192E" else "#2B2750"
+            val shiftStroke = if (shiftMode == ShiftMode.OFF) "#2B384E" else "#8E9CFF"
+            val shiftText = if (shiftMode == ShiftMode.OFF) "#D8E4F2" else "#8E9CFF"
 
             addView(
                 createKeyButton(
@@ -666,9 +666,9 @@ class NexusVirtualKeyboardView(
                     label = enterLabel,
                     weight = 1.7f,
                     heightDp = 42,
-                    bgHex = "#243A10",
-                    strokeHex = "#8CE000",
-                    textHex = "#8CE000",
+                    bgHex = "#2B2750",
+                    strokeHex = "#8E9CFF",
+                    textHex = "#8E9CFF",
                     showPopupPreview = false
                 ) {
                     composingWord.setLength(0)
@@ -737,9 +737,9 @@ class NexusVirtualKeyboardView(
         onClick: () -> Unit
     ): TextView {
         val normalBg = keyDrawable(bgHex, strokeHex)
-        val pressedBg = keyDrawable("#25391B", "#8CE000", strokeWidthDp = 1.5f)
+        val pressedBg = keyDrawable("#2C2852", "#8E9CFF", strokeWidthDp = 1.5f)
         val normalTextColor = Color.parseColor(textHex)
-        val pressedTextColor = Color.parseColor("#8CE000")
+        val pressedTextColor = Color.parseColor("#8E9CFF")
 
         return TextView(context).apply {
             text = label

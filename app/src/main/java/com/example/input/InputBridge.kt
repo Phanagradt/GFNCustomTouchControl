@@ -88,8 +88,12 @@ object InputBridge {
     val telemetry: StateFlow<List<TelemetryEvent>> = _telemetry.asStateFlow()
 
     private val _activeClusterDirections = MutableStateFlow<Map<String, Set<Int>>>(emptyMap())
+    private val activeAdsControlIds = ConcurrentHashMap.newKeySet<String>()
+    private val _isAdsActive = MutableStateFlow(false)
+    val isAdsActive: StateFlow<Boolean> = _isAdsActive.asStateFlow()
     private val activeOverlayTouchCount = AtomicInteger(0)
     private var lastSwipeTelemetryMs = 0L
+    private var lastGyroTelemetryMs = 0L
 
     private sealed interface PendingPointerAction {
         data object LeftTap : PendingPointerAction
@@ -216,13 +220,34 @@ object InputBridge {
         _targetMode.value = mode
     }
 
+    private fun isAdsBinding(sourceLabel: String, binding: InputBinding): Boolean {
+        val idLower = binding.id.lowercase()
+        val labelUpper = sourceLabel.uppercase()
+        return idLower == "btn_lt" ||
+            idLower == "mouse_right" ||
+            idLower == "mouse_m2" ||
+            binding.primaryKeyCode == KeyEvent.KEYCODE_BUTTON_L2 ||
+            labelUpper == "LT" ||
+            labelUpper == "L2" ||
+            labelUpper == "RMB" ||
+            labelUpper.contains("ADS") ||
+            labelUpper.contains("AIM")
+    }
+
     fun pressControl(controlId: String, sourceLabel: String, binding: InputBinding) {
         _pressedControlIds.update { it + controlId }
+        if (isAdsBinding(sourceLabel, binding)) {
+            activeAdsControlIds += controlId
+            _isAdsActive.value = activeAdsControlIds.isNotEmpty()
+        }
         dispatchBindingAction(sourceLabel, binding, isDown = true)
     }
 
     fun releaseControl(controlId: String, sourceLabel: String, binding: InputBinding) {
         _pressedControlIds.update { it - controlId }
+        if (activeAdsControlIds.remove(controlId)) {
+            _isAdsActive.value = activeAdsControlIds.isNotEmpty()
+        }
         dispatchBindingAction(sourceLabel, binding, isDown = false)
     }
 
@@ -233,8 +258,15 @@ object InputBridge {
         }
         if (willBeActive) {
             _pressedControlIds.update { it + controlId }
+            if (isAdsBinding(sourceLabel, binding)) {
+                activeAdsControlIds += controlId
+                _isAdsActive.value = activeAdsControlIds.isNotEmpty()
+            }
         } else {
             _pressedControlIds.update { it - controlId }
+            if (activeAdsControlIds.remove(controlId)) {
+                _isAdsActive.value = activeAdsControlIds.isNotEmpty()
+            }
         }
         dispatchBindingAction(sourceLabel, binding, isDown = willBeActive)
         return willBeActive
@@ -512,9 +544,39 @@ object InputBridge {
         _telemetry.value = emptyList()
     }
 
+    fun dispatchGyroAimDelta(dxPx: Float, dyPx: Float) {
+        if (kotlin.math.abs(dxPx) < 0.05f && kotlin.math.abs(dyPx) < 0.05f) return
+        val normX = (dxPx / 18f).coerceIn(-1f, 1f)
+        val normY = (dyPx / 18f).coerceIn(-1f, 1f)
+        _rightStick.value = StickState(x = normX, y = normY, active = true)
+
+        if (canDispatchAccessibilityGestureNow()) {
+            pointerSink?.onMouseSwipe(dxPx, dyPx)
+        }
+        val now = System.currentTimeMillis()
+        if (now - lastGyroTelemetryMs >= 220L) {
+            lastGyroTelemetryMs = now
+            recordTelemetry(
+                sourceLabel = "Gyro",
+                codeLabel = "GYRO_AIM",
+                actionName = "TILT_LOOK",
+                detail = "dx=%.1f  dy=%.1f".format(dxPx, dyPx),
+                domain = BindingDomain.MOUSE
+            )
+        }
+    }
+
+    fun resetGyroAim() {
+        if (_rightStick.value.active) {
+            _rightStick.value = StickState()
+        }
+    }
+
     fun releaseAll() {
         pendingPointerAction = null
         activeOverlayTouchCount.set(0)
+        activeAdsControlIds.clear()
+        _isAdsActive.value = false
         if (!_isAppInForeground.value) {
             pointerSink?.onMouseSwipeEnd()
             pointerSink?.onLeftButton(false)

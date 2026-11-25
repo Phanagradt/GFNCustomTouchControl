@@ -87,6 +87,8 @@ import com.example.model.LocalNexusStrings
 import com.example.model.RecordingConfigHelper
 import com.example.model.RecordingFps
 import com.example.model.RecordingResolution
+import com.example.model.GyroAimConfig
+import com.example.model.PerfHudConfig
 import com.example.model.TargetPlatformMode
 import com.example.ui.CloudSaveUiState
 import com.example.ui.SystemReadiness
@@ -94,6 +96,8 @@ import com.example.ui.components.AppColorSchemeCard
 import com.example.ui.components.CloudSaveAccountCard
 import com.example.ui.components.FloatingBubbleCustomizationCard
 import com.example.ui.components.FontCustomizationCard
+import com.example.ui.components.GyroAimSetupCard
+import com.example.ui.components.PerfHudSetupCard
 import com.example.ui.components.SmoothSlider
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.MacroCoral
@@ -113,10 +117,13 @@ fun SetupScreen(
     cloudUser: CloudUserInfo?,
     cloudSyncState: CloudSaveUiState,
     localProfileCount: Int,
+    hasHardwareGyro: Boolean,
     onCloudSignIn: () -> Unit,
     onCloudBackupNow: () -> Unit,
     onCloudRestore: () -> Unit,
     onCloudSignOut: () -> Unit,
+    onGyroAimChange: (GyroAimConfig) -> Unit,
+    onPerfHudChange: (PerfHudConfig) -> Unit,
     onVibrationModeChange: (VibrationMode) -> Unit,
     onOpacityChange: (Float) -> Unit,
     onGridSnapChange: (Boolean) -> Unit,
@@ -186,6 +193,21 @@ fun SetupScreen(
                     onBackupNowClick = onCloudBackupNow,
                     onRestoreClick = onCloudRestore,
                     onSignOutClick = onCloudSignOut
+                )
+            }
+
+            item {
+                GyroAimSetupCard(
+                    config = settings.gyroAim,
+                    hasHardwareGyro = hasHardwareGyro,
+                    onUpdate = onGyroAimChange
+                )
+            }
+
+            item {
+                PerfHudSetupCard(
+                    config = settings.perfHud,
+                    onUpdate = onPerfHudChange
                 )
             }
 

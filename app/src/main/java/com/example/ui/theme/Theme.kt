@@ -27,31 +27,39 @@ private fun buildDarkColorScheme(config: AppColorSchemeConfig): ColorScheme {
     val secondary = Color(config.effectiveSecondaryHex())
     val tertiary = Color(config.effectiveTertiaryHex())
 
+    val preset = config.preset
+    val bg = Color(preset.darkBgHex)
+    val surface = Color(preset.darkSurfaceHex)
+    val container = Color(preset.darkContainerHex)
+    val elevated = Color(preset.darkElevatedHex)
+    val outline = Color(preset.darkOutlineHex)
+    val outlineVariant = lerp(surface, outline, 0.55f)
+
     return darkColorScheme(
         primary = primary,
         onPrimary = readableOnColor(primary),
-        primaryContainer = lerp(ObsidianSurface, primary, 0.22f),
-        onPrimaryContainer = lerp(primary, Color.White, 0.20f),
+        primaryContainer = lerp(surface, primary, 0.24f),
+        onPrimaryContainer = lerp(primary, Color.White, 0.22f),
         secondary = secondary,
         onSecondary = readableOnColor(secondary),
-        secondaryContainer = lerp(ObsidianSurface, secondary, 0.22f),
-        onSecondaryContainer = lerp(secondary, Color.White, 0.20f),
+        secondaryContainer = lerp(surface, secondary, 0.24f),
+        onSecondaryContainer = lerp(secondary, Color.White, 0.22f),
         tertiary = tertiary,
         onTertiary = readableOnColor(tertiary),
-        tertiaryContainer = lerp(ObsidianSurface, tertiary, 0.22f),
-        onTertiaryContainer = lerp(tertiary, Color.White, 0.20f),
-        background = ObsidianVoid,
+        tertiaryContainer = lerp(surface, tertiary, 0.24f),
+        onTertiaryContainer = lerp(tertiary, Color.White, 0.22f),
+        background = bg,
         onBackground = SlateTextPrimary,
-        surface = ObsidianSurface,
+        surface = surface,
         onSurface = SlateTextPrimary,
-        surfaceVariant = ObsidianContainer,
+        surfaceVariant = container,
         onSurfaceVariant = SlateTextSecondary,
-        surfaceContainerLowest = ObsidianVoid,
-        surfaceContainerLow = ObsidianSurface,
-        surfaceContainer = ObsidianContainer,
-        surfaceContainerHigh = ObsidianElevated,
-        outline = ObsidianOutline,
-        outlineVariant = Color(0xFF253042),
+        surfaceContainerLowest = bg,
+        surfaceContainerLow = surface,
+        surfaceContainer = container,
+        surfaceContainerHigh = elevated,
+        outline = outline,
+        outlineVariant = outlineVariant,
         error = MacroCoral,
         onError = Color(0xFF2B000B)
     )
@@ -63,11 +71,12 @@ private fun buildLightColorScheme(config: AppColorSchemeConfig): ColorScheme {
     val rawTertiary = Color(config.effectiveTertiaryHex())
 
     fun daylightTone(c: Color): Color =
-        if (c.luminance() > 0.45f) lerp(c, Color(0xFF0E1726), 0.36f) else c
+        if (c.luminance() > 0.38f) lerp(c, Color(0xFF1A1633), 0.42f) else c
 
     val primary = daylightTone(rawPrimary)
     val secondary = daylightTone(rawSecondary)
     val tertiary = daylightTone(rawTertiary)
+    val isXenos = config.preset == com.example.model.AppThemePreset.XENOS_DEFAULT
 
     return lightColorScheme(
         primary = primary,
@@ -82,13 +91,13 @@ private fun buildLightColorScheme(config: AppColorSchemeConfig): ColorScheme {
         onTertiary = readableOnColor(tertiary),
         tertiaryContainer = lerp(Color.White, rawTertiary, 0.26f),
         onTertiaryContainer = lerp(rawTertiary, Color(0xFF0A1018), 0.72f),
-        background = DaylightBackground,
+        background = if (isXenos) Color(0xFFF3F2FA) else DaylightBackground,
         onBackground = DaylightTextPrimary,
         surface = DaylightSurface,
         onSurface = DaylightTextPrimary,
-        surfaceVariant = DaylightContainer,
+        surfaceVariant = if (isXenos) Color(0xFFE7E5F5) else DaylightContainer,
         onSurfaceVariant = DaylightTextSecondary,
-        outline = DaylightOutline,
+        outline = if (isXenos) Color(0xFFC5C1DE) else DaylightOutline,
         error = Color(0xFFD32F2F),
         onError = Color.White
     )

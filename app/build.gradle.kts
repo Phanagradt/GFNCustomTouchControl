@@ -16,8 +16,8 @@ android {
     applicationId = "com.aistudio.nexuspad.vktrmz"
     minSdk = 24
     targetSdk = 36
-    val ciVersionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 3
-    val ciVersionName = System.getenv("APP_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.3"
+    val ciVersionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 4
+    val ciVersionName = System.getenv("APP_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.4"
     val ciGithubRepo = (System.getenv("GITHUB_REPOSITORY") ?: "")
       .replace("\"", "")
       .trim()

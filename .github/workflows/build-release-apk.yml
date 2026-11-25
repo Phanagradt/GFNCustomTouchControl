@@ -1,4 +1,4 @@
-name: Build & Release NexusPad APK
+name: Build & Release XenosPad APK
 
 on:
   push:
@@ -72,7 +72,10 @@ jobs:
           elif [ -f app/google-services.json ]; then
             echo "Using committed app/google-services.json"
           else
-            echo "::notice::app/google-services.json not found. Building APK without Firebase config (add GOOGLE_SERVICES_JSON secret to enable Google Cloud Save in GitHub APKs)."
+            echo "::warning::app/google-services.json not found. Google Sign-In / Cloud Save will be disabled in this APK until you add the GOOGLE_SERVICES_JSON and NEXUSPAD_KEYSTORE_BASE64 repository secrets."
+          fi
+          if [ -f app/google-services.json ]; then
+            python3 -c 'import json; d=json.load(open("app/google-services.json")); print("Verified google-services.json for Firebase project:", d.get("project_info", {}).get("project_id"))'
           fi
 
       - name: Compute release version & APK metadata
@@ -85,7 +88,7 @@ jobs:
           fi
           VERSION_NAME="${TAG#v}"
           VERSION_CODE=$((100 + ${{ github.run_number }}))
-          APK_NAME="NexusPad-${TAG}.apk"
+          APK_NAME="XenosPad-${TAG}.apk"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
           echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
@@ -98,7 +101,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: gradle :app:testDebugUnitTest --tests com.example.ExampleUnitTest
 
-      - name: Build NexusPad APK
+      - name: Build XenosPad APK
         env:
           APP_VERSION_CODE: ${{ steps.meta.outputs.version_code }}
           APP_VERSION_NAME: ${{ steps.meta.outputs.version_name }}
@@ -121,15 +124,15 @@ jobs:
       - name: Upload APK build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NexusPad-APK
+          name: XenosPad-APK
           path: ${{ steps.meta.outputs.apk_name }}
 
       - name: Generate What's New release notes
         run: |
           {
-            echo "## NexusPad — Virtual Controller & Keyboard Mapper for GeForce NOW"
+            echo "## XenosPad — Virtual Controller & Keyboard Mapper for GeForce NOW"
             echo ""
-            echo "Download \`${{ steps.meta.outputs.apk_name }}\` below (or update directly inside **NexusPad → Setup → App Updates** without uninstalling)."
+            echo "Download \`${{ steps.meta.outputs.apk_name }}\` below (or update directly inside **XenosPad → Setup → App Updates** without uninstalling)."
             echo ""
             echo "**Build Metadata:** \`v${{ steps.meta.outputs.version_name }}\` • \`versionCode: ${{ steps.meta.outputs.version_code }}\` • Package: \`com.aistudio.nexuspad.vktrmz\`"
             if [ -n "${{ steps.verify.outputs.cert_sha256 }}" ]; then
@@ -158,16 +161,16 @@ jobs:
             fi
             echo "### Quick Setup"
             echo "1. Install \`${{ steps.meta.outputs.apk_name }}\` on your Android phone or tablet."
-            echo "2. Open **NexusPad** and go to **Setup** (or tap the readiness cards in **Cockpit**)."
+            echo "2. Open **XenosPad** and go to **Setup** (or tap the readiness cards in **Cockpit**)."
             echo "3. Grant **Display over other apps** to float custom virtual controls above GeForce NOW."
-            echo "4. Enable **NexusPad Gamepad & Keyboard** IME for live \`KeyEvent\` dispatch, or test layouts directly in the built-in **Sandbox**."
+            echo "4. Enable **XenosPad Gamepad & Keyboard** IME for live \`KeyEvent\` dispatch, or test layouts directly in the built-in **Sandbox**."
           } > release_body.md
 
       - name: Create GitHub Release with APK
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
-          name: NexusPad ${{ steps.meta.outputs.tag }}
+          name: XenosPad ${{ steps.meta.outputs.tag }}
           body_path: release_body.md
           generate_release_notes: true
           make_latest: true

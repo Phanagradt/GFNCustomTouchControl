@@ -16,8 +16,24 @@ enum class AppThemePreset(
     val displayName: String,
     val primaryHex: Long,
     val secondaryHex: Long,
-    val tertiaryHex: Long
+    val tertiaryHex: Long,
+    val darkBgHex: Long = 0xFF0B0E14,
+    val darkSurfaceHex: Long = 0xFF121721,
+    val darkContainerHex: Long = 0xFF1A2230,
+    val darkElevatedHex: Long = 0xFF222D3F,
+    val darkOutlineHex: Long = 0xFF314057
 ) {
+    XENOS_DEFAULT(
+        displayName = "Xenos Default",
+        primaryHex = 0xFF8E9CFF,
+        secondaryHex = 0xFFFF5376,
+        tertiaryHex = 0xFFF5E242,
+        darkBgHex = 0xFF13111E,
+        darkSurfaceHex = 0xFF1C1A2D,
+        darkContainerHex = 0xFF27243D,
+        darkElevatedHex = 0xFF343050,
+        darkOutlineHex = 0xFF4F4B70
+    ),
     GEFORCE_LIME("GeForce Lime", 0xFF8CE000, 0xFF00E5FF, 0xFFFFB300),
     CYBER_PINK("Cyber Neon", 0xFFFF3D9A, 0xFF00F0FF, 0xFFB388FF),
     SOLAR_GOLD("Solar Gold", 0xFFFFB300, 0xFFFF6D00, 0xFF00E5FF),
@@ -25,16 +41,16 @@ enum class AppThemePreset(
     ARCTIC_ICE("Arctic Ice", 0xFF38BDF8, 0xFF818CF8, 0xFF34D399),
     AMETHYST_PRO("Amethyst Pro", 0xFFA855F7, 0xFF22D3EE, 0xFFF472B6),
     EMERALD_PULSE("Emerald Pulse", 0xFF10B981, 0xFF38BDF8, 0xFFF59E0B),
-    CUSTOM_MIX("Custom Mix", 0xFF8CE000, 0xFF00E5FF, 0xFFFFB300)
+    CUSTOM_MIX("Custom Mix", 0xFF8E9CFF, 0xFFFF5376, 0xFFF5E242)
 }
 
 @JsonClass(generateAdapter = true)
 data class AppColorSchemeConfig(
-    val preset: AppThemePreset = AppThemePreset.GEFORCE_LIME,
+    val preset: AppThemePreset = AppThemePreset.XENOS_DEFAULT,
     val useThreeColors: Boolean = true,
-    val customPrimaryHex: Long = 0xFF8CE000,
-    val customSecondaryHex: Long = 0xFF00E5FF,
-    val customTertiaryHex: Long = 0xFFFFB300
+    val customPrimaryHex: Long = 0xFF8E9CFF,
+    val customSecondaryHex: Long = 0xFFFF5376,
+    val customTertiaryHex: Long = 0xFFF5E242
 ) {
     fun effectivePrimaryHex(): Long =
         if (preset == AppThemePreset.CUSTOM_MIX) customPrimaryHex else preset.primaryHex
@@ -50,18 +66,18 @@ data class AppColorSchemeConfig(
 
     companion object {
         val swatchColors: List<Long> = listOf(
+            0xFF8E9CFF, // Xenos Periwinkle
+            0xFF5E73D9, // Xenos Indigo
+            0xFFFF5376, // Xenos Rose
+            0xFFF5E242, // Xenos Volt Yellow
             0xFF8CE000, // GeForce Lime
             0xFF00E5FF, // Tactical Cyan
             0xFFFFB300, // Turbo Amber
             0xFFFF3D9A, // Cyber Pink
-            0xFFFF4D6D, // Crimson
             0xFFA855F7, // Amethyst
             0xFF38BDF8, // Sky Blue
             0xFF10B981, // Emerald
-            0xFFFF6D00, // Solar Orange
-            0xFF6366F1, // Indigo
-            0xFFFACC15, // Volt Yellow
-            0xFFEC4899  // Rose
+            0xFFFF6D00  // Solar Orange
         )
 
         fun blendColors(c1: Long, c2: Long, ratio: Float): Long {
@@ -81,7 +97,7 @@ data class AppColorSchemeConfig(
 }
 
 enum class AppFontPreset(val displayName: String, val subtitle: String) {
-    NEXUS_DEFAULT("Nexus Default", "Space Grotesk + Inter"),
+    NEXUS_DEFAULT("Xenos Default", "Space Grotesk + Inter"),
     CYBER_ORBITRON("Orbitron Sci-Fi", "Futuristic geometric HUD"),
     TACTICAL_RAJDHANI("Rajdhani Tactical", "Crisp esports condensed"),
     MODERN_POPPINS("Poppins Modern", "Clean geometric rounded"),
@@ -111,7 +127,7 @@ data class FloatingBubbleConfig(
     val sizeDp: Float = 56f,
     val opacity: Float = 0.92f,
     val useThemeAccent: Boolean = true,
-    val customAccentHex: Long = 0xFF8CE000,
+    val customAccentHex: Long = 0xFF8E9CFF,
     val showStatusDot: Boolean = true,
     val customIconPath: String = ""
 ) {
