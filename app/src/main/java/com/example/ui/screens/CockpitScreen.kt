@@ -25,15 +25,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WarningAmber
@@ -44,6 +48,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -71,12 +76,17 @@ import com.example.model.ControllerProfile
 import com.example.model.GfnRegionPreset
 import com.example.model.LocalNexusStrings
 import com.example.model.WebStreamQualityConfig
+import com.example.capture.CaptureBridge
 import com.example.ui.SystemReadiness
 import com.example.ui.components.BetterGfnCockpitCard
+import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.MacroCoral
 import com.example.ui.theme.MacroViolet
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TurboAmber
+import com.example.update.ApkUpgradeCompatibility
+import com.example.update.UpdateUiState
+import kotlin.math.roundToInt
 
 @Composable
 fun CockpitScreen(
@@ -86,6 +96,10 @@ fun CockpitScreen(
     isOverlayRunning: Boolean,
     vibrationMode: VibrationMode,
     webPlayerConfig: WebStreamQualityConfig,
+    updateState: UpdateUiState = UpdateUiState.Idle,
+    onDownloadUpdate: () -> Unit = {},
+    onCancelUpdateDownload: () -> Unit = {},
+    onInstallUpdate: () -> Unit = {},
     onSelectWebRegion: (GfnRegionPreset) -> Unit,
     onLaunchWebPlayer: () -> Unit,
     onVibrationModeChange: (VibrationMode) -> Unit,
@@ -111,6 +125,21 @@ fun CockpitScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            if (updateState is UpdateUiState.UpdateAvailable ||
+                updateState is UpdateUiState.Downloading ||
+                updateState is UpdateUiState.ReadyToInstall
+            ) {
+                item {
+                    CockpitInAppUpdateBanner(
+                        updateState = updateState,
+                        canInstallPackages = readiness.canInstallPackages,
+                        onDownloadUpdate = onDownloadUpdate,
+                        onCancelDownload = onCancelUpdateDownload,
+                        onInstallUpdate = onInstallUpdate
+                    )
+                }
+            }
+
             item {
                 HeroCockpitCard(
                     activeProfile = activeProfile,
@@ -712,6 +741,169 @@ fun ProfileMiniMapCanvas(
                 center = Offset(cx, cy),
                 style = Stroke(width = 1.4.dp.toPx())
             )
+        }
+    }
+}
+
+@Composable
+private fun CockpitInAppUpdateBanner(
+    updateState: UpdateUiState,
+    canInstallPackages: Boolean,
+    onDownloadUpdate: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onInstallUpdate: () -> Unit
+) {
+    val strings = LocalNexusStrings.current
+    val primary = MaterialTheme.colorScheme.primary
+    val accent = when (updateState) {
+        is UpdateUiState.ReadyToInstall -> when (updateState.compatibility) {
+            is ApkUpgradeCompatibility.Compatible -> primary
+            else -> TurboAmber
+        }
+        else -> primary
+    }
+
+    Card(
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.2.dp, accent.copy(alpha = 0.65f), MaterialTheme.shapes.large)
+            .testTag("cockpit_update_banner")
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            when (updateState) {
+                is UpdateUiState.UpdateAvailable -> {
+                    val release = updateState.release
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SystemUpdate,
+                            contentDescription = null,
+                            tint = primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${strings.updatesNewAvailable} • ${release.tagName}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = primary
+                            )
+                            val sizeLabel = if (release.apkSizeBytes > 0L) {
+                                " (${CaptureBridge.formatFileSize(release.apkSizeBytes)})"
+                            } else {
+                                ""
+                            }
+                            Text(
+                                text = "v${updateState.currentVersion} → ${release.tagName}$sizeLabel",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = JetBrainsMonoFontFamily,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (release.apkDownloadUrl != null) {
+                        Button(
+                            onClick = onDownloadUpdate,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .testTag("cockpit_download_update_button")
+                        ) {
+                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(strings.updatesDownloadAndUpdate, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                is UpdateUiState.Downloading -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${strings.updatesDownloading} ${updateState.release.tagName}...",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (updateState.totalBytes > 0L) {
+                                "${(updateState.progress * 100).roundToInt()}%"
+                            } else {
+                                CaptureBridge.formatFileSize(updateState.bytesDownloaded)
+                            },
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = TacticalCyan
+                        )
+                    }
+                    if (updateState.totalBytes > 0L) {
+                        LinearProgressIndicator(
+                            progress = { updateState.progress },
+                            color = primary,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            color = primary,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = onCancelDownload,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp)
+                            .testTag("cockpit_cancel_download_button")
+                    ) {
+                        Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(strings.updatesCancelDownload)
+                    }
+                }
+
+                is UpdateUiState.ReadyToInstall -> {
+                    Text(
+                        text = "${strings.updatesReadyTitle} • ${updateState.release.tagName}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = accent
+                    )
+                    Button(
+                        onClick = onInstallUpdate,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = accent,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .testTag("cockpit_install_update_button")
+                    ) {
+                        Icon(Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = if (canInstallPackages) strings.updatesInstallButton else strings.updatesAllowAndInstall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                else -> Unit
+            }
         }
     }
 }

@@ -236,7 +236,7 @@ class NexusStrings internal constructor() {
 
     // Setup: App Updates
     var updatesCardTitle: String = "APP UPDATES (GITHUB RELEASES)"; internal set
-    var updatesCardSubtitle: String = "Check GitHub Releases for newer versions and open the latest release page to download."; internal set
+    var updatesCardSubtitle: String = "Check GitHub Releases, download the signed APK in-app, and update in-place without losing your layouts or data."; internal set
     var updatesInstalledVersion: String = "Installed Version"; internal set
     var updatesSigningKeyLabel: String = "Signing Key SHA-256"; internal set
     var updatesRepoLabel: String = "GitHub Repository (owner/repo)"; internal set
@@ -248,8 +248,8 @@ class NexusStrings internal constructor() {
     var updatesCheckButton: String = "Check for Updates"; internal set
     var updatesChecking: String = "Checking GitHub Releases..."; internal set
     var updatesUpToDate: String = "You're up to date!"; internal set
-    var updatesNewAvailable: String = "Update available, download at GitHub"; internal set
-    var updatesDownloadAndUpdate: String = "Download at GitHub"; internal set
+    var updatesNewAvailable: String = "New update available"; internal set
+    var updatesDownloadAndUpdate: String = "Download & Install Update"; internal set
     var updatesDownloading: String = "Downloading"; internal set
     var updatesCancelDownload: String = "Cancel Download"; internal set
     var updatesReadyTitle: String = "Ready to install"; internal set
@@ -669,7 +669,7 @@ object AppLocalization {
         recAutoFallbackNote = "ปรับลดอัตโนมัติ: หากชิปเครื่องไม่รองรับ 1440p หรือ 90/120 FPS แอปจะลดลงมาที่ค่าระดับสูงสุดที่เสถียรให้อัตโนมัติ"
 
         updatesCardTitle = "อัปเดตแอป (GITHUB RELEASES)"
-        updatesCardSubtitle = "ตรวจสอบเวอร์ชันใหม่บน GitHub Releases และเปิดหน้าดาวน์โหลดรุ่นล่าสุด"
+        updatesCardSubtitle = "ตรวจสอบ GitHub Releases ดาวน์โหลด APK ในแอป และอัปเดตทับทันทีโดยไม่ลบข้อมูล"
         updatesInstalledVersion = "เวอร์ชันที่ติดตั้งอยู่"
         updatesSigningKeyLabel = "ลายเซ็นคีย์ SHA-256"
         updatesRepoLabel = "คลัง GitHub (owner/repo)"
@@ -681,8 +681,8 @@ object AppLocalization {
         updatesCheckButton = "ตรวจสอบอัปเดต"
         updatesChecking = "กำลังตรวจสอบ GitHub Releases..."
         updatesUpToDate = "คุณใช้เวอร์ชันล่าสุดแล้ว!"
-        updatesNewAvailable = "มีอัปเดตใหม่ ดาวน์โหลดได้ที่ GitHub"
-        updatesDownloadAndUpdate = "ดาวน์โหลดที่ GitHub"
+        updatesNewAvailable = "มีอัปเดตใหม่พร้อมติดตั้ง"
+        updatesDownloadAndUpdate = "ดาวน์โหลดและอัปเดตในแอป"
         updatesDownloading = "กำลังดาวน์โหลด"
         updatesCancelDownload = "ยกเลิกการดาวน์โหลด"
         updatesReadyTitle = "พร้อมติดตั้ง"
@@ -1057,7 +1057,7 @@ object AppLocalization {
         recAutoFallbackNote = "Auto-ajuste: si el hardware limita 1440p o 90/120 FPS, XenosPad selecciona automáticamente el máximo estable."
 
         updatesCardTitle = "ACTUALIZACIONES (GITHUB RELEASES)"
-        updatesCardSubtitle = "Comprueba si hay nuevas versiones en GitHub Releases y abre la página oficial de descarga."
+        updatesCardSubtitle = "Comprueba GitHub Releases, descarga el APK en la app y actualiza encima sin perder tus datos."
         updatesInstalledVersion = "Versión Instalada"
         updatesSigningKeyLabel = "Firma SHA-256"
         updatesRepoLabel = "Repositorio GitHub (owner/repo)"
@@ -1069,8 +1069,8 @@ object AppLocalization {
         updatesCheckButton = "Buscar Actualizaciones"
         updatesChecking = "Consultando GitHub Releases..."
         updatesUpToDate = "¡Estás al día!"
-        updatesNewAvailable = "Actualización disponible, descárgala en GitHub"
-        updatesDownloadAndUpdate = "Descargar en GitHub"
+        updatesNewAvailable = "Nueva actualización disponible"
+        updatesDownloadAndUpdate = "Descargar e instalar actualización"
         updatesDownloading = "Descargando"
         updatesCancelDownload = "Cancelar Descarga"
         updatesReadyTitle = "Lista para instalar"
@@ -1445,7 +1445,7 @@ object AppLocalization {
         recAutoFallbackNote = "自動調整: 端末の上限を超える場合、安定した最高解像度・FPS へ自動調整します。"
 
         updatesCardTitle = "アプリ更新 (GITHUB RELEASES)"
-        updatesCardSubtitle = "GitHub Releases で最新バージョンを確認し、リリースページからダウンロードできます。"
+        updatesCardSubtitle = "GitHub Releases を確認し、アプリ内で署名済み APK をダウンロードしてデータを保持したまま上書き更新します。"
         updatesInstalledVersion = "現在のバージョン"
         updatesSigningKeyLabel = "署名鍵 SHA-256"
         updatesRepoLabel = "GitHub リポジトリ (owner/repo)"
@@ -1457,8 +1457,8 @@ object AppLocalization {
         updatesCheckButton = "アップデートを確認"
         updatesChecking = "GitHub Releases を確認中..."
         updatesUpToDate = "最新バージョンです！"
-        updatesNewAvailable = "アップデートがあります。GitHub からダウンロード"
-        updatesDownloadAndUpdate = "GitHub でダウンロード"
+        updatesNewAvailable = "新しいアップデートがあります"
+        updatesDownloadAndUpdate = "アプリ内でダウンロード＆更新"
         updatesDownloading = "ダウンロード中"
         updatesCancelDownload = "キャンセル"
         updatesReadyTitle = "インストール準備完了"
@@ -1833,7 +1833,7 @@ object AppLocalization {
         recAutoFallbackNote = "自动降级保护：若手机硬件不支持 1440p 或 90/120 FPS，将自动选择最高稳定规格。"
 
         updatesCardTitle = "应用更新 (GITHUB RELEASES)"
-        updatesCardSubtitle = "检查 GitHub Releases 最新版本，并跳转到最新发版页面下载。"
+        updatesCardSubtitle = "检查 GitHub Releases 并在应用内下载签名 APK，直接覆盖安装且保留全部布局与数据。"
         updatesInstalledVersion = "当前安装版本"
         updatesSigningKeyLabel = "签名指纹 SHA-256"
         updatesRepoLabel = "GitHub 仓库 (owner/repo)"
@@ -1845,8 +1845,8 @@ object AppLocalization {
         updatesCheckButton = "检查更新"
         updatesChecking = "正在检查 GitHub Releases..."
         updatesUpToDate = "已是最新版本！"
-        updatesNewAvailable = "有可用更新，请前往 GitHub 下载"
-        updatesDownloadAndUpdate = "前往 GitHub 下载"
+        updatesNewAvailable = "发现新版本更新"
+        updatesDownloadAndUpdate = "应用内下载并安装更新"
         updatesDownloading = "正在下载"
         updatesCancelDownload = "取消下载"
         updatesReadyTitle = "准备安装"

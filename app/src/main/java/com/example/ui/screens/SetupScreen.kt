@@ -1245,9 +1245,9 @@ private fun GitHubUpdateCard(
                                 }
                             }
 
-                            if (latestReleasePageUrl.isNotBlank()) {
+                            if (release.apkDownloadUrl != null) {
                                 Button(
-                                    onClick = { onOpenReleaseUrl(latestReleasePageUrl) },
+                                    onClick = onDownloadUpdate,
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = primary,
                                         contentColor = MaterialTheme.colorScheme.onPrimary
@@ -1255,11 +1255,25 @@ private fun GitHubUpdateCard(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(48.dp)
-                                        .testTag("setup_open_release_button")
+                                        .testTag("setup_download_update_button")
                                 ) {
-                                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(8.dp))
                                     Text(strings.updatesDownloadAndUpdate, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            if (latestReleasePageUrl.isNotBlank()) {
+                                OutlinedButton(
+                                    onClick = { onOpenReleaseUrl(latestReleasePageUrl) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(44.dp)
+                                        .testTag("setup_open_release_button")
+                                ) {
+                                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("GitHub Release Page")
                                 }
                             }
                         }

@@ -326,6 +326,11 @@ fun WebPlayerQuickMenuCard(
         modifier = modifier
             .widthIn(min = 300.dp, max = 380.dp)
             .border(1.dp, accentColor.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
+            .pointerInput(Unit) {
+                // Stop sibling hit-testing at the menu bounds so touches inside the card
+                // never fall through to the outside-tap dismiss scrim while keeping child
+                // sliders, chips, and vertical scrolling completely unobstructed.
+            }
             .testTag("web_player_quick_menu")
     ) {
         Column(
@@ -450,21 +455,43 @@ fun WebPlayerQuickMenuCard(
 
             // Region Bypass quick switcher
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(
-                    imageVector = Icons.Default.Public,
-                    contentDescription = null,
-                    tint = TacticalCyan,
-                    modifier = Modifier.size(15.dp)
-                )
-                Text(
-                    text = strings.webPlayerRegionHeader,
-                    color = TacticalCyan,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Public,
+                        contentDescription = null,
+                        tint = TacticalCyan,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = strings.webPlayerRegionHeader,
+                        color = TacticalCyan,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = accentColor.copy(alpha = 0.18f)
+                ) {
+                    Text(
+                        text = "FREE 1H",
+                        color = accentColor,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JetBrainsMonoFontFamily,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
             }
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),

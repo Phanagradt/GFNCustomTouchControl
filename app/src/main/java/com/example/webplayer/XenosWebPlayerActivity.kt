@@ -19,10 +19,13 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -57,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -616,6 +620,10 @@ private fun WebPlayerScreenContent(
 
     val displayedProfile = if (isLiveEditMode) liveEditDraft ?: activeProfile else activeProfile
 
+    BackHandler(enabled = menuExpanded && !isLiveEditMode) {
+        menuExpanded = false
+    }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -770,7 +778,13 @@ private fun WebPlayerScreenContent(
                 accentColor = accent,
                 regionActive = settings.webPlayerConfig.regionPreset.isEnabled,
                 controlsVisible = controlsVisible,
-                onClick = { menuExpanded = !menuExpanded },
+                onClick = {
+                    val opening = !menuExpanded
+                    if (opening) {
+                        InputBridge.releaseAll()
+                    }
+                    menuExpanded = opening
+                },
                 onDrag = { dx, dy ->
                     bubbleOffsetX = (bubbleOffsetX + dx).coerceIn(0f, maxBubbleX)
                     bubbleOffsetY = (bubbleOffsetY + dy).coerceIn(0f, maxBubbleY)
@@ -781,8 +795,32 @@ private fun WebPlayerScreenContent(
             )
         }
 
-        // 7. Slide-Out Quick Menu Card
+        // 7. Touch-Blocking Scrim + Slide-Out Quick Menu Card
+        // While the menu is open, all touches outside the menu are intercepted and consumed
+        // so nothing underneath (WebView, virtual buttons, bubble) can be triggered; tapping
+        // outside automatically closes the menu first before normal screen touches resume.
         if (menuExpanded && !isLiveEditMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.42f))
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            down.consume()
+                            var allReleased = false
+                            while (!allReleased) {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { it.consume() }
+                                if (event.changes.none { it.pressed }) {
+                                    allReleased = true
+                                }
+                            }
+                            menuExpanded = false
+                        }
+                    }
+                    .testTag("web_player_menu_scrim")
+            )
             WebPlayerQuickMenuCard(
                 activeProfile = activeProfile,
                 allProfiles = allProfiles,

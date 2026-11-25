@@ -162,21 +162,41 @@ fun BetterGfnCockpitCard(
 
                 // Quick Region Bypass bar right on Cockpit
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Public,
-                        contentDescription = null,
-                        tint = TacticalCyan,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = strings.webPlayerRegionHeader,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TacticalCyan,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Public,
+                            contentDescription = null,
+                            tint = TacticalCyan,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = strings.webPlayerRegionHeader,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TacticalCyan,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = primary.copy(alpha = 0.16f)
+                    ) {
+                        Text(
+                            text = "FREE 1H TIER",
+                            color = primary,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = JetBrainsMonoFontFamily,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -278,11 +298,31 @@ fun WebPlayerSetupCard(
             }
 
             // Region Bypass selector
-            Text(
-                text = strings.webPlayerRegionHeader,
-                style = MaterialTheme.typography.labelMedium,
-                color = primary
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = strings.webPlayerRegionHeader,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = primary,
+                    modifier = Modifier.weight(1f)
+                )
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = primary.copy(alpha = 0.16f)
+                ) {
+                    Text(
+                        text = "ALL FREE 1H TIER",
+                        color = primary,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JetBrainsMonoFontFamily,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -291,7 +331,16 @@ fun WebPlayerSetupCard(
                     FilterChip(
                         selected = config.regionPreset == region,
                         onClick = { onUpdate(config.copy(regionPreset = region)) },
-                        label = { Text(region.displayName, fontSize = 12.sp) },
+                        label = {
+                            Text(
+                                text = if (region.hasFreeOneHourTier) {
+                                    "${region.displayName} • ${region.tierLabel}"
+                                } else {
+                                    region.displayName
+                                },
+                                fontSize = 12.sp
+                            )
+                        },
                         modifier = Modifier.testTag("setup_region_${region.name.lowercase()}")
                     )
                 }

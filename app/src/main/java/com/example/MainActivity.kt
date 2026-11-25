@@ -505,6 +505,10 @@ private fun NexusPadAppShell(
                                 isOverlayRunning = isOverlayRunning,
                                 vibrationMode = settings.vibrationMode,
                                 webPlayerConfig = settings.webPlayerConfig,
+                                updateState = updateState,
+                                onDownloadUpdate = viewModel::downloadAvailableUpdate,
+                                onCancelUpdateDownload = viewModel::cancelUpdateDownload,
+                                onInstallUpdate = viewModel::installDownloadedUpdate,
                                 onSelectWebRegion = { region ->
                                     viewModel.updateWebPlayerConfig(
                                         settings.webPlayerConfig.copy(regionPreset = region)

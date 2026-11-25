@@ -808,7 +808,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                             release = release
                         )
                         if (!silent) {
-                            _snackbarMessage.value = "Update available (${release.tagName}) — download at GitHub!"
+                            _snackbarMessage.value = "Update available (${release.tagName}) — tap Download & Install!"
                         }
                     } else {
                         if (!silent) {

@@ -1414,6 +1414,19 @@ class ExampleUnitTest {
         assertFalse(BetterGfnScriptEngine.isTrustedGfnOrigin("http://play.geforcenow.com"))
         assertFalse(BetterGfnScriptEngine.isTrustedGfnOrigin("https://evil.example.com"))
 
+        val nlConfig = WebStreamQualityConfig(regionPreset = GfnRegionPreset.NETHERLANDS)
+        val nlHeaders = BetterGfnScriptEngine.buildNavigationHeaders(nlConfig)
+        assertEquals(GfnRegionPreset.NETHERLANDS.fakeIp, nlHeaders["X-Forwarded-For"])
+        assertEquals("Europe/Amsterdam", GfnRegionPreset.NETHERLANDS.timeZone)
+        assertTrue(GfnRegionPreset.NETHERLANDS.hasFreeOneHourTier)
+
+        val activeRegions = GfnRegionPreset.entries.filter { it.isEnabled }
+        assertTrue("Must have active GFN regions", activeRegions.isNotEmpty())
+        assertTrue("Every enabled VPN server must support Free 1h tier", activeRegions.all { it.hasFreeOneHourTier })
+        assertTrue("Every enabled VPN server must have valid IP, language, and timezone", activeRegions.all {
+            it.fakeIp.isNotBlank() && it.acceptLanguage.isNotBlank() && it.timeZone.isNotBlank()
+        })
+
         val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
         val adapter = moshi.adapter(WebStreamQualityConfig::class.java)
         assertEquals(jpConfig, adapter.fromJson(adapter.toJson(jpConfig)))

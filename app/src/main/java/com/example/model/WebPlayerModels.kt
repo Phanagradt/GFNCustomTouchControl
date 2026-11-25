@@ -4,6 +4,8 @@ import com.squareup.moshi.JsonClass
 
 /**
  * Better xCloud-style Region Bypass presets for play.geforcenow.com.
+ * Every active region routes to an official NVIDIA-operated GeForce NOW region
+ * that supports the Free 1-Hour Session tier (no paid-only Alliance Partner regions).
  * Uses regional X-Forwarded-For, Accept-Language, and optional Intl timezone/locale
  * headers on GeForce NOW endpoints (not a remote encrypted VPN tunnel).
  */
@@ -12,19 +14,22 @@ enum class GfnRegionPreset(
     val shortCode: String,
     val fakeIp: String,
     val acceptLanguage: String,
-    val timeZone: String
+    val timeZone: String,
+    val hasFreeOneHourTier: Boolean = true,
+    val tierLabel: String = "Free 1h"
 ) {
-    OFF("Off (Local IP)", "OFF", "", "", ""),
+    OFF("Off (Local IP)", "OFF", "", "", "", hasFreeOneHourTier = false, tierLabel = ""),
+    NETHERLANDS("Netherlands (Amsterdam)", "NL", "35.204.118.42", "nl-NL,nl;q=0.9,en-US;q=0.8", "Europe/Amsterdam"),
     US_WEST("US West (California)", "US-W", "104.196.112.42", "en-US,en;q=0.9", "America/Los_Angeles"),
     US_EAST("US East (Virginia)", "US-E", "35.199.48.19", "en-US,en;q=0.9", "America/New_York"),
     US_CENTRAL("US Central (Texas)", "US-C", "34.122.90.14", "en-US,en;q=0.9", "America/Chicago"),
-    EU_CENTRAL("EU Central (Frankfurt)", "EU-C", "35.198.114.27", "en-GB,en;q=0.9,de;q=0.8", "Europe/Berlin"),
-    EU_WEST("EU West (London)", "EU-W", "35.189.96.18", "en-GB,en;q=0.9", "Europe/London"),
-    JAPAN("Japan (Tokyo)", "JP", "34.84.128.55", "ja-JP,ja;q=0.9,en-US;q=0.8", "Asia/Tokyo"),
-    SOUTH_KOREA("South Korea (Seoul)", "KR", "34.64.92.31", "ko-KR,ko;q=0.9,en-US;q=0.8", "Asia/Seoul"),
-    SINGAPORE("Singapore (SEA)", "SG", "34.87.140.22", "en-SG,en;q=0.9", "Asia/Singapore"),
-    TAIWAN("Taiwan (Taipei)", "TW", "35.194.180.64", "zh-TW,zh;q=0.9,en-US;q=0.8", "Asia/Taipei"),
-    AUSTRALIA("Australia (Sydney)", "AU", "35.189.44.71", "en-AU,en;q=0.9", "Australia/Sydney");
+    CANADA_EAST("Canada East (Montreal)", "CA-E", "35.203.92.18", "en-CA,en;q=0.9,fr-CA;q=0.8", "America/Toronto"),
+    EU_CENTRAL("Germany (Frankfurt)", "DE", "35.198.114.27", "de-DE,de;q=0.9,en-GB;q=0.8", "Europe/Berlin"),
+    EU_WEST("UK (London)", "UK", "35.189.96.18", "en-GB,en;q=0.9", "Europe/London"),
+    EU_SOUTHWEST("France (Paris)", "FR", "34.155.84.29", "fr-FR,fr;q=0.9,en-US;q=0.8", "Europe/Paris"),
+    EU_NORTHEAST("Sweden (Stockholm)", "SE", "34.88.112.45", "sv-SE,sv;q=0.9,en-GB;q=0.8", "Europe/Stockholm"),
+    EU_EAST("Poland (Warsaw)", "PL", "34.118.64.21", "pl-PL,pl;q=0.9,en-GB;q=0.8", "Europe/Warsaw"),
+    JAPAN("Japan (Tokyo)", "JP", "34.84.128.55", "ja-JP,ja;q=0.9,en-US;q=0.8", "Asia/Tokyo");
 
     val isEnabled: Boolean
         get() = this != OFF && fakeIp.isNotBlank()
