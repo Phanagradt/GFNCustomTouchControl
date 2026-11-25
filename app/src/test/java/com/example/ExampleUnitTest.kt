@@ -45,13 +45,17 @@ import com.example.model.FloatingBubbleConfig
 import com.example.model.FloatingBubbleStyle
 import com.example.model.GyroActivationMode
 import com.example.model.GyroAimConfig
+import com.example.model.GfnRegionPreset
 import com.example.model.PerfHudConfig
 import com.example.model.TouchpadMode
+import com.example.model.WebPlayerUserAgentMode
+import com.example.model.WebStreamQualityConfig
 import com.example.service.KeyboardWordPredictor
 import com.example.service.PerformanceMonitor
 import com.example.ui.components.computeOverlayBlurRadius
 import com.example.ui.components.computeOverlayDimAmount
 import com.example.update.GitHubUpdateManager
+import com.example.webplayer.BetterGfnScriptEngine
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.util.Locale
@@ -1378,7 +1382,219 @@ class ExampleUnitTest {
             assertFalse("$lang liveEditTile should be translated", s.liveEditTile == english.liveEditTile)
         }
     }
+
+    @Test
+    fun `better gfn region bypass headers bootstrap js and config moshi round trip work`() {
+        val offConfig = WebStreamQualityConfig()
+        assertFalse(offConfig.regionPreset.isEnabled)
+        assertTrue(BetterGfnScriptEngine.buildNavigationHeaders(offConfig).isEmpty())
+
+        val jpConfig = WebStreamQualityConfig(
+            regionPreset = GfnRegionPreset.JAPAN,
+            userAgentMode = WebPlayerUserAgentMode.CHROME_OS,
+            spoofTimezoneAndLocale = true,
+            enableVirtualGamepad = true,
+            stretchVideoToFill = true,
+            enableCssFilters = true,
+            showWebRtcStatsHud = true
+        )
+        val headers = BetterGfnScriptEngine.buildNavigationHeaders(jpConfig)
+        assertEquals(GfnRegionPreset.JAPAN.fakeIp, headers["X-Forwarded-For"])
+        assertEquals(GfnRegionPreset.JAPAN.acceptLanguage, headers["Accept-Language"])
+
+        val bootstrap = BetterGfnScriptEngine.buildBootstrapScript(jpConfig)
+        assertTrue(bootstrap.contains(GfnRegionPreset.JAPAN.fakeIp))
+        assertTrue(bootstrap.contains("Asia/Tokyo"))
+        assertTrue(bootstrap.contains("navigator.getGamepads"))
+        assertTrue(bootstrap.contains("window.__xenosInput"))
+        assertTrue(bootstrap.contains("RTCPeerConnection"))
+
+        assertTrue(BetterGfnScriptEngine.isTrustedGfnOrigin("https://play.geforcenow.com/mall/"))
+        assertTrue(BetterGfnScriptEngine.isTrustedGfnOrigin("https://login.nvidia.com/authorize"))
+        assertFalse(BetterGfnScriptEngine.isTrustedGfnOrigin("http://play.geforcenow.com"))
+        assertFalse(BetterGfnScriptEngine.isTrustedGfnOrigin("https://evil.example.com"))
+
+        val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        val adapter = moshi.adapter(WebStreamQualityConfig::class.java)
+        assertEquals(jpConfig, adapter.fromJson(adapter.toJson(jpConfig)))
+    }
+
+    @Test
+    fun `better gfn script engine maps gamepad buttons dom keys css filters and webrtc stats`() {
+        assertEquals(0, BetterGfnScriptEngine.mapKeyCodeToGamepadButtonIndex(KeyEvent.KEYCODE_BUTTON_A))
+        assertEquals(1, BetterGfnScriptEngine.mapKeyCodeToGamepadButtonIndex(KeyEvent.KEYCODE_BUTTON_B))
+        assertEquals(2, BetterGfnScriptEngine.mapKeyCodeToGamepadButtonIndex(KeyEvent.KEYCODE_BUTTON_X))
+        assertEquals(3, BetterGfnScriptEngine.mapKeyCodeToGamepadButtonIndex(KeyEvent.KEYCODE_BUTTON_Y))
+        assertEquals(6, BetterGfnScriptEngine.mapKeyCodeToGamepadButtonIndex(KeyEvent.KEYCODE_BUTTON_L2))
+        assertEquals(7, BetterGfnScriptEngine.mapKeyCodeToGamepadButtonIndex(KeyEvent.KEYCODE_BUTTON_R2))
+        assertEquals(9, BetterGfnScriptEngine.mapKeyCodeToGamepadButtonIndex(KeyEvent.KEYCODE_BUTTON_START))
+        assertEquals(16, BetterGfnScriptEngine.mapKeyCodeToGamepadButtonIndex(KeyEvent.KEYCODE_BUTTON_MODE))
+        assertEquals(null, BetterGfnScriptEngine.mapKeyCodeToGamepadButtonIndex(KeyEvent.KEYCODE_W))
+
+        val keyW = BetterGfnScriptEngine.mapKeyCodeToDomKey(KeyEvent.KEYCODE_W)
+        assertEquals("KeyW", keyW.code)
+        assertEquals("w", keyW.key)
+        assertEquals(87, keyW.keyCode)
+
+        val keySpace = BetterGfnScriptEngine.mapKeyCodeToDomKey(KeyEvent.KEYCODE_SPACE)
+        assertEquals("Space", keySpace.code)
+        assertEquals(32, keySpace.keyCode)
+
+        val keyShift = BetterGfnScriptEngine.mapKeyCodeToDomKey(KeyEvent.KEYCODE_SHIFT_LEFT)
+        assertEquals("ShiftLeft", keyShift.code)
+        assertEquals("Shift", keyShift.key)
+
+        assertEquals("none", BetterGfnScriptEngine.buildCssFilterString(null))
+        val styled = GameFilterStyle(
+            slot = 1,
+            name = "Vivid",
+            brightnessContrastEnabled = true,
+            exposure = 0.25f,
+            contrast = 0.30f,
+            colorEnabled = true,
+            colorVibrance = 0.40f,
+            temperature = 0.20f,
+            sepiaEnabled = true,
+            sepiaIntensity = 0.25f
+        )
+        val css = BetterGfnScriptEngine.buildCssFilterString(styled)
+        assertTrue(css.contains("brightness("))
+        assertTrue(css.contains("contrast("))
+        assertTrue(css.contains("saturate("))
+        assertTrue(css.contains("hue-rotate("))
+        assertTrue(css.contains("sepia("))
+
+        val videoJs = BetterGfnScriptEngine.buildVideoStyleScript(styled, stretchToFill = true, enableCssFilters = true)
+        assertTrue(videoJs.contains("objectFit: 'fill'"))
+        assertTrue(videoJs.contains("MutationObserver"))
+
+        val statsJson = """{"fps":60,"rttMs":24,"bitrateMbps":32.5,"packetLossPercent":0.12,"jitterMs":1.4,"decodeMs":4.2,"resolution":"1920x1080","codec":"H264","connected":true}"""
+        val stats = BetterGfnScriptEngine.parseWebRtcStatsJson(statsJson, nowMs = 1234L)
+        assertEquals(60, stats.fps)
+        assertEquals(24, stats.rttMs)
+        assertEquals(32.5f, stats.bitrateMbps, 0.01f)
+        assertEquals(0.12f, stats.packetLossPercent, 0.01f)
+        assertEquals("1920x1080", stats.resolution)
+        assertEquals("H264", stats.codec)
+        assertTrue(stats.connected)
+        assertEquals(1234L, stats.updatedAtMs)
+    }
+
+    @Test
+    fun `InputBridge WebInputSink intercepts gamepad keyboard mouse stick and gyro inputs directly`() {
+        val log = mutableListOf<String>()
+        val sink = object : InputBridge.WebInputSink {
+            override fun onGamepadButton(androidKeyCode: Int, isDown: Boolean) {
+                log += "PAD:$androidKeyCode:$isDown"
+            }
+
+            override fun onKeyboardKey(androidKeyCode: Int, metaState: Int, isDown: Boolean) {
+                log += "KEY:$androidKeyCode:$isDown"
+            }
+
+            override fun onMouseButton(button: Int, isDown: Boolean) {
+                log += "MB:$button:$isDown"
+            }
+
+            override fun onMouseScroll(scrollUp: Boolean) {
+                log += "WHEEL:$scrollUp"
+            }
+
+            override fun onMouseMove(dxPx: Float, dyPx: Float) {
+                log += "MOVE:${dxPx.toInt()},${dyPx.toInt()}"
+            }
+
+            override fun onAnalogStick(isLeft: Boolean, x: Float, y: Float) {
+                log += "STICK:$isLeft:${(x * 100).toInt()},${(y * 100).toInt()}"
+            }
+
+            override fun onResetAll() {
+                log += "RESET"
+            }
+        }
+
+        try {
+            InputBridge.attachWebInputSink(sink)
+            InputBridge.pressControl("a_btn", "A", CommandCatalog.findById("btn_a"))
+            InputBridge.pressControl("w_key", "W", CommandCatalog.findById("key_w"))
+            InputBridge.pressControl("lmb_btn", "LMB", CommandCatalog.findById("mouse_left"))
+            InputBridge.updateAnalogStick(AxisPair.LEFT_STICK, "L-Stick", 0.8f, -0.5f, 0.1f, 1.0f, true)
+            InputBridge.dispatchGyroAimDelta(12f, -6f)
+            InputBridge.releaseAll()
+
+            assertTrue(log.contains("PAD:${KeyEvent.KEYCODE_BUTTON_A}:true"))
+            assertTrue(log.contains("KEY:${KeyEvent.KEYCODE_W}:true"))
+            assertTrue(log.contains("MB:0:true"))
+            assertTrue(log.any { it.startsWith("STICK:true:") })
+            assertTrue(log.contains("MOVE:12,-6"))
+            assertTrue(log.contains("RESET"))
+        } finally {
+            InputBridge.attachWebInputSink(null)
+        }
+    }
+
+    @Test
+    fun `web player and region bypass strings are localized across all 5 languages`() {
+        val english = AppLocalization.stringsFor(AppLanguage.ENGLISH)
+        listOf(AppLanguage.THAI, AppLanguage.SPANISH, AppLanguage.JAPANESE, AppLanguage.CHINESE).forEach { lang ->
+            val s = AppLocalization.stringsFor(lang)
+            assertTrue("$lang webPlayerTitle blank", s.webPlayerTitle.isNotBlank())
+            assertTrue("$lang webPlayerLaunchButton blank", s.webPlayerLaunchButton.isNotBlank())
+            assertTrue("$lang webPlayerRegionHeader blank", s.webPlayerRegionHeader.isNotBlank())
+            assertTrue("$lang webPlayerRegionNote blank", s.webPlayerRegionNote.isNotBlank())
+            assertFalse("$lang webPlayerLaunchButton should be translated", s.webPlayerLaunchButton == english.webPlayerLaunchButton)
+            assertFalse("$lang webPlayerRegionHeader should be translated", s.webPlayerRegionHeader == english.webPlayerRegionHeader)
+        }
+    }
+
+    @Test
+    fun `better gfn web video filter generates valid svg color matrix and sharpen kernel`() {
+        val neutral = GameFilterStyle(slot = 1, name = "Neutral")
+        assertEquals(null, BetterGfnScriptEngine.buildSharpenKernelMatrix(neutral))
+
+        val clarityStyle = GameFilterStyle(
+            slot = 1,
+            name = "Clarity+",
+            sharpenEnabled = true,
+            sharpenAmount = 0.6f,
+            brightnessContrastEnabled = true,
+            exposure = 0.2f,
+            contrast = 0.25f,
+            colorEnabled = true,
+            colorVibrance = 0.4f,
+            colorblindEnabled = true,
+            colorblindMode = ColorblindMode.DEUTERANOPIA,
+            colorblindIntensity = 0.5f,
+            vignetteEnabled = true,
+            vignetteIntensity = 0.4f,
+            letterboxEnabled = true,
+            letterboxHeight = 0.12f
+        )
+
+        val kernel = BetterGfnScriptEngine.buildSharpenKernelMatrix(clarityStyle)
+        assertNotNull(kernel)
+        val kernelNums = kernel!!.split(" ").map { it.toFloat() }
+        assertEquals(9, kernelNums.size)
+        assertEquals("Unsharp mask weights must sum to 1.0", 1.0f, kernelNums.sum(), 0.01f)
+
+        val matrixStr = BetterGfnScriptEngine.buildSvgColorMatrixValues(clarityStyle)
+        val matrixNums = matrixStr.split(" ").map { it.toFloat() }
+        assertEquals(20, matrixNums.size)
+        assertEquals("Alpha row must stay identity", 1.0f, matrixNums[18], 0.001f)
+
+        val js = BetterGfnScriptEngine.buildVideoStyleScript(
+            style = clarityStyle,
+            stretchToFill = true,
+            enableCssFilters = true
+        )
+        assertTrue(js.contains("xenos-gfn-video-filter"))
+        assertTrue(js.contains("feConvolveMatrix"))
+        assertTrue(js.contains("feColorMatrix"))
+        assertTrue(js.contains("shadowRoot"))
+        assertTrue(js.contains("xenos-gfn-fx-layer"))
+    }
 }
+
 
 
 

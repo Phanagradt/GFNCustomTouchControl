@@ -106,6 +106,7 @@ import com.example.ui.screens.TestArenaScreen
 import com.example.ui.theme.NexusPadTheme
 import com.example.update.UpdateUiState
 import com.example.util.SystemIntegrations
+import com.example.webplayer.XenosWebPlayerActivity
 
 object NexusRoutes {
     const val COCKPIT = "cockpit"
@@ -503,6 +504,15 @@ private fun NexusPadAppShell(
                                 readiness = readiness,
                                 isOverlayRunning = isOverlayRunning,
                                 vibrationMode = settings.vibrationMode,
+                                webPlayerConfig = settings.webPlayerConfig,
+                                onSelectWebRegion = { region ->
+                                    viewModel.updateWebPlayerConfig(
+                                        settings.webPlayerConfig.copy(regionPreset = region)
+                                    )
+                                },
+                                onLaunchWebPlayer = {
+                                    XenosWebPlayerActivity.launch(context)
+                                },
                                 onVibrationModeChange = viewModel::setVibrationMode,
                                 onToggleOverlay = toggleOverlayAction,
                                 onSelectProfile = viewModel::setActiveProfile,
@@ -666,6 +676,10 @@ private fun NexusPadAppShell(
                                 onCloudBackupNow = viewModel::backupAllLayoutsToCloud,
                                 onCloudRestore = viewModel::restoreLayoutsFromCloud,
                                 onCloudSignOut = viewModel::signOutCloudSave,
+                                onWebPlayerConfigChange = viewModel::updateWebPlayerConfig,
+                                onLaunchWebPlayer = {
+                                    XenosWebPlayerActivity.launch(context)
+                                },
                                 onGyroAimChange = viewModel::updateGyroAim,
                                 onPerfHudChange = viewModel::updatePerfHud,
                                 onVibrationModeChange = viewModel::setVibrationMode,
@@ -759,6 +773,8 @@ private fun NexusPadAppShell(
                                 onUndo = viewModel::undoEditorChange,
                                 onSave = { viewModel.saveEditorProfile() },
                                 onUpdateProfileMeta = viewModel::updateProfileMeta,
+                                onPickCustomBg = viewModel::importCustomTestBackground,
+                                onResetCustomBg = viewModel::clearCustomTestBackground,
                                 onBack = { navController.popBackStack() }
                             )
                         }

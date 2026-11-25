@@ -38,6 +38,14 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".webplayer.XenosWebPlayerActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.NexusPad" />
+
         <service
             android:name=".service.OverlayControllerService"
             android:exported="false"

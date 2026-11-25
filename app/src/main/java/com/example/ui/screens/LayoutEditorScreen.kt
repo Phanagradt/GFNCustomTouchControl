@@ -3,6 +3,7 @@ package com.example.ui.screens
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -49,6 +50,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
@@ -75,6 +77,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -82,6 +85,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -100,6 +106,7 @@ import com.example.R
 import com.example.data.OverlaySettings
 import com.example.model.AxisPair
 import com.example.model.BindingDomain
+import com.example.model.ColorMatrixBuilder
 import com.example.model.CommandCatalog
 import com.example.model.ControlAccent
 import com.example.model.ControlShape
@@ -118,6 +125,9 @@ import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TurboAmber
 import com.example.util.ButtonImageCodec
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 private tailrec fun Context.findEditorActivity(): Activity? = when (this) {
@@ -149,6 +159,8 @@ fun LayoutEditorScreen(
     onUndo: () -> Unit,
     onSave: () -> Unit,
     onUpdateProfileMeta: (name: String, gameTitle: String, genre: GameGenre) -> Unit,
+    onPickCustomBg: (Uri) -> Unit = {},
+    onResetCustomBg: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -171,8 +183,28 @@ fun LayoutEditorScreen(
     var showCommandRebindSheet by remember { mutableStateOf(false) }
     var showGridDialog by remember { mutableStateOf(false) }
     var showMetaDialog by remember { mutableStateOf(false) }
+    var showBgDialog by remember { mutableStateOf(false) }
     var showUnsavedDialog by remember { mutableStateOf(false) }
     var hideFloatingTools by remember { mutableStateOf(false) }
+
+    val editorBgPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) onPickCustomBg(uri)
+    }
+
+    val customBgBitmap by produceState<ImageBitmap?>(initialValue = null, settings.customTestBgPath) {
+        value = if (settings.customTestBgPath.isNotBlank()) {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val f = File(settings.customTestBgPath)
+                    if (f.exists()) BitmapFactory.decodeFile(f.absolutePath)?.asImageBitmap() else null
+                }.getOrNull()
+            }
+        } else {
+            null
+        }
+    }
 
     val handleBack = {
         if (editorState.hasUnsavedChanges) {
@@ -202,12 +234,30 @@ fun LayoutEditorScreen(
         val widthPx = with(density) { maxWidth.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
 
-        Image(
-            painter = painterResource(id = R.drawable.img_game_arena_bg),
-            contentDescription = "GeForce NOW Stream Canvas",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
+        val activeFilterStyle = settings.gameFilter.activeStyle
+        val canvasColorFilter = remember(activeFilterStyle) {
+            activeFilterStyle?.let {
+                ColorFilter.colorMatrix(ColorMatrixBuilder.toComposeColorMatrix(it))
+            }
+        }
+
+        if (customBgBitmap != null) {
+            Image(
+                bitmap = customBgBitmap!!,
+                contentDescription = "Custom Layout Canvas Background",
+                contentScale = ContentScale.Crop,
+                colorFilter = canvasColorFilter,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Image(
+                painter = painterResource(id = R.drawable.img_game_arena_bg),
+                contentDescription = "GeForce NOW Stream Canvas",
+                contentScale = ContentScale.Crop,
+                colorFilter = canvasColorFilter,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -368,6 +418,18 @@ fun LayoutEditorScreen(
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = Color.White)
                             }
+                        }
+                        IconButton(
+                            onClick = { showBgDialog = true },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .testTag("editor_custom_bg_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = "Canvas Background",
+                                tint = if (settings.customTestBgPath.isNotBlank()) MaterialTheme.colorScheme.primary else Color(0xFF9FB0C7)
+                            )
                         }
                         IconButton(
                             onClick = { showMetaDialog = true },
@@ -566,6 +628,57 @@ fun LayoutEditorScreen(
                 }
             )
         }
+    }
+
+    if (showBgDialog) {
+        AlertDialog(
+            onDismissRequest = { showBgDialog = false },
+            title = { Text("Canvas Background") },
+            text = {
+                Text(
+                    text = if (settings.customTestBgPath.isNotBlank()) {
+                        "Your custom game screenshot is shared between Sandbox and Layout Studio so you can align buttons over real game HUDs."
+                    } else {
+                        "Pick a screenshot from your game to align buttons accurately in both Layout Studio and Sandbox."
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showBgDialog = false
+                        editorBgPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    modifier = Modifier.testTag("editor_pick_bg_confirm")
+                ) {
+                    Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Pick Image")
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (settings.customTestBgPath.isNotBlank()) {
+                        TextButton(
+                            onClick = {
+                                showBgDialog = false
+                                onResetCustomBg()
+                            },
+                            modifier = Modifier.testTag("editor_reset_bg_button")
+                        ) {
+                            Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Reset BG")
+                        }
+                    }
+                    TextButton(onClick = { showBgDialog = false }) {
+                        Text("Close")
+                    }
+                }
+            }
+        )
     }
 
     if (showCommandRebindSheet && editorState.selectedControl != null) {

@@ -90,6 +90,7 @@ import com.example.model.RecordingResolution
 import com.example.model.GyroAimConfig
 import com.example.model.PerfHudConfig
 import com.example.model.TargetPlatformMode
+import com.example.model.WebStreamQualityConfig
 import com.example.ui.CloudSaveUiState
 import com.example.ui.SystemReadiness
 import com.example.ui.components.AppColorSchemeCard
@@ -99,6 +100,7 @@ import com.example.ui.components.FontCustomizationCard
 import com.example.ui.components.GyroAimSetupCard
 import com.example.ui.components.PerfHudSetupCard
 import com.example.ui.components.SmoothSlider
+import com.example.ui.components.WebPlayerSetupCard
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.MacroCoral
 import com.example.ui.theme.TacticalCyan
@@ -122,6 +124,8 @@ fun SetupScreen(
     onCloudBackupNow: () -> Unit,
     onCloudRestore: () -> Unit,
     onCloudSignOut: () -> Unit,
+    onWebPlayerConfigChange: (WebStreamQualityConfig) -> Unit,
+    onLaunchWebPlayer: () -> Unit,
     onGyroAimChange: (GyroAimConfig) -> Unit,
     onPerfHudChange: (PerfHudConfig) -> Unit,
     onVibrationModeChange: (VibrationMode) -> Unit,
@@ -181,6 +185,14 @@ fun SetupScreen(
                     text = strings.setupSubtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            item {
+                WebPlayerSetupCard(
+                    config = settings.webPlayerConfig,
+                    onUpdate = onWebPlayerConfigChange,
+                    onLaunchWebPlayer = onLaunchWebPlayer
                 )
             }
 

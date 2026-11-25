@@ -404,6 +404,30 @@ class NexusStrings internal constructor() {
     var liveEditSaveButton: String = "Save"; internal set
     var liveEditCancelButton: String = "Cancel"; internal set
     var liveEditSavedToast: String = "Layout saved!"; internal set
+
+    // Better GFN Web Player & Built-in Region Bypass
+    var webPlayerTitle: String = "Better GFN Web Player"; internal set
+    var webPlayerSubtitle: String = "Play GeForce NOW inside XenosPad with direct virtual gamepad/KB/mouse injection, CSS filters, live WebRTC stats & built-in Region Bypass — zero extra permissions needed."; internal set
+    var webPlayerLaunchButton: String = "Play GeForce NOW"; internal set
+    var webPlayerZeroPermBadge: String = "ZERO EXTRA PERMS"; internal set
+    var webPlayerCardHeader: String = "BETTER GFN WEB PLAYER & REGION BYPASS"; internal set
+    var webPlayerRegionHeader: String = "Built-in Region Bypass (Better xCloud Style)"; internal set
+    var webPlayerRegionNote: String = "Sends regional X-Forwarded-For, Accept-Language, and timezone headers to GeForce NOW endpoints (header bypass, not a remote VPN tunnel)."; internal set
+    var webPlayerUserAgentLabel: String = "Browser User-Agent"; internal set
+    var webPlayerSpoofLocaleTitle: String = "Match Region Timezone & Language"; internal set
+    var webPlayerSpoofLocaleSub: String = "Aligns browser timezone & locale with your chosen Region Bypass"; internal set
+    var webPlayerVirtualPadTitle: String = "Virtual Xbox 360 Gamepad API"; internal set
+    var webPlayerVirtualPadSub: String = "Exposes XenosPad controls directly to play.geforcenow.com as a native controller"; internal set
+    var webPlayerStretchTitle: String = "Stretch Video to Fill Screen"; internal set
+    var webPlayerStretchSub: String = "Removes side black bars on wide 20:9 phone displays"; internal set
+    var webPlayerStatsHudTitle: String = "Live WebRTC Stream Stats HUD"; internal set
+    var webPlayerStatsHudSub: String = "Shows real stream FPS, ping (RTT), bitrate, and packet loss"; internal set
+    var webPlayerHideControls: String = "Hide Pad"; internal set
+    var webPlayerShowControls: String = "Show Pad"; internal set
+    var webPlayerReload: String = "Reload"; internal set
+    var webPlayerExit: String = "Exit"; internal set
+    var webPlayerStretchShort: String = "Stretch"; internal set
+    var webPlayerAuthPopupTitle: String = "Sign-In Window"; internal set
 }
 
 private inline fun buildNexusStrings(block: NexusStrings.() -> Unit): NexusStrings =
@@ -804,6 +828,29 @@ object AppLocalization {
         liveEditSaveButton = "บันทึก"
         liveEditCancelButton = "ยกเลิก"
         liveEditSavedToast = "บันทึกเลย์เอาต์เรียบร้อย!"
+
+        webPlayerTitle = "Better GFN เว็บเพลเยอร์"
+        webPlayerSubtitle = "เล่น GeForce NOW ใน XenosPad โดยตรง ส่งปุ่มจอย/คีย์บอร์ด/เมาส์เสถียรกว่า ฟิลเตอร์ CSS สด สถิติ WebRTC และบายพาสโซนในตัว ไม่ต้องขอสิทธิ์เสริม"
+        webPlayerLaunchButton = "เปิดเล่น GeForce NOW"
+        webPlayerZeroPermBadge = "ไม่ต้องขอสิทธิ์เพิ่ม"
+        webPlayerCardHeader = "BETTER GFN เว็บเพลเยอร์ & บายพาสโซน"
+        webPlayerRegionHeader = "บายพาสโซนในตัว (สไตล์ Better xCloud)"
+        webPlayerRegionNote = "ส่งเฮดเดอร์ X-Forwarded-For, Accept-Language และโซนเวลาตามภูมิภาคไปยังเซิร์ฟเวอร์ GeForce NOW (บายพาสระดับเฮดเดอร์ ไม่ใช่เซิร์ฟเวอร์ VPN ภายนอก)"
+        webPlayerUserAgentLabel = "โปรไฟล์เบราว์เซอร์ (User-Agent)"
+        webPlayerSpoofLocaleTitle = "ปรับโซนเวลาและภาษาให้ตรงภูมิภาค"
+        webPlayerSpoofLocaleSub = "ปรับโซนเวลาและภาษาของเบราว์เซอร์ให้สอดคล้องกับโซนที่เลือก"
+        webPlayerVirtualPadTitle = "จอยจำลอง Xbox 360 (Gamepad API)"
+        webPlayerVirtualPadSub = "ส่งอินพุตจากปุ่ม XenosPad เข้า play.geforcenow.com เป็นจอยเกมโดยตรง"
+        webPlayerStretchTitle = "ขยายภาพเต็มหน้าจอ (ตัดขอบดำ)"
+        webPlayerStretchSub = "ยืดภาพวิดีโอให้เต็มจอมือถือ 20:9 ไม่มีแถบดำด้านข้าง"
+        webPlayerStatsHudTitle = "แถบสถิติสตรีม WebRTC สด"
+        webPlayerStatsHudSub = "แสดงค่า FPS สตรีม, ปิง (RTT), บิตเรต และ Packet Loss แบบเรียลไทม์"
+        webPlayerHideControls = "ซ่อนปุ่ม"
+        webPlayerShowControls = "แสดงปุ่ม"
+        webPlayerReload = "รีโหลด"
+        webPlayerExit = "ออก"
+        webPlayerStretchShort = "เต็มจอ"
+        webPlayerAuthPopupTitle = "หน้าต่างเข้าสู่ระบบ"
     }
 
     private fun buildSpanishStrings(): NexusStrings = buildNexusStrings {
@@ -1169,6 +1216,29 @@ object AppLocalization {
         liveEditSaveButton = "Guardar"
         liveEditCancelButton = "Cancelar"
         liveEditSavedToast = "¡Diseño guardado!"
+
+        webPlayerTitle = "Better GFN Web Player"
+        webPlayerSubtitle = "Juega GeForce NOW dentro de XenosPad con inyección directa de mando/teclado/ratón, filtros CSS, estadísticas WebRTC y Bypass de Región integrado — sin permisos extra."
+        webPlayerLaunchButton = "Jugar GeForce NOW"
+        webPlayerZeroPermBadge = "SIN PERMISOS EXTRA"
+        webPlayerCardHeader = "REPRODUCTOR WEB BETTER GFN Y BYPASS DE REGIÓN"
+        webPlayerRegionHeader = "Bypass de Región Integrado (Estilo Better xCloud)"
+        webPlayerRegionNote = "Envía cabeceras X-Forwarded-For, Accept-Language y zona horaria a los servidores de GeForce NOW (bypass de cabeceras, no un túnel VPN remoto)."
+        webPlayerUserAgentLabel = "User-Agent del Navegador"
+        webPlayerSpoofLocaleTitle = "Igualar Zona Horaria e Idioma"
+        webPlayerSpoofLocaleSub = "Alinea la zona horaria y el idioma del navegador con la región elegida"
+        webPlayerVirtualPadTitle = "Mando Virtual Xbox 360 (Gamepad API)"
+        webPlayerVirtualPadSub = "Expone los controles de XenosPad directamente a play.geforcenow.com"
+        webPlayerStretchTitle = "Estirar Video a Pantalla Completa"
+        webPlayerStretchSub = "Elimina las barras negras laterales en pantallas 20:9"
+        webPlayerStatsHudTitle = "HUD de Estadísticas WebRTC"
+        webPlayerStatsHudSub = "Muestra FPS reales del stream, ping (RTT), bitrate y pérdida de paquetes"
+        webPlayerHideControls = "Ocultar"
+        webPlayerShowControls = "Mostrar"
+        webPlayerReload = "Recargar"
+        webPlayerExit = "Salir"
+        webPlayerStretchShort = "Estirar"
+        webPlayerAuthPopupTitle = "Inicio de Sesión"
     }
 
     private fun buildJapaneseStrings(): NexusStrings = buildNexusStrings {
@@ -1534,6 +1604,29 @@ object AppLocalization {
         liveEditSaveButton = "保存"
         liveEditCancelButton = "中止"
         liveEditSavedToast = "レイアウトを保存しました！"
+
+        webPlayerTitle = "Better GFN ウェブプレーヤー"
+        webPlayerSubtitle = "XenosPad内でGeForce NOWを直接プレイ。仮想コントローラー/KB/マウス直接注入、CSSフィルター、WebRTC統計、内蔵リージョンバイパスを追加権限なしで利用可能。"
+        webPlayerLaunchButton = "GeForce NOWを起動"
+        webPlayerZeroPermBadge = "追加権限不要"
+        webPlayerCardHeader = "BETTER GFN ウェブプレーヤー & リージョンバイパス"
+        webPlayerRegionHeader = "内蔵リージョンバイパス (Better xCloud方式)"
+        webPlayerRegionNote = "GeForce NOW通信に地域別X-Forwarded-For・Accept-Language・タイムゾーンヘッダーを付与します（ヘッダー方式であり外部VPNサーバーではありません）。"
+        webPlayerUserAgentLabel = "ブラウザ User-Agent"
+        webPlayerSpoofLocaleTitle = "タイムゾーン・言語を地域に合わせる"
+        webPlayerSpoofLocaleSub = "選択したリージョンに合わせてブラウザの言語と時刻情報を調整"
+        webPlayerVirtualPadTitle = "仮想 Xbox 360 ゲームパッドAPI"
+        webPlayerVirtualPadSub = "XenosPad操作をplay.geforcenow.comにネイティブコントローラーとして直接送信"
+        webPlayerStretchTitle = "画面いっぱいに映像を拡大"
+        webPlayerStretchSub = "20:9スマホ画面の左右の黒帯を消去します"
+        webPlayerStatsHudTitle = "リアルタイムWebRTC統計HUD"
+        webPlayerStatsHudSub = "配信FPS・Ping (RTT)・ビットレート・パケットロスを表示"
+        webPlayerHideControls = "非表示"
+        webPlayerShowControls = "表示"
+        webPlayerReload = "再読込"
+        webPlayerExit = "終了"
+        webPlayerStretchShort = "拡大"
+        webPlayerAuthPopupTitle = "サインインウィンドウ"
     }
 
     private fun buildChineseStrings(): NexusStrings = buildNexusStrings {
@@ -1899,6 +1992,29 @@ object AppLocalization {
         liveEditSaveButton = "保存"
         liveEditCancelButton = "取消"
         liveEditSavedToast = "布局已保存！"
+
+        webPlayerTitle = "Better GFN 网页播放器"
+        webPlayerSubtitle = "在 XenosPad 内直接畅玩 GeForce NOW，支持虚拟手柄/键鼠直接注入、CSS 滤镜、WebRTC 实时状态与内置地区绕过，无需额外权限。"
+        webPlayerLaunchButton = "启动 GeForce NOW"
+        webPlayerZeroPermBadge = "零额外权限"
+        webPlayerCardHeader = "BETTER GFN 网页播放器与地区绕过"
+        webPlayerRegionHeader = "内置地区绕过 (Better xCloud 方式)"
+        webPlayerRegionNote = "向 GeForce NOW 接口注入对应地区的 X-Forwarded-For、Accept-Language 和时区信息（请求头绕过，非远程 VPN 隧道）。"
+        webPlayerUserAgentLabel = "浏览器标识 (User-Agent)"
+        webPlayerSpoofLocaleTitle = "匹配所选地区时区与语言"
+        webPlayerSpoofLocaleSub = "使浏览器时区和语言与所选地区保持一致"
+        webPlayerVirtualPadTitle = "虚拟 Xbox 360 手柄 API"
+        webPlayerVirtualPadSub = "将 XenosPad 虚拟按键直接作为原生手柄注入 play.geforcenow.com"
+        webPlayerStretchTitle = "拉伸画面铺满屏幕"
+        webPlayerStretchSub = "消除 20:9 宽屏手机两侧黑边"
+        webPlayerStatsHudTitle = "实时 WebRTC 串流状态栏"
+        webPlayerStatsHudSub = "显示实时串流 FPS、延迟 (RTT)、码率与丢包率"
+        webPlayerHideControls = "隐藏按键"
+        webPlayerShowControls = "显示按键"
+        webPlayerReload = "刷新"
+        webPlayerExit = "退出"
+        webPlayerStretchShort = "拉伸"
+        webPlayerAuthPopupTitle = "登录窗口"
     }
 }
 

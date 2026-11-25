@@ -68,8 +68,11 @@ import com.example.data.VibrationMode
 import com.example.model.BindingDomain
 import com.example.model.ControlType
 import com.example.model.ControllerProfile
+import com.example.model.GfnRegionPreset
 import com.example.model.LocalNexusStrings
+import com.example.model.WebStreamQualityConfig
 import com.example.ui.SystemReadiness
+import com.example.ui.components.BetterGfnCockpitCard
 import com.example.ui.theme.MacroCoral
 import com.example.ui.theme.MacroViolet
 import com.example.ui.theme.TacticalCyan
@@ -82,6 +85,9 @@ fun CockpitScreen(
     readiness: SystemReadiness,
     isOverlayRunning: Boolean,
     vibrationMode: VibrationMode,
+    webPlayerConfig: WebStreamQualityConfig,
+    onSelectWebRegion: (GfnRegionPreset) -> Unit,
+    onLaunchWebPlayer: () -> Unit,
     onVibrationModeChange: (VibrationMode) -> Unit,
     onToggleOverlay: () -> Unit,
     onSelectProfile: (String) -> Unit,
@@ -111,6 +117,14 @@ fun CockpitScreen(
                     isOverlayRunning = isOverlayRunning,
                     onToggleOverlay = onToggleOverlay,
                     onOpenEditor = { activeProfile?.let { onOpenEditor(it.id) } }
+                )
+            }
+
+            item {
+                BetterGfnCockpitCard(
+                    config = webPlayerConfig,
+                    onSelectRegion = onSelectWebRegion,
+                    onLaunchWebPlayer = onLaunchWebPlayer
                 )
             }
 

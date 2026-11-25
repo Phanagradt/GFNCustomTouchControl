@@ -23,6 +23,7 @@ import com.example.model.PerfHudConfig
 import com.example.model.RecordingFps
 import com.example.model.RecordingResolution
 import com.example.model.TargetPlatformMode
+import com.example.model.WebStreamQualityConfig
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.Flow
@@ -73,6 +74,7 @@ data class OverlaySettings(
     val lastSeenWhatsNewVersionCode: Int = 0,
     val gyroAim: GyroAimConfig = GyroAimConfig(),
     val perfHud: PerfHudConfig = PerfHudConfig(),
+    val webPlayerConfig: WebStreamQualityConfig = WebStreamQualityConfig(),
     val appearanceUpdatedAtMs: Long = 0L
 ) {
     val hapticsEnabled: Boolean
@@ -92,6 +94,7 @@ class PreferencesRepository(private val context: Context) {
     private val floatingBubbleAdapter = moshi.adapter(FloatingBubbleConfig::class.java)
     private val gyroAimAdapter = moshi.adapter(GyroAimConfig::class.java)
     private val perfHudAdapter = moshi.adapter(PerfHudConfig::class.java)
+    private val webPlayerAdapter = moshi.adapter(WebStreamQualityConfig::class.java)
 
     private object Keys {
         val HAPTICS = booleanPreferencesKey("haptics_enabled")
@@ -120,6 +123,7 @@ class PreferencesRepository(private val context: Context) {
         val LAST_SEEN_WHATS_NEW_CODE = intPreferencesKey("last_seen_whats_new_version_code")
         val GYRO_AIM_JSON = stringPreferencesKey("gyro_aim_json")
         val PERF_HUD_JSON = stringPreferencesKey("perf_hud_json")
+        val WEB_PLAYER_CONFIG_JSON = stringPreferencesKey("web_player_config_json")
         val APPEARANCE_UPDATED_AT = longPreferencesKey("appearance_updated_at_ms")
     }
 
@@ -160,6 +164,7 @@ class PreferencesRepository(private val context: Context) {
         val floatingBubble = decodeFloatingBubble(prefs[Keys.FLOATING_BUBBLE_JSON])
         val gyroAim = decodeGyroAim(prefs[Keys.GYRO_AIM_JSON])
         val perfHud = decodePerfHud(prefs[Keys.PERF_HUD_JSON])
+        val webPlayerConfig = decodeWebPlayerConfig(prefs[Keys.WEB_PLAYER_CONFIG_JSON])
 
         OverlaySettings(
             vibrationMode = vibrationMode,
@@ -187,6 +192,7 @@ class PreferencesRepository(private val context: Context) {
             lastSeenWhatsNewVersionCode = prefs[Keys.LAST_SEEN_WHATS_NEW_CODE] ?: 0,
             gyroAim = gyroAim,
             perfHud = perfHud,
+            webPlayerConfig = webPlayerConfig,
             appearanceUpdatedAtMs = prefs[Keys.APPEARANCE_UPDATED_AT] ?: 0L
         )
     }
@@ -230,6 +236,11 @@ class PreferencesRepository(private val context: Context) {
     private fun decodePerfHud(raw: String?): PerfHudConfig {
         if (raw.isNullOrBlank()) return PerfHudConfig()
         return runCatching { perfHudAdapter.fromJson(raw) }.getOrNull() ?: PerfHudConfig()
+    }
+
+    private fun decodeWebPlayerConfig(raw: String?): WebStreamQualityConfig {
+        if (raw.isNullOrBlank()) return WebStreamQualityConfig()
+        return runCatching { webPlayerAdapter.fromJson(raw) }.getOrNull() ?: WebStreamQualityConfig()
     }
 
     suspend fun setVibrationMode(mode: VibrationMode) {
@@ -366,6 +377,12 @@ class PreferencesRepository(private val context: Context) {
     suspend fun updatePerfHud(config: PerfHudConfig) {
         context.nexusDataStore.edit { prefs ->
             prefs[Keys.PERF_HUD_JSON] = perfHudAdapter.toJson(config)
+        }
+    }
+
+    suspend fun updateWebPlayerConfig(config: WebStreamQualityConfig) {
+        context.nexusDataStore.edit { prefs ->
+            prefs[Keys.WEB_PLAYER_CONFIG_JSON] = webPlayerAdapter.toJson(config)
         }
     }
 

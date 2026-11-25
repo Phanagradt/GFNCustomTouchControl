@@ -51,6 +51,7 @@ import com.example.model.TargetPlatformMode
 import com.example.model.TelemetryEvent
 import com.example.model.TriggerBehavior
 import com.example.model.VirtualControl
+import com.example.model.WebStreamQualityConfig
 import com.example.update.ApkUpgradeCompatibility
 import com.example.update.GitHubUpdateManager
 import com.example.update.UpdateUiState
@@ -678,6 +679,10 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updatePerfHud(config: PerfHudConfig) {
         viewModelScope.launch { prefsRepo.updatePerfHud(config) }
+    }
+
+    fun updateWebPlayerConfig(config: WebStreamQualityConfig) {
+        viewModelScope.launch { prefsRepo.updateWebPlayerConfig(config) }
     }
 
     // Personalization: App Color Scheme, Custom Fonts, Floating Bubble, Custom Test BG, What's New

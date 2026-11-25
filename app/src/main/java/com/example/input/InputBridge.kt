@@ -48,8 +48,24 @@ object InputBridge {
         fun onRequestFloatingKeyboard()
     }
 
+    /**
+     * Direct JavaScript input sink used by XenosWebPlayerActivity (Better-GFN Web Player).
+     * When attached, all virtual buttons, sticks, touchpads, and gyro aim deltas route
+     * directly into the embedded GeForce NOW WebView with zero IME or Accessibility latency.
+     */
+    interface WebInputSink {
+        fun onGamepadButton(androidKeyCode: Int, isDown: Boolean)
+        fun onKeyboardKey(androidKeyCode: Int, metaState: Int, isDown: Boolean)
+        fun onMouseButton(button: Int, isDown: Boolean)
+        fun onMouseScroll(scrollUp: Boolean)
+        fun onMouseMove(dxPx: Float, dyPx: Float)
+        fun onAnalogStick(isLeft: Boolean, x: Float, y: Float)
+        fun onResetAll() {}
+    }
+
     private var activeSink: KeyEventSink? = null
     private var pointerSink: PointerGestureSink? = null
+    private var webInputSink: WebInputSink? = null
     private var textSink: KeyboardTextSink? = null
     private var keyboardController: KeyboardController? = null
     private var floatKeyboardHandler: FloatKeyboardHandler? = null
@@ -168,6 +184,10 @@ object InputBridge {
         floatKeyboardHandler = handler
     }
 
+    fun attachWebInputSink(sink: WebInputSink?) {
+        webInputSink = sink
+    }
+
     fun requestShowKeyboard(): Boolean {
         val controller = keyboardController ?: return false
         controller.onShowKeyboard()
@@ -274,8 +294,15 @@ object InputBridge {
 
     fun pulseTurbo(sourceLabel: String, binding: InputBinding) {
         dispatchBindingAction(sourceLabel, binding, isDown = true, actionOverride = "TURBO_HIT")
+        val web = webInputSink
         if (binding.domain == BindingDomain.MOUSE) {
-            if (canDispatchAccessibilityGestureNow()) {
+            if (web != null) {
+                when (binding.id) {
+                    "mouse_left", "mouse_m1" -> web.onMouseButton(0, false)
+                    "mouse_right", "mouse_m2" -> web.onMouseButton(2, false)
+                    "mouse_middle", "mouse_m3" -> web.onMouseButton(1, false)
+                }
+            } else if (canDispatchAccessibilityGestureNow()) {
                 if (binding.id == "mouse_left" || binding.id == "mouse_m1") {
                     pointerSink?.onLeftButton(false)
                 } else if (binding.id == "mouse_right" || binding.id == "mouse_m2") {
@@ -302,8 +329,10 @@ object InputBridge {
 
         if (axisPair == AxisPair.RIGHT_STICK) {
             _rightStick.value = state
+            webInputSink?.onAnalogStick(isLeft = false, x = if (active) adjX else 0f, y = if (active) adjY else 0f)
         } else {
             _leftStick.value = state
+            webInputSink?.onAnalogStick(isLeft = true, x = if (active) adjX else 0f, y = if (active) adjY else 0f)
         }
 
         if (active && (kotlin.math.abs(adjX) > 0.02f || kotlin.math.abs(adjY) > 0.02f)) {
@@ -462,7 +491,10 @@ object InputBridge {
         val scaledDy = deltaXScaled(effDy, sensitivity)
         if (kotlin.math.abs(scaledDx) < 0.5f && kotlin.math.abs(scaledDy) < 0.5f) return
 
-        if (canDispatchAccessibilityGestureNow()) {
+        val web = webInputSink
+        if (web != null) {
+            web.onMouseMove(scaledDx, scaledDy)
+        } else if (canDispatchAccessibilityGestureNow()) {
             pointerSink?.onMouseFlick(scaledDx, scaledDy)
         } else if (!_isAppInForeground.value) {
             pendingPointerAction = PendingPointerAction.FlickSwipe(scaledDx, scaledDy)
@@ -501,9 +533,12 @@ object InputBridge {
         _rightStick.value = StickState(x = normX, y = normY, active = true)
 
         if (kotlin.math.abs(scaledDx) > 0.05f || kotlin.math.abs(scaledDy) > 0.05f) {
-            // Only stream live Accessibility pointer gestures when no physical overlay fingers are held;
-            // otherwise Physical-Touch Touchpads commit their accumulated flick smoothly on release so Android doesn't cancel the drag!
-            if (canDispatchAccessibilityGestureNow()) {
+            val web = webInputSink
+            if (web != null) {
+                web.onMouseMove(scaledDx, scaledDy)
+            } else if (canDispatchAccessibilityGestureNow()) {
+                // Only stream live Accessibility pointer gestures when no physical overlay fingers are held;
+                // otherwise Physical-Touch Touchpads commit their accumulated flick smoothly on release so Android doesn't cancel the drag!
                 pointerSink?.onMouseSwipe(scaledDx, scaledDy)
             }
             // Throttle telemetry writes during continuous drags/flicks to avoid 120Hz list allocations
@@ -522,6 +557,13 @@ object InputBridge {
     }
 
     fun dispatchMouseTapClick(sourceLabel: String) {
+        val web = webInputSink
+        if (web != null) {
+            web.onMouseButton(0, true)
+            web.onMouseButton(0, false)
+            recordTelemetry(sourceLabel, "LMB", "TAP_CLICK", "Web Touchpad Tap", BindingDomain.MOUSE)
+            return
+        }
         sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, KeyEvent.ACTION_DOWN, 0, BindingDomain.MOUSE)
         sendKeyToSink(KeyEvent.KEYCODE_BUTTON_1, KeyEvent.ACTION_UP, 0, BindingDomain.MOUSE)
         if (canDispatchAccessibilityGestureNow()) {
@@ -550,7 +592,10 @@ object InputBridge {
         val normY = (dyPx / 18f).coerceIn(-1f, 1f)
         _rightStick.value = StickState(x = normX, y = normY, active = true)
 
-        if (canDispatchAccessibilityGestureNow()) {
+        val web = webInputSink
+        if (web != null) {
+            web.onMouseMove(dxPx, dyPx)
+        } else if (canDispatchAccessibilityGestureNow()) {
             pointerSink?.onMouseSwipe(dxPx, dyPx)
         }
         val now = System.currentTimeMillis()
@@ -577,6 +622,7 @@ object InputBridge {
         activeOverlayTouchCount.set(0)
         activeAdsControlIds.clear()
         _isAdsActive.value = false
+        webInputSink?.onResetAll()
         if (!_isAppInForeground.value) {
             pointerSink?.onMouseSwipeEnd()
             pointerSink?.onLeftButton(false)
@@ -652,6 +698,43 @@ object InputBridge {
         isDown: Boolean,
         actionOverride: String?
     ) {
+        val web = webInputSink
+        if (web != null) {
+            val webDetail = when (binding.id) {
+                "mouse_left", "mouse_m1" -> {
+                    web.onMouseButton(0, isDown)
+                    "LMB • Web Direct"
+                }
+                "mouse_right", "mouse_m2" -> {
+                    web.onMouseButton(2, isDown)
+                    "RMB • Web Direct"
+                }
+                "mouse_middle", "mouse_m3" -> {
+                    web.onMouseButton(1, isDown)
+                    "MMB • Web Direct"
+                }
+                "mouse_scroll_up", "mouse_m5" -> {
+                    if (isDown) web.onMouseScroll(scrollUp = true)
+                    "Scroll Up • Web Direct"
+                }
+                "mouse_scroll_down", "mouse_m4" -> {
+                    if (isDown) web.onMouseScroll(scrollUp = false)
+                    "Scroll Down • Web Direct"
+                }
+                else -> {
+                    web.onMouseButton(0, isDown)
+                    "LMB • Web Direct"
+                }
+            }
+            val actionName = actionOverride ?: when (binding.id) {
+                "mouse_scroll_up", "mouse_scroll_down", "mouse_m4", "mouse_m5" ->
+                    if (isDown) "SCROLL" else "SCROLL_END"
+                else -> if (isDown) "MOUSE_DOWN" else "MOUSE_UP"
+            }
+            recordTelemetry(sourceLabel, binding.codeLabel, actionName, webDetail, BindingDomain.MOUSE)
+            return
+        }
+
         // Never dispatch Accessibility touch gestures while NexusPad is foreground OR while any physical overlay finger is down,
         // otherwise InputDispatcher cancels the held physical touch on the overlay button!
         val canInjectNow = canDispatchAccessibilityGestureNow()
@@ -820,6 +903,17 @@ object InputBridge {
             }
         }
         val combinedMetaState = currentEffectiveMetaState(metaState)
+
+        val web = webInputSink
+        if (web != null) {
+            val isDown = action == KeyEvent.ACTION_DOWN
+            if (domain == BindingDomain.CONTROLLER) {
+                web.onGamepadButton(keyCode, isDown)
+            } else {
+                web.onKeyboardKey(keyCode, combinedMetaState, isDown)
+            }
+            return
+        }
 
         val sink = activeSink ?: return
         val now = safeUptimeMillis()
