@@ -167,12 +167,46 @@ jobs:
           } > release_body.md
 
       - name: Create GitHub Release with APK
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: XenosPad ${{ steps.meta.outputs.tag }}
-          body_path: release_body.md
-          generate_release_notes: true
-          make_latest: true
-          files: |
-            ${{ steps.meta.outputs.apk_name }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          APK_NAME: ${{ steps.meta.outputs.apk_name }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          TITLE="XenosPad ${TAG}"
+          DELAYS=(5 10 20 30)
+          MAX_ATTEMPTS=5
+
+          for ATTEMPT in $(seq 1 "$MAX_ATTEMPTS"); do
+            echo "Publishing GitHub Release ${TAG} (attempt ${ATTEMPT}/${MAX_ATTEMPTS})..."
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              if gh release edit "$TAG" \
+                  --title "$TITLE" \
+                  --notes-file release_body.md \
+                  --latest && \
+                 gh release upload "$TAG" "$APK_NAME" --clobber; then
+                echo "Updated existing GitHub Release ${TAG} successfully."
+                exit 0
+              fi
+            else
+              if gh release create "$TAG" "$APK_NAME" \
+                  --title "$TITLE" \
+                  --notes-file release_body.md \
+                  --target "$TARGET_SHA" \
+                  --latest; then
+                echo "Created GitHub Release ${TAG} successfully."
+                exit 0
+              fi
+            fi
+
+            if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+              SLEEP_SEC="${DELAYS[$((ATTEMPT - 1))]}"
+              echo "::warning::GitHub Release API failed on attempt ${ATTEMPT}/${MAX_ATTEMPTS}. Retrying in ${SLEEP_SEC}s..."
+              sleep "$SLEEP_SEC"
+            fi
+          done
+
+          echo "::error::Failed to publish GitHub Release ${TAG} after ${MAX_ATTEMPTS} attempts."
+          exit 1
