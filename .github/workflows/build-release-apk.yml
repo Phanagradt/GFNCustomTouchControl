@@ -176,37 +176,71 @@ jobs:
         run: |
           set -euo pipefail
           TITLE="XenosPad ${TAG}"
-          DELAYS=(5 10 20 30)
-          MAX_ATTEMPTS=5
+          DELAYS=(5 10 15 25 40)
+          MAX_ATTEMPTS=6
 
-          for ATTEMPT in $(seq 1 "$MAX_ATTEMPTS"); do
-            echo "Publishing GitHub Release ${TAG} (attempt ${ATTEMPT}/${MAX_ATTEMPTS})..."
-            if gh release view "$TAG" >/dev/null 2>&1; then
-              if gh release edit "$TAG" \
-                  --title "$TITLE" \
-                  --notes-file release_body.md \
-                  --latest && \
-                 gh release upload "$TAG" "$APK_NAME" --clobber; then
-                echo "Updated existing GitHub Release ${TAG} successfully."
-                exit 0
+          retry() {
+            local desc="$1"
+            shift
+            for ATTEMPT in $(seq 1 "$MAX_ATTEMPTS"); do
+              echo "${desc} (attempt ${ATTEMPT}/${MAX_ATTEMPTS})..."
+              if "$@"; then
+                return 0
               fi
-            else
-              if gh release create "$TAG" "$APK_NAME" \
-                  --title "$TITLE" \
-                  --notes-file release_body.md \
-                  --target "$TARGET_SHA" \
-                  --latest; then
-                echo "Created GitHub Release ${TAG} successfully."
-                exit 0
+              if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+                local sleep_sec="${DELAYS[$((ATTEMPT - 1))]}"
+                echo "::warning::${desc} failed on attempt ${ATTEMPT}/${MAX_ATTEMPTS}. Retrying in ${sleep_sec}s..."
+                sleep "$sleep_sec"
               fi
-            fi
+            done
+            echo "::error::${desc} failed after ${MAX_ATTEMPTS} attempts."
+            return 1
+          }
 
-            if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
-              SLEEP_SEC="${DELAYS[$((ATTEMPT - 1))]}"
-              echo "::warning::GitHub Release API failed on attempt ${ATTEMPT}/${MAX_ATTEMPTS}. Retrying in ${SLEEP_SEC}s..."
-              sleep "$SLEEP_SEC"
+          # 1. Push the Git tag first so GitHub Releases API doesn't have to create the ref during POST /releases
+          ensure_tag() {
+            if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+              echo "Tag ${TAG} already exists on origin."
+              return 0
             fi
-          done
+            git tag -f "$TAG" "$TARGET_SHA"
+            git push origin "refs/tags/${TAG}"
+          }
+          retry "Ensure Git tag ${TAG}" ensure_tag
 
-          echo "::error::Failed to publish GitHub Release ${TAG} after ${MAX_ATTEMPTS} attempts."
-          exit 1
+          # 2. Create a draft release if one doesn't already exist (prevents empty public releases & duplicate drafts)
+          ensure_release() {
+            local view_out=""
+            if view_out=$(gh release view "$TAG" 2>&1); then
+              echo "Release ${TAG} already exists."
+              return 0
+            fi
+            if ! printf '%s' "$view_out" | grep -qiE "release not found|HTTP 404"; then
+              echo "$view_out"
+              return 1
+            fi
+            gh release create "$TAG" \
+              --title "$TITLE" \
+              --notes-file release_body.md \
+              --draft
+          }
+          retry "Create draft GitHub Release ${TAG}" ensure_release
+
+          # 3. Upload the APK asset cleanly (retried independently from release creation)
+          retry "Upload ${APK_NAME} to Release ${TAG}" \
+            gh release upload "$TAG" "$APK_NAME" --clobber
+
+          # 4. Publish the draft release BEFORE setting --latest (avoids HTTP 422 'Latest release cannot be draft')
+          retry "Publish GitHub Release ${TAG}" \
+            gh release edit "$TAG" \
+              --title "$TITLE" \
+              --notes-file release_body.md \
+              --draft=false \
+              --prerelease=false
+
+          # 5. Explicitly mark as Latest release (GitHub also marks newly published releases as latest automatically)
+          if ! retry "Mark Release ${TAG} as latest" gh release edit "$TAG" --latest; then
+            echo "::warning::Release ${TAG} was published with ${APK_NAME}, but explicitly setting --latest failed due to a transient GitHub API error."
+          fi
+
+          echo "GitHub Release ${TAG} published successfully."
