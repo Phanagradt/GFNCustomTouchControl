@@ -15,18 +15,25 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BatteryStd
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DeviceThermostat
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -180,13 +187,21 @@ fun LiveOverlayEditToolbar(
     onToggleSnap: () -> Unit,
     onCancel: () -> Unit,
     onSave: () -> Unit,
+    canUndo: Boolean = false,
+    onAddControl: (() -> Unit)? = null,
+    onRebindControl: (() -> Unit)? = null,
+    onCustomizeControl: (() -> Unit)? = null,
+    onDuplicateControl: (() -> Unit)? = null,
+    onDeleteControl: (() -> Unit)? = null,
+    onUndo: (() -> Unit)? = null,
+    onOpenGridSettings: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val strings = LocalNexusStrings.current
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = Color(0xFF0C121B).copy(alpha = 0.95f),
-        shadowElevation = 10.dp,
+        color = Color(0xFF0C121B).copy(alpha = 0.96f),
+        shadowElevation = 12.dp,
         modifier = modifier
             .border(1.2.dp, accentColor.copy(alpha = 0.72f), RoundedCornerShape(16.dp))
             .testTag("live_edit_toolbar")
@@ -195,8 +210,9 @@ fun LiveOverlayEditToolbar(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // Top bar: LIVE EDIT badge + Profile/Selected readout + Snap + Cancel + Save
+            // Top bar: LIVE EDIT badge + Profile/Selected readout + Studio global actions + Cancel + Save
             Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -206,7 +222,7 @@ fun LiveOverlayEditToolbar(
                         .clip(CircleShape)
                         .background(accentColor)
                 )
-                Column(modifier = Modifier.weight(1f, fill = false)) {
+                Column {
                     Text(
                         text = "${strings.liveEditToolbarTitle} • $profileName",
                         color = Color.White,
@@ -217,7 +233,7 @@ fun LiveOverlayEditToolbar(
                     )
                     Text(
                         text = if (selectedControl != null) {
-                            "${selectedControl.label}  X=${(selectedControl.xPercent * 100).roundToInt()}%  Y=${(selectedControl.yPercent * 100).roundToInt()}%"
+                            "${selectedControl.label} (${selectedControl.binding.codeLabel})  X=${(selectedControl.xPercent * 100).roundToInt()}% Y=${(selectedControl.yPercent * 100).roundToInt()}%"
                         } else {
                             strings.liveEditDragHint
                         },
@@ -229,15 +245,37 @@ fun LiveOverlayEditToolbar(
                     )
                 }
 
-                // Snap toggle chip
+                if (onAddControl != null) {
+                    CompactEditChip(
+                        icon = Icons.Default.Add,
+                        label = "Add",
+                        containerColor = accentColor.copy(alpha = 0.22f),
+                        contentColor = accentColor,
+                        onClick = onAddControl,
+                        testTag = "live_edit_add_control"
+                    )
+                }
+
+                // Grid toggle / settings chip
                 CompactEditChip(
                     icon = Icons.Default.GridOn,
                     label = strings.liveEditSnapLabel,
                     containerColor = if (snapToGrid) accentColor.copy(alpha = 0.22f) else Color(0xFF1A2331),
                     contentColor = if (snapToGrid) accentColor else Color(0xFFB0C0D4),
-                    onClick = onToggleSnap,
+                    onClick = onOpenGridSettings ?: onToggleSnap,
                     testTag = "live_edit_snap_toggle"
                 )
+
+                if (onUndo != null && canUndo) {
+                    CompactEditChip(
+                        icon = Icons.AutoMirrored.Filled.Undo,
+                        label = "Undo",
+                        containerColor = Color(0xFF1A2331),
+                        contentColor = Color.White,
+                        onClick = onUndo,
+                        testTag = "live_edit_undo"
+                    )
+                }
 
                 // Cancel button
                 CompactEditChip(
@@ -260,12 +298,53 @@ fun LiveOverlayEditToolbar(
                 )
             }
 
-            // Secondary row: selected control Size & Opacity steppers
+            // Secondary row: Full Studio selected-control actions + quick Size & Opacity steppers
             if (selectedControl != null) {
                 Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    if (onRebindControl != null) {
+                        CompactEditChip(
+                            icon = Icons.Default.Keyboard,
+                            label = "Bind",
+                            containerColor = Color(0xFF1A2331),
+                            contentColor = TacticalCyan,
+                            onClick = onRebindControl,
+                            testTag = "live_edit_rebind"
+                        )
+                    }
+                    if (onCustomizeControl != null) {
+                        CompactEditChip(
+                            icon = Icons.Default.Tune,
+                            label = "Style",
+                            containerColor = Color(0xFF1A2331),
+                            contentColor = accentColor,
+                            onClick = onCustomizeControl,
+                            testTag = "live_edit_style"
+                        )
+                    }
+                    if (onDuplicateControl != null) {
+                        CompactEditChip(
+                            icon = Icons.Default.ContentCopy,
+                            label = "Dup",
+                            containerColor = Color(0xFF1A2331),
+                            contentColor = Color.White,
+                            onClick = onDuplicateControl,
+                            testTag = "live_edit_duplicate"
+                        )
+                    }
+                    if (onDeleteControl != null) {
+                        CompactEditChip(
+                            icon = Icons.Default.DeleteOutline,
+                            label = "Del",
+                            containerColor = MacroCoral.copy(alpha = 0.18f),
+                            contentColor = MacroCoral,
+                            onClick = onDeleteControl,
+                            testTag = "live_edit_delete"
+                        )
+                    }
                     CompactStepperControl(
                         label = "${strings.liveEditSizeLabel} ${selectedControl.sizeDp.roundToInt()}dp",
                         accentColor = accentColor,

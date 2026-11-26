@@ -667,22 +667,63 @@ object BetterGfnScriptEngine {
               var pointerX = Math.round(window.innerWidth / 2);
               var pointerY = Math.round(window.innerHeight / 2);
               var mouseButtonsMask = 0;
+              var lastNativeMouseDownAt = [0, 0, 0];
+              var lastNativeMouseUpAt = [0, 0, 0];
+
+              window.addEventListener('mousedown', function(e) {
+                if (e && e.isTrusted && e.button >= 0 && e.button <= 2) {
+                  lastNativeMouseDownAt[e.button] = performance.now();
+                }
+              }, true);
+              window.addEventListener('mouseup', function(e) {
+                if (e && e.isTrusted && e.button >= 0 && e.button <= 2) {
+                  lastNativeMouseUpAt[e.button] = performance.now();
+                }
+              }, true);
+
+              function findStreamMediaElement(root) {
+                if (!root || !root.querySelector) return null;
+                var direct = root.querySelector('video') || root.querySelector('canvas');
+                if (direct) return direct;
+                var all = root.querySelectorAll('*');
+                for (var i = 0; i < all.length; i++) {
+                  if (all[i].shadowRoot) {
+                    var found = findStreamMediaElement(all[i].shadowRoot);
+                    if (found) return found;
+                  }
+                }
+                return null;
+              }
 
               function streamTarget() {
                 return document.pointerLockElement ||
-                  document.querySelector('video') ||
-                  document.querySelector('canvas') ||
+                  findStreamMediaElement(document) ||
                   document.activeElement ||
                   document.body ||
                   document;
               }
 
+              function deepElementFromPoint(root, x, y) {
+                try {
+                  if (!root || typeof root.elementFromPoint !== 'function') return null;
+                  var el = root.elementFromPoint(x, y);
+                  var guard = 0;
+                  while (el && el.shadowRoot && guard < 8) {
+                    var inner = el.shadowRoot.elementFromPoint(x, y);
+                    if (!inner || inner === el) break;
+                    el = inner;
+                    guard++;
+                  }
+                  return el;
+                } catch (e) {
+                  return null;
+                }
+              }
+
               function pointTarget(x, y) {
                 if (document.pointerLockElement) return document.pointerLockElement;
-                try {
-                  var hit = document.elementFromPoint(x, y);
-                  if (hit) return hit;
-                } catch (e) {}
+                var hit = deepElementFromPoint(document, x, y);
+                if (hit) return hit;
                 return streamTarget();
               }
 
@@ -693,19 +734,66 @@ object BetterGfnScriptEngine {
                   movementY: my,
                   clientX: pointerX,
                   clientY: pointerY,
+                  pageX: pointerX + (window.scrollX || 0),
+                  pageY: pointerY + (window.scrollY || 0),
                   screenX: pointerX,
                   screenY: pointerY,
                   buttons: mouseButtonsMask,
+                  view: window,
                   bubbles: true,
                   cancelable: true,
                   composed: true
                 };
                 if (typeof PointerEvent !== 'undefined') {
-                  t.dispatchEvent(new PointerEvent('pointermove', Object.assign({ pointerType: 'mouse', isPrimary: true, pointerId: 1 }, opts)));
+                  t.dispatchEvent(new PointerEvent('pointermove', Object.assign({ pointerType: 'mouse', isPrimary: true, pointerId: 1, width: 1, height: 1, pressure: mouseButtonsMask ? 0.5 : 0 }, opts)));
                 }
                 var ev = new MouseEvent('mousemove', opts);
                 t.dispatchEvent(ev);
                 if (t !== document) document.dispatchEvent(ev);
+              }
+
+              function dispatchSyntheticMouseButton(button, isDown) {
+                var t = pointTarget(pointerX, pointerY);
+                var type = isDown ? 'mousedown' : 'mouseup';
+                var pType = isDown ? 'pointerdown' : 'pointerup';
+                var opts = {
+                  button: button,
+                  buttons: mouseButtonsMask,
+                  detail: 1,
+                  clientX: pointerX,
+                  clientY: pointerY,
+                  pageX: pointerX + (window.scrollX || 0),
+                  pageY: pointerY + (window.scrollY || 0),
+                  screenX: pointerX,
+                  screenY: pointerY,
+                  view: window,
+                  bubbles: true,
+                  cancelable: true,
+                  composed: true
+                };
+                if (isDown && t && typeof t.focus === 'function') {
+                  try { t.focus({ preventScroll: true }); } catch (e) {}
+                }
+                if (typeof PointerEvent !== 'undefined') {
+                  t.dispatchEvent(new PointerEvent(pType, Object.assign({ pointerType: 'mouse', isPrimary: true, pointerId: 1, width: 1, height: 1, pressure: isDown ? 0.5 : 0 }, opts)));
+                }
+                t.dispatchEvent(new MouseEvent(type, opts));
+                var media = findStreamMediaElement(document);
+                if (media && media !== t && !media.contains(t) && !t.contains(media)) {
+                  if (typeof PointerEvent !== 'undefined') {
+                    media.dispatchEvent(new PointerEvent(pType, Object.assign({ pointerType: 'mouse', isPrimary: true, pointerId: 1, width: 1, height: 1, pressure: isDown ? 0.5 : 0 }, opts)));
+                  }
+                  media.dispatchEvent(new MouseEvent(type, opts));
+                }
+                if (!isDown && !document.pointerLockElement) {
+                  if (button === 0) {
+                    t.dispatchEvent(new MouseEvent('click', opts));
+                  } else if (button === 2) {
+                    t.dispatchEvent(new MouseEvent('contextmenu', opts));
+                  } else if (button === 1) {
+                    t.dispatchEvent(new MouseEvent('auxclick', opts));
+                  }
+                }
               }
 
               window.__xenosInput = {
@@ -729,35 +817,35 @@ object BetterGfnScriptEngine {
                     if (t !== window) window.dispatchEvent(ev);
                   } catch (e) {}
                 },
-                mouseButton: function(button, isDown) {
+                mouseButton: function(button, isDown, cssX, cssY) {
                   try {
+                    if (typeof cssX === 'number' && !isNaN(cssX)) {
+                      pointerX = Math.max(0, Math.min(window.innerWidth, cssX));
+                    }
+                    if (typeof cssY === 'number' && !isNaN(cssY)) {
+                      pointerY = Math.max(0, Math.min(window.innerHeight, cssY));
+                    }
                     var bit = button === 0 ? 1 : (button === 2 ? 2 : 4);
                     if (isDown) mouseButtonsMask |= bit; else mouseButtonsMask &= ~bit;
-                    var t = pointTarget(pointerX, pointerY);
-                    var type = isDown ? 'mousedown' : 'mouseup';
-                    var pType = isDown ? 'pointerdown' : 'pointerup';
-                    var opts = {
-                      button: button,
-                      buttons: mouseButtonsMask,
-                      clientX: pointerX,
-                      clientY: pointerY,
-                      screenX: pointerX,
-                      screenY: pointerY,
-                      bubbles: true,
-                      cancelable: true,
-                      composed: true
-                    };
-                    if (typeof PointerEvent !== 'undefined') {
-                      t.dispatchEvent(new PointerEvent(pType, Object.assign({ pointerType: 'mouse', isPrimary: true, pointerId: 1 }, opts)));
+                    dispatchSyntheticMouseButton(button, isDown);
+                  } catch (e) {}
+                },
+                ensureMouseButton: function(button, isDown, cssX, cssY) {
+                  try {
+                    if (typeof cssX === 'number' && !isNaN(cssX)) {
+                      pointerX = Math.max(0, Math.min(window.innerWidth, cssX));
                     }
-                    t.dispatchEvent(new MouseEvent(type, opts));
-                    if (!isDown && !document.pointerLockElement) {
-                      if (button === 0) {
-                        t.dispatchEvent(new MouseEvent('click', opts));
-                      } else if (button === 2) {
-                        t.dispatchEvent(new MouseEvent('contextmenu', opts));
-                      }
+                    if (typeof cssY === 'number' && !isNaN(cssY)) {
+                      pointerY = Math.max(0, Math.min(window.innerHeight, cssY));
                     }
+                    var bit = button === 0 ? 1 : (button === 2 ? 2 : 4);
+                    if (isDown) mouseButtonsMask |= bit; else mouseButtonsMask &= ~bit;
+                    var now = performance.now();
+                    var lastTs = isDown ? (lastNativeMouseDownAt[button] || 0) : (lastNativeMouseUpAt[button] || 0);
+                    if (now - lastTs < 85 && !document.pointerLockElement) {
+                      return;
+                    }
+                    dispatchSyntheticMouseButton(button, isDown);
                   } catch (e) {}
                 },
                 mouseMove: function(dx, dy) {
@@ -773,7 +861,7 @@ object BetterGfnScriptEngine {
                   try {
                     pointerX = Math.max(0, Math.min(window.innerWidth, Number(cssX) || 0));
                     pointerY = Math.max(0, Math.min(window.innerHeight, Number(cssY) || 0));
-                    if (document.pointerLockElement || forceRelative) {
+                    if (document.pointerLockElement || forceRelative || mouseButtonsMask !== 0) {
                       dispatchRelativeMove(Number(dx) || 0, Number(dy) || 0);
                     }
                   } catch (e) {}
@@ -787,7 +875,8 @@ object BetterGfnScriptEngine {
                       clientX: pointerX,
                       clientY: pointerY,
                       bubbles: true,
-                      cancelable: true
+                      cancelable: true,
+                      composed: true
                     }));
                   } catch (e) {}
                 },
@@ -915,6 +1004,17 @@ object BetterGfnScriptEngine {
 
     fun buildMouseButtonJs(button: Int, isDown: Boolean): String =
         "window.__xenosInput && window.__xenosInput.mouseButton(${button.coerceIn(0, 2)}, $isDown);"
+
+    fun buildEnsureMouseButtonJs(
+        button: Int,
+        isDown: Boolean,
+        cssX: Float,
+        cssY: Float
+    ): String {
+        val sx = String.format(Locale.US, "%.2f", cssX)
+        val sy = String.format(Locale.US, "%.2f", cssY)
+        return "window.__xenosInput && window.__xenosInput.ensureMouseButton(${button.coerceIn(0, 2)}, $isDown, $sx, $sy);"
+    }
 
     fun buildMouseMoveJs(dxPx: Float, dyPx: Float): String {
         val sdx = String.format(Locale.US, "%.2f", dxPx)

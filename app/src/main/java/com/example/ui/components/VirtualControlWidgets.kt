@@ -941,7 +941,8 @@ private fun TouchpadSurface(
                                 val speed = hypot(vx, vy)
                                 val inWebPlayer = InputBridge.hasWebInputSink()
 
-                                if (totalTravel < touchSlop && elapsed < 260L) {
+                                val tapSlop = maxOf(touchSlop * 1.45f, 20f)
+                                if (totalTravel < tapSlop && elapsed < 320L) {
                                     normX = 0f
                                     normY = 0f
                                     if (sawSecondFinger) {

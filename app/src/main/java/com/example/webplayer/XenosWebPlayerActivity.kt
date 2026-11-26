@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Bundle
 import android.os.Message
 import android.os.SystemClock
@@ -30,9 +31,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,15 +44,33 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -70,9 +91,11 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -90,6 +113,7 @@ import com.example.filter.GameFilterBridge
 import com.example.input.GyroAimEngine
 import com.example.input.InputBridge
 import com.example.model.AppLocalization
+import com.example.model.ControlType
 import com.example.model.ControllerProfile
 import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
@@ -98,10 +122,16 @@ import com.example.model.LocalNexusStrings
 import com.example.model.WebRtcStreamStats
 import com.example.model.WebStreamQualityConfig
 import com.example.service.PerformanceMonitor
+import com.example.ui.components.CommandPickerSheetContent
+import com.example.ui.components.ControlInspectorSheetContent
 import com.example.ui.components.CrosshairOverlayCanvas
-import com.example.ui.components.LiveOverlayEditToolbar
+import com.example.ui.components.EditProfileMetaDialog
+import com.example.ui.components.GridSettingsContent
+import com.example.ui.components.LayoutStudioHelper
 import com.example.ui.components.PositionedVirtualControl
 import com.example.ui.theme.NexusPadTheme
+import com.example.ui.theme.TacticalCyan
+import com.example.util.ButtonImageCodec
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -153,6 +183,13 @@ class XenosWebPlayerActivity : ComponentActivity() {
     private var mouseButtonMask: Int = 0
     private var mouseDownTimeMs: Long = 0L
     private var mouseHoverEntered: Boolean = false
+    private val buttonDownUptimeMs = LongArray(3)
+    private val pendingButtonRelease = arrayOfNulls<Runnable>(3)
+    private val setActionButtonMethod by lazy {
+        runCatching {
+            MotionEvent::class.java.getMethod("setActionButton", Int::class.javaPrimitiveType)
+        }.getOrNull()
+    }
 
     private var popupWebViewState by mutableStateOf<WebView?>(null)
 
@@ -310,6 +347,12 @@ class XenosWebPlayerActivity : ComponentActivity() {
                                 ).show()
                             }
                         },
+                        onGridSnapChange = { enabled ->
+                            lifecycleScope.launch { prefsRepo.setGridSnapEnabled(enabled) }
+                        },
+                        onGridDivisionsChange = { divisions ->
+                            lifecycleScope.launch { prefsRepo.setGridDivisions(divisions) }
+                        },
                         onSelectRegion = { region ->
                             val next = effectiveSettings.webPlayerConfig.copy(regionPreset = region)
                             latestWebConfig = next
@@ -427,6 +470,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
         xPx: Float,
         yPx: Float,
         buttonState: Int,
+        actionButton: Int = 0,
         vScroll: Float = 0f
     ): MotionEvent {
         val props = arrayOf(
@@ -446,7 +490,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
                 }
             }
         )
-        return MotionEvent.obtain(
+        val ev = MotionEvent.obtain(
             downTime,
             eventTime,
             action,
@@ -462,6 +506,10 @@ class XenosWebPlayerActivity : ComponentActivity() {
             InputDevice.SOURCE_MOUSE,
             0
         )
+        if (actionButton != 0) {
+            runCatching { setActionButtonMethod?.invoke(ev, actionButton) }
+        }
+        return ev
     }
 
     private fun ensureMouseCursorCoords(web: WebView): Pair<Float, Float> {
@@ -553,7 +601,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
                     cssY = nextY / density,
                     dxCss = dxPx / density,
                     dyCss = dyPx / density,
-                    forceRelative = atEdge
+                    forceRelative = atEdge || mouseButtonMask != 0
                 ),
                 null
             )
@@ -562,101 +610,195 @@ class XenosWebPlayerActivity : ComponentActivity() {
 
     private fun dispatchNativeMouseButton(button: Int, isDown: Boolean) {
         val web = mainWebView ?: return
+        val clampedBtn = button.coerceIn(0, 2)
         runOnUiThread {
             if (mainWebView !== web) return@runOnUiThread
-            val (curX, curY) = ensureMouseCursorCoords(web)
-            val bit = when (button) {
-                0 -> MotionEvent.BUTTON_PRIMARY
-                1 -> MotionEvent.BUTTON_TERTIARY
-                2 -> MotionEvent.BUTTON_SECONDARY
-                else -> MotionEvent.BUTTON_PRIMARY
-            }
-            val prevMask = mouseButtonMask
-            mouseButtonMask = if (isDown) (mouseButtonMask or bit) else (mouseButtonMask and bit.inv())
-            val now = SystemClock.uptimeMillis()
-
-            _mouseCursorState.value = _mouseCursorState.value.copy(
-                xPx = curX,
-                yPx = curY,
-                visible = true,
-                initialized = true,
-                leftPressed = (mouseButtonMask and MotionEvent.BUTTON_PRIMARY) != 0,
-                rightPressed = (mouseButtonMask and MotionEvent.BUTTON_SECONDARY) != 0,
-                lastActivityMs = now
-            )
-
-            if (isDown) {
-                web.requestFocus()
-                if (prevMask == 0) {
-                    mouseDownTimeMs = now
-                    val downEv = obtainMouseMotionEvent(
-                        downTime = mouseDownTimeMs,
-                        eventTime = now,
-                        action = MotionEvent.ACTION_DOWN,
-                        xPx = curX,
-                        yPx = curY,
-                        buttonState = mouseButtonMask
-                    )
-                    try {
-                        web.dispatchTouchEvent(downEv)
-                    } finally {
-                        downEv.recycle()
+            if (!isDown) {
+                val elapsed = SystemClock.uptimeMillis() - buttonDownUptimeMs[clampedBtn]
+                if (elapsed in 0L until MIN_MOUSE_CLICK_HOLD_MS) {
+                    pendingButtonRelease[clampedBtn]?.let { web.removeCallbacks(it) }
+                    val delayMs = (MIN_MOUSE_CLICK_HOLD_MS - elapsed).coerceAtLeast(16L)
+                    val releaseTask = Runnable {
+                        pendingButtonRelease[clampedBtn] = null
+                        if (mainWebView === web) {
+                            performMouseButtonEventNow(web, clampedBtn, isDown = false)
+                        }
                     }
-                } else {
-                    val chordEv = obtainMouseMotionEvent(
-                        downTime = mouseDownTimeMs,
-                        eventTime = now,
-                        action = MotionEvent.ACTION_MOVE,
-                        xPx = curX,
-                        yPx = curY,
-                        buttonState = mouseButtonMask
-                    )
-                    try {
-                        web.dispatchTouchEvent(chordEv)
-                    } finally {
-                        chordEv.recycle()
-                    }
+                    pendingButtonRelease[clampedBtn] = releaseTask
+                    web.postDelayed(releaseTask, delayMs)
+                    return@runOnUiThread
                 }
             } else {
-                if (mouseButtonMask == 0) {
-                    val upEv = obtainMouseMotionEvent(
-                        downTime = mouseDownTimeMs,
-                        eventTime = now,
-                        action = MotionEvent.ACTION_UP,
-                        xPx = curX,
-                        yPx = curY,
-                        buttonState = 0
-                    )
-                    try {
-                        web.dispatchTouchEvent(upEv)
-                    } finally {
-                        upEv.recycle()
-                    }
-                } else {
-                    val chordUpEv = obtainMouseMotionEvent(
-                        downTime = mouseDownTimeMs,
-                        eventTime = now,
-                        action = MotionEvent.ACTION_MOVE,
-                        xPx = curX,
-                        yPx = curY,
-                        buttonState = mouseButtonMask
-                    )
-                    try {
-                        web.dispatchTouchEvent(chordUpEv)
-                    } finally {
-                        chordUpEv.recycle()
-                    }
+                pendingButtonRelease[clampedBtn]?.let { web.removeCallbacks(it) }
+                pendingButtonRelease[clampedBtn] = null
+            }
+            performMouseButtonEventNow(web, clampedBtn, isDown)
+        }
+    }
+
+    private fun performMouseButtonEventNow(web: WebView, clampedBtn: Int, isDown: Boolean) {
+        val (curX, curY) = ensureMouseCursorCoords(web)
+        val bit = when (clampedBtn) {
+            0 -> MotionEvent.BUTTON_PRIMARY
+            1 -> MotionEvent.BUTTON_TERTIARY
+            2 -> MotionEvent.BUTTON_SECONDARY
+            else -> MotionEvent.BUTTON_PRIMARY
+        }
+        val prevMask = mouseButtonMask
+        mouseButtonMask = if (isDown) (mouseButtonMask or bit) else (mouseButtonMask and bit.inv())
+        val now = SystemClock.uptimeMillis()
+        if (isDown) {
+            buttonDownUptimeMs[clampedBtn] = now
+        }
+
+        _mouseCursorState.value = _mouseCursorState.value.copy(
+            xPx = curX,
+            yPx = curY,
+            visible = true,
+            initialized = true,
+            leftPressed = (mouseButtonMask and MotionEvent.BUTTON_PRIMARY) != 0,
+            rightPressed = (mouseButtonMask and MotionEvent.BUTTON_SECONDARY) != 0,
+            lastActivityMs = now
+        )
+
+        if (isDown) {
+            web.requestFocus()
+            if (mouseHoverEntered) {
+                mouseHoverEntered = false
+                val exitEv = obtainMouseMotionEvent(
+                    downTime = now,
+                    eventTime = now,
+                    action = MotionEvent.ACTION_HOVER_EXIT,
+                    xPx = curX,
+                    yPx = curY,
+                    buttonState = 0
+                )
+                try {
+                    web.dispatchGenericMotionEvent(exitEv)
+                } finally {
+                    exitEv.recycle()
                 }
             }
-
-            // When Pointer Lock is active (3D FPS stream), also mirror button state into JS
-            // without duplicating native clicks on unlocked GeForce NOW menus/UI.
-            val clampedBtn = button.coerceIn(0, 2)
-            web.evaluateJavascript(
-                "if (document.pointerLockElement && window.__xenosInput) window.__xenosInput.mouseButton($clampedBtn, $isDown);",
-                null
+            if (prevMask == 0) {
+                mouseDownTimeMs = now
+                val downEv = obtainMouseMotionEvent(
+                    downTime = mouseDownTimeMs,
+                    eventTime = now,
+                    action = MotionEvent.ACTION_DOWN,
+                    xPx = curX,
+                    yPx = curY,
+                    buttonState = mouseButtonMask,
+                    actionButton = bit
+                )
+                try {
+                    web.dispatchTouchEvent(downEv)
+                } finally {
+                    downEv.recycle()
+                }
+            } else {
+                val chordEv = obtainMouseMotionEvent(
+                    downTime = mouseDownTimeMs,
+                    eventTime = now,
+                    action = MotionEvent.ACTION_MOVE,
+                    xPx = curX,
+                    yPx = curY,
+                    buttonState = mouseButtonMask,
+                    actionButton = bit
+                )
+                try {
+                    web.dispatchTouchEvent(chordEv)
+                } finally {
+                    chordEv.recycle()
+                }
+            }
+            val pressEv = obtainMouseMotionEvent(
+                downTime = mouseDownTimeMs,
+                eventTime = now,
+                action = MotionEvent.ACTION_BUTTON_PRESS,
+                xPx = curX,
+                yPx = curY,
+                buttonState = mouseButtonMask,
+                actionButton = bit
             )
+            try {
+                web.dispatchGenericMotionEvent(pressEv)
+            } finally {
+                pressEv.recycle()
+            }
+        } else {
+            val releaseEv = obtainMouseMotionEvent(
+                downTime = mouseDownTimeMs,
+                eventTime = now,
+                action = MotionEvent.ACTION_BUTTON_RELEASE,
+                xPx = curX,
+                yPx = curY,
+                buttonState = mouseButtonMask,
+                actionButton = bit
+            )
+            try {
+                web.dispatchGenericMotionEvent(releaseEv)
+            } finally {
+                releaseEv.recycle()
+            }
+            if (mouseButtonMask == 0) {
+                val upEv = obtainMouseMotionEvent(
+                    downTime = mouseDownTimeMs,
+                    eventTime = now,
+                    action = MotionEvent.ACTION_UP,
+                    xPx = curX,
+                    yPx = curY,
+                    buttonState = 0,
+                    actionButton = bit
+                )
+                try {
+                    web.dispatchTouchEvent(upEv)
+                } finally {
+                    upEv.recycle()
+                }
+                mouseHoverEntered = true
+                val enterEv = obtainMouseMotionEvent(
+                    downTime = now,
+                    eventTime = now,
+                    action = MotionEvent.ACTION_HOVER_ENTER,
+                    xPx = curX,
+                    yPx = curY,
+                    buttonState = 0
+                )
+                try {
+                    web.dispatchGenericMotionEvent(enterEv)
+                } finally {
+                    enterEv.recycle()
+                }
+            } else {
+                val chordUpEv = obtainMouseMotionEvent(
+                    downTime = mouseDownTimeMs,
+                    eventTime = now,
+                    action = MotionEvent.ACTION_MOVE,
+                    xPx = curX,
+                    yPx = curY,
+                    buttonState = mouseButtonMask,
+                    actionButton = bit
+                )
+                try {
+                    web.dispatchTouchEvent(chordUpEv)
+                } finally {
+                    chordUpEv.recycle()
+                }
+            }
         }
+
+        // Guarantee GeForce NOW receives pointer/mouse down+up+click/contextmenu even if Android
+        // WebView drops ACTION_BUTTON_PRESS on newer APIs (deduplicates automatically against isTrusted!).
+        val density = resources.displayMetrics.density.coerceAtLeast(1f)
+        web.evaluateJavascript(
+            BetterGfnScriptEngine.buildEnsureMouseButtonJs(
+                button = clampedBtn,
+                isDown = isDown,
+                cssX = curX / density,
+                cssY = curY / density
+            ),
+            null
+        )
     }
 
     private fun dispatchNativeMouseScroll(scrollUp: Boolean) {
@@ -692,6 +834,10 @@ class XenosWebPlayerActivity : ComponentActivity() {
     private fun resetNativeMouseState() {
         val web = mainWebView
         runOnUiThread {
+            for (i in pendingButtonRelease.indices) {
+                pendingButtonRelease[i]?.let { web?.removeCallbacks(it) }
+                pendingButtonRelease[i] = null
+            }
             if (mouseButtonMask != 0 && web != null && mainWebView === web) {
                 val (curX, curY) = ensureMouseCursorCoords(web)
                 val now = SystemClock.uptimeMillis()
@@ -760,6 +906,8 @@ class XenosWebPlayerActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             setBackgroundColor(android.graphics.Color.BLACK)
+            isLongClickable = false
+            setOnLongClickListener { true }
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -902,6 +1050,8 @@ class XenosWebPlayerActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val MIN_MOUSE_CLICK_HOLD_MS = 50L
+
         fun launch(context: Context) {
             val intent = Intent(context, XenosWebPlayerActivity::class.java)
             context.startActivity(intent)
@@ -909,6 +1059,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WebPlayerScreenContent(
     settings: OverlaySettings,
@@ -926,6 +1077,8 @@ private fun WebPlayerScreenContent(
     onBindMainWebView: (WebView) -> Unit,
     onSelectProfile: (String) -> Unit,
     onSaveEditedProfile: (ControllerProfile) -> Unit,
+    onGridSnapChange: (Boolean) -> Unit,
+    onGridDivisionsChange: (Int) -> Unit,
     onSelectRegion: (GfnRegionPreset) -> Unit,
     onSelectFilterSlot: (Int) -> Unit,
     onUpdateFilterStyle: (GameFilterStyle) -> Unit,
@@ -941,22 +1094,61 @@ private fun WebPlayerScreenContent(
     val strings = LocalNexusStrings.current
     val accent = MaterialTheme.colorScheme.primary
     val density = LocalDensity.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var controlsVisible by remember { mutableStateOf(settings.webPlayerConfig.showControlsByDefault) }
     var menuExpanded by remember { mutableStateOf(false) }
     var isLiveEditMode by remember { mutableStateOf(false) }
     var liveEditDraft by remember { mutableStateOf<ControllerProfile?>(null) }
+    var liveEditUndoStack by remember { mutableStateOf<List<ControllerProfile>>(emptyList()) }
     var selectedEditControlId by remember { mutableStateOf<String?>(null) }
     var snapToGrid by remember(settings.gridSnapEnabled) { mutableStateOf(settings.gridSnapEnabled) }
+    var gridDivisions by remember(settings.gridDivisions) { mutableIntStateOf(settings.gridDivisions.coerceIn(4, 32)) }
+    var hideLiveStudioTools by remember { mutableStateOf(false) }
+    var showLiveAddSheet by remember { mutableStateOf(false) }
+    var showLiveRebindSheet by remember { mutableStateOf(false) }
+    var showLiveInspectorSheet by remember { mutableStateOf(false) }
+    var showLiveGridDialog by remember { mutableStateOf(false) }
+    var showLiveMetaDialog by remember { mutableStateOf(false) }
     var bubbleOffsetX by remember { mutableFloatStateOf(24f) }
     var bubbleOffsetY by remember { mutableFloatStateOf(16f) }
 
     val displayedProfile = if (isLiveEditMode) liveEditDraft ?: activeProfile else activeProfile
 
-    BackHandler(enabled = isLiveEditMode) {
+    fun mutateLiveDraft(
+        nextSelectedId: String? = selectedEditControlId,
+        transform: (ControllerProfile) -> ControllerProfile
+    ) {
+        val current = liveEditDraft ?: return
+        val updated = transform(current)
+        liveEditUndoStack = (liveEditUndoStack + current).takeLast(15)
+        liveEditDraft = updated
+        selectedEditControlId = nextSelectedId
+    }
+
+    fun exitLiveEdit() {
         isLiveEditMode = false
         liveEditDraft = null
+        liveEditUndoStack = emptyList()
         selectedEditControlId = null
+        hideLiveStudioTools = false
+        showLiveAddSheet = false
+        showLiveRebindSheet = false
+        showLiveInspectorSheet = false
+        showLiveGridDialog = false
+        showLiveMetaDialog = false
+    }
+
+    BackHandler(enabled = isLiveEditMode) {
+        when {
+            showLiveAddSheet -> showLiveAddSheet = false
+            showLiveRebindSheet -> showLiveRebindSheet = false
+            showLiveInspectorSheet -> showLiveInspectorSheet = false
+            showLiveGridDialog -> showLiveGridDialog = false
+            showLiveMetaDialog -> showLiveMetaDialog = false
+            else -> exitLiveEdit()
+        }
     }
 
     BackHandler(enabled = menuExpanded && !isLiveEditMode) {
@@ -1021,7 +1213,7 @@ private fun WebPlayerScreenContent(
 
         // 2b. Touch-Blocking Live Edit Canvas Scrim + Grid
         // While editing layout live in-game, consumes 100% of background touches so nothing
-        // behind the user's controls or edit toolbar can ever tap the GeForce NOW screen.
+        // behind the user's controls or edit studio tools can ever tap the GeForce NOW screen.
         if (isLiveEditMode) {
             Box(
                 modifier = Modifier
@@ -1039,23 +1231,35 @@ private fun WebPlayerScreenContent(
                                     allReleased = true
                                 }
                             }
+                            selectedEditControlId = null
                         }
                     }
                     .testTag("web_player_live_edit_scrim")
             ) {
-                if (snapToGrid) {
-                    val cols = settings.gridDivisions.coerceIn(4, 32)
+                if (snapToGrid && !hideLiveStudioTools) {
+                    val cols = gridDivisions.coerceIn(4, 32)
                     val rows = (cols * 0.66f).roundToInt().coerceIn(4, 24)
                     Canvas(modifier = Modifier.fillMaxSize()) {
-                        val lineColor = Color.White.copy(alpha = 0.11f)
                         val strokePx = 1.dp.toPx()
                         for (c in 1 until cols) {
+                            val isCenter = c == cols / 2
                             val x = size.width * (c.toFloat() / cols.toFloat())
-                            drawLine(lineColor, Offset(x, 0f), Offset(x, size.height), strokeWidth = strokePx)
+                            drawLine(
+                                color = Color.White.copy(alpha = if (isCenter) 0.22f else 0.10f),
+                                start = Offset(x, 0f),
+                                end = Offset(x, size.height),
+                                strokeWidth = if (isCenter) 1.5.dp.toPx() else strokePx
+                            )
                         }
                         for (r in 1 until rows) {
+                            val isCenter = r == rows / 2
                             val y = size.height * (r.toFloat() / rows.toFloat())
-                            drawLine(lineColor, Offset(0f, y), Offset(size.width, y), strokeWidth = strokePx)
+                            drawLine(
+                                color = Color.White.copy(alpha = if (isCenter) 0.22f else 0.10f),
+                                start = Offset(0f, y),
+                                end = Offset(size.width, y),
+                                strokeWidth = if (isCenter) 1.5.dp.toPx() else strokePx
+                            )
                         }
                     }
                 }
@@ -1063,7 +1267,7 @@ private fun WebPlayerScreenContent(
         }
 
         // 3. XenosPad Virtual Controls layer (direct WebInputSink routing in play mode,
-        //    smooth PositionedVirtualControl drag & snap in Live Edit mode!)
+        //    smooth PositionedVirtualControl drag & snap in Live Studio mode!)
         if ((controlsVisible || isLiveEditMode) && displayedProfile != null) {
             Box(modifier = Modifier.fillMaxSize()) {
                 displayedProfile.controls.forEach { control ->
@@ -1085,8 +1289,7 @@ private fun WebPlayerScreenContent(
                         },
                         onCommitPercent = { rawX, rawY ->
                             if (isLiveEditMode) {
-                                val current = liveEditDraft ?: return@PositionedVirtualControl
-                                val divs = settings.gridDivisions.coerceIn(4, 32).toFloat()
+                                val divs = gridDivisions.coerceIn(4, 32).toFloat()
                                 val aspectY = (divs * 0.66f).roundToInt().coerceIn(4, 24).toFloat()
                                 val clampedX = rawX.coerceIn(0.02f, 0.98f)
                                 val clampedY = rawY.coerceIn(0.03f, 0.97f)
@@ -1100,11 +1303,13 @@ private fun WebPlayerScreenContent(
                                 } else {
                                     clampedY
                                 }
-                                liveEditDraft = current.copy(
-                                    controls = current.controls.map { c ->
-                                        if (c.id == control.id) c.copy(xPercent = finalX, yPercent = finalY) else c
-                                    }
-                                )
+                                mutateLiveDraft(nextSelectedId = control.id) { current ->
+                                    current.copy(
+                                        controls = current.controls.map { c ->
+                                            if (c.id == control.id) c.copy(xPercent = finalX, yPercent = finalY) else c
+                                        }
+                                    )
+                                }
                             }
                         }
                     )
@@ -1125,50 +1330,246 @@ private fun WebPlayerScreenContent(
             )
         }
 
-        // 5. Live On-Game Layout Edit Toolbar
+        // 5. Full In-Game Layout Studio HUD (matching LayoutEditorScreen full capabilities!)
         if (isLiveEditMode && liveEditDraft != null) {
             val draft = liveEditDraft!!
             val selectedCtrl = draft.controls.firstOrNull { it.id == selectedEditControlId }
-            LiveOverlayEditToolbar(
-                profileName = draft.name,
-                selectedControl = selectedCtrl,
-                snapToGrid = snapToGrid,
-                accentColor = accent,
-                onSizeDelta = { delta ->
-                    val targetId = selectedEditControlId ?: return@LiveOverlayEditToolbar
-                    liveEditDraft = draft.copy(
-                        controls = draft.controls.map { c ->
-                            if (c.id == targetId) c.copy(sizeDp = (c.sizeDp + delta).coerceIn(38f, 160f)) else c
-                        }
-                    )
-                },
-                onOpacityDelta = { delta ->
-                    val targetId = selectedEditControlId ?: return@LiveOverlayEditToolbar
-                    liveEditDraft = draft.copy(
-                        controls = draft.controls.map { c ->
-                            if (c.id == targetId) c.copy(opacity = (c.opacity + delta).coerceIn(0.20f, 1.0f)) else c
-                        }
-                    )
-                },
-                onToggleSnap = { snapToGrid = !snapToGrid },
-                onCancel = {
-                    isLiveEditMode = false
-                    liveEditDraft = null
-                    selectedEditControlId = null
-                },
-                onSave = {
-                    val toSave = liveEditDraft
-                    isLiveEditMode = false
-                    liveEditDraft = null
-                    selectedEditControlId = null
-                    if (toSave != null) {
-                        onSaveEditedProfile(toSave)
-                    }
-                },
+            val hasChanges = liveEditUndoStack.isNotEmpty()
+
+            // Top-Left Pill: Cancel + Save
+            Surface(
+                color = Color(0xE60B0E14),
+                shape = RoundedCornerShape(24.dp),
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 10.dp)
-            )
+                    .align(Alignment.TopStart)
+                    .padding(start = 10.dp, top = 10.dp)
+                    .border(
+                        width = 1.dp,
+                        color = if (hasChanges) accent else Color(0xFF314057),
+                        shape = RoundedCornerShape(24.dp)
+                    )
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    IconButton(
+                        onClick = { exitLiveEdit() },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .testTag("live_edit_cancel_button")
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = strings.liveEditCancelButton, tint = Color.White)
+                    }
+                    Button(
+                        onClick = {
+                            val toSave = liveEditDraft?.copy(
+                                gridSnap = snapToGrid,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                            exitLiveEdit()
+                            if (toSave != null) {
+                                onSaveEditedProfile(toSave)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (hasChanges) accent else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (hasChanges) MaterialTheme.colorScheme.onPrimary else Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier
+                            .height(36.dp)
+                            .testTag("live_edit_save_button")
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = if (hasChanges) strings.liveEditSaveButton else "Saved",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                }
+            }
+
+            // Top-Right Pill: Add, Grid Settings, Undo, Profile Meta, Hide Tools
+            Surface(
+                color = Color(0xE60B0E14),
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 10.dp, top = 10.dp)
+                    .border(1.dp, Color(0xFF314057), RoundedCornerShape(24.dp))
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    if (!hideLiveStudioTools) {
+                        IconButton(
+                            onClick = { showLiveAddSheet = true },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .testTag("live_edit_add_control_button")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Control", tint = accent)
+                        }
+                        IconButton(
+                            onClick = { showLiveGridDialog = true },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .testTag("live_edit_grid_settings_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GridOn,
+                                contentDescription = "Grid Settings",
+                                tint = if (snapToGrid) accent else Color(0xFF9FB0C7)
+                            )
+                        }
+                        if (liveEditUndoStack.isNotEmpty()) {
+                            IconButton(
+                                onClick = {
+                                    val prev = liveEditUndoStack.lastOrNull() ?: return@IconButton
+                                    liveEditUndoStack = liveEditUndoStack.dropLast(1)
+                                    liveEditDraft = prev
+                                    if (selectedEditControlId !in prev.controls.map { it.id }) {
+                                        selectedEditControlId = prev.controls.firstOrNull()?.id
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .testTag("live_edit_undo_button")
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = Color.White)
+                            }
+                        }
+                        IconButton(
+                            onClick = { showLiveMetaDialog = true },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .testTag("live_edit_meta_button")
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = "Profile Details", tint = TacticalCyan)
+                        }
+                    }
+                    IconButton(
+                        onClick = { hideLiveStudioTools = !hideLiveStudioTools },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .testTag("live_edit_toggle_hud_button")
+                    ) {
+                        Icon(
+                            imageVector = if (hideLiveStudioTools) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = if (hideLiveStudioTools) "Show Studio Tools" else "Hide Studio Tools",
+                            tint = Color(0xFF9FB0C7)
+                        )
+                    }
+                }
+            }
+
+            // Auto-flipping contextual Selected-Control Studio Capsule (Bind, Style, Duplicate, Delete)
+            if (selectedCtrl != null && !hideLiveStudioTools) {
+                val dockTop = selectedCtrl.yPercent >= 0.52f
+                Surface(
+                    color = Color(0xEE121721),
+                    shape = RoundedCornerShape(20.dp),
+                    tonalElevation = 6.dp,
+                    modifier = Modifier
+                        .align(if (dockTop) Alignment.TopCenter else Alignment.BottomCenter)
+                        .padding(
+                            top = if (dockTop) 60.dp else 0.dp,
+                            bottom = if (dockTop) 0.dp else 14.dp,
+                            start = 12.dp,
+                            end = 12.dp
+                        )
+                        .border(1.dp, Color(selectedCtrl.accent.hex).copy(alpha = 0.72f), RoundedCornerShape(20.dp))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(start = 4.dp, end = 4.dp)) {
+                            Text(
+                                text = selectedCtrl.label,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Color(selectedCtrl.accent.hex),
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = selectedCtrl.binding.codeLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF9FB0C7)
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = { showLiveRebindSheet = true },
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                            modifier = Modifier
+                                .height(36.dp)
+                                .testTag("live_edit_rebind_button")
+                        ) {
+                            Text("Bind", fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = { showLiveInspectorSheet = true },
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                            modifier = Modifier
+                                .height(36.dp)
+                                .testTag("live_edit_customize_button")
+                        ) {
+                            Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Style", fontSize = 12.sp)
+                        }
+
+                        IconButton(
+                            onClick = {
+                                val clone = LayoutStudioHelper.duplicateControl(selectedCtrl)
+                                mutateLiveDraft(nextSelectedId = clone.id) { current ->
+                                    current.copy(controls = current.controls + clone)
+                                }
+                            },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .testTag("live_edit_duplicate_button")
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate", tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
+
+                        IconButton(
+                            onClick = {
+                                val targetId = selectedCtrl.id
+                                mutateLiveDraft(nextSelectedId = null) { current ->
+                                    current.copy(controls = current.controls.filterNot { it.id == targetId })
+                                }
+                            },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .testTag("live_edit_delete_button")
+                        ) {
+                            Icon(
+                                Icons.Default.DeleteOutline,
+                                contentDescription = "Delete",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { selectedEditControlId = null },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Deselect", tint = Color(0xFF9FB0C7), modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
         } else {
             // 6. Draggable Quick Menu Bubble
             val maxBubbleX = (canvasWidthPx - with(density) { 56.dp.toPx() }).coerceAtLeast(0f)
@@ -1235,7 +1636,11 @@ private fun WebPlayerScreenContent(
                     if (activeProfile != null) {
                         InputBridge.releaseAll()
                         liveEditDraft = activeProfile
+                        liveEditUndoStack = emptyList()
                         selectedEditControlId = activeProfile.controls.firstOrNull()?.id
+                        snapToGrid = activeProfile.gridSnap
+                        gridDivisions = settings.gridDivisions.coerceIn(4, 32)
+                        hideLiveStudioTools = false
                         isLiveEditMode = true
                         controlsVisible = true
                         menuExpanded = false
@@ -1314,6 +1719,163 @@ private fun WebPlayerScreenContent(
                     )
                 }
             }
+        }
+    }
+
+    // 9. Full Layout Studio Sheets & Dialogs for Live Edit Mode
+    val activeLiveDraft = liveEditDraft
+    if (isLiveEditMode && activeLiveDraft != null) {
+        val activeSelectedControl = remember(activeLiveDraft, selectedEditControlId) {
+            activeLiveDraft.controls.firstOrNull { it.id == selectedEditControlId }
+        }
+
+        if (showLiveAddSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showLiveAddSheet = false },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ) {
+                CommandPickerSheetContent(
+                    title = "Add Virtual Control",
+                    includeClusters = true,
+                    onPick = { binding ->
+                        val newCtrl = LayoutStudioHelper.createControlFromBinding(binding)
+                        mutateLiveDraft(nextSelectedId = newCtrl.id) { current ->
+                            current.copy(controls = current.controls + newCtrl)
+                        }
+                        showLiveAddSheet = false
+                    }
+                )
+            }
+        }
+
+        if (showLiveRebindSheet && activeSelectedControl != null) {
+            ModalBottomSheet(
+                onDismissRequest = { showLiveRebindSheet = false },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ) {
+                val isCluster = activeSelectedControl.controlType == ControlType.ANALOG_STICK ||
+                    activeSelectedControl.controlType == ControlType.DPAD_CLUSTER ||
+                    activeSelectedControl.controlType == ControlType.WASD_CLUSTER ||
+                    activeSelectedControl.controlType == ControlType.TOUCHPAD
+                CommandPickerSheetContent(
+                    title = "Rebind '${activeSelectedControl.label}'",
+                    includeClusters = isCluster,
+                    onPick = { binding ->
+                        val rebound = LayoutStudioHelper.rebindControl(activeSelectedControl, binding)
+                        mutateLiveDraft(nextSelectedId = rebound.id) { current ->
+                            current.copy(
+                                controls = current.controls.map { c ->
+                                    if (c.id == rebound.id) rebound else c
+                                }
+                            )
+                        }
+                        showLiveRebindSheet = false
+                    }
+                )
+            }
+        }
+
+        if (showLiveInspectorSheet && activeSelectedControl != null) {
+            ModalBottomSheet(
+                onDismissRequest = { showLiveInspectorSheet = false },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ) {
+                ControlInspectorSheetContent(
+                    control = activeSelectedControl,
+                    onChange = { updated ->
+                        mutateLiveDraft(nextSelectedId = updated.id) { current ->
+                            current.copy(
+                                controls = current.controls.map { c ->
+                                    if (c.id == updated.id) updated else c
+                                }
+                            )
+                        }
+                    },
+                    onPickCustomImage = { uri ->
+                        val targetId = activeSelectedControl.id
+                        scope.launch {
+                            val result = ButtonImageCodec.encodeUriToBase64(context, uri)
+                            result.onSuccess { encoded ->
+                                mutateLiveDraft(nextSelectedId = targetId) { current ->
+                                    current.copy(
+                                        controls = current.controls.map { c ->
+                                            if (c.id == targetId) c.copy(customImageBase64 = encoded) else c
+                                        }
+                                    )
+                                }
+                            }.onFailure { err ->
+                                Toast.makeText(
+                                    context,
+                                    err.message ?: "Unable to import image",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    },
+                    onNudge = { dx, dy ->
+                        val nudged = LayoutStudioHelper.nudgeControl(activeSelectedControl, dx, dy)
+                        mutateLiveDraft(nextSelectedId = nudged.id) { current ->
+                            current.copy(
+                                controls = current.controls.map { c ->
+                                    if (c.id == nudged.id) nudged else c
+                                }
+                            )
+                        }
+                    },
+                    onMirror = {
+                        val mirrored = LayoutStudioHelper.mirrorControl(activeSelectedControl)
+                        mutateLiveDraft(nextSelectedId = mirrored.id) { current ->
+                            current.copy(
+                                controls = current.controls.map { c ->
+                                    if (c.id == mirrored.id) mirrored else c
+                                }
+                            )
+                        }
+                    },
+                    onClose = { showLiveInspectorSheet = false }
+                )
+            }
+        }
+
+        if (showLiveGridDialog) {
+            AlertDialog(
+                onDismissRequest = { showLiveGridDialog = false },
+                title = { Text("Grid & Snapping") },
+                text = {
+                    GridSettingsContent(
+                        gridSnapEnabled = snapToGrid,
+                        gridDivisions = gridDivisions,
+                        onGridSnapChange = { enabled ->
+                            snapToGrid = enabled
+                            onGridSnapChange(enabled)
+                        },
+                        onGridDivisionsChange = { divisions ->
+                            gridDivisions = divisions
+                            onGridDivisionsChange(divisions)
+                        }
+                    )
+                },
+                confirmButton = {
+                    Button(onClick = { showLiveGridDialog = false }) {
+                        Text("Done")
+                    }
+                }
+            )
+        }
+
+        if (showLiveMetaDialog) {
+            EditProfileMetaDialog(
+                initialName = activeLiveDraft.name,
+                initialGame = activeLiveDraft.gameTitle,
+                initialGenre = activeLiveDraft.genre,
+                onDismiss = { showLiveMetaDialog = false },
+                onConfirm = { name, game, genre ->
+                    mutateLiveDraft { current ->
+                        current.copy(name = name, gameTitle = game, genre = genre)
+                    }
+                    showLiveMetaDialog = false
+                }
+            )
         }
     }
 }

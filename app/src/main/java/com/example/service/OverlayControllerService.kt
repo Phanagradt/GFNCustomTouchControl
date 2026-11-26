@@ -129,6 +129,7 @@ import com.example.model.AppLanguage
 import com.example.model.AppLocalization
 import com.example.model.AxisPair
 import com.example.model.ControlShape
+import com.example.model.ControlType
 import com.example.model.ControllerProfile
 import com.example.model.CrosshairPresets
 import com.example.model.CrosshairSettings
@@ -141,10 +142,14 @@ import com.example.model.PerfHudConfig
 import com.example.model.ReplayBufferPreset
 import com.example.model.TargetPlatformMode
 import com.example.model.VirtualControl
+import com.example.ui.components.CommandPickerSheetContent
+import com.example.ui.components.ControlInspectorSheetContent
 import com.example.ui.components.CrosshairOverlayCanvas
 import com.example.ui.components.CrosshairPanelContent
 import com.example.ui.components.FloatingBubbleVisual
 import com.example.ui.components.GeForceFilterPanelContent
+import com.example.ui.components.GridSettingsContent
+import com.example.ui.components.LayoutStudioHelper
 import com.example.ui.components.LiveOverlayEditToolbar
 import com.example.ui.components.PerformanceHudPill
 import com.example.ui.components.ScreenFilterOverlayCanvas
@@ -241,6 +246,14 @@ class OverlayControllerService : Service() {
     private var liveEditBackdropView: ComposeView? = null
     private var liveEditToolbarView: ComposeView? = null
     private var liveEditToolbarParams: WindowManager.LayoutParams? = null
+    private var liveEditStudioSheetView: ComposeView? = null
+
+    private enum class LiveEditStudioSheet {
+        ADD_CONTROL,
+        REBIND_CONTROL,
+        CUSTOMIZE_CONTROL,
+        GRID_SETTINGS
+    }
 
     private var gyroAimEngine: GyroAimEngine? = null
     private var performanceMonitor: PerformanceMonitor? = null
@@ -260,8 +273,11 @@ class OverlayControllerService : Service() {
     private val perfHudFlow = MutableStateFlow(PerfHudConfig())
     private val liveEditModeFlow = MutableStateFlow(false)
     private val liveEditDraftProfileFlow = MutableStateFlow<ControllerProfile?>(null)
+    private val liveEditUndoStackFlow = MutableStateFlow<List<ControllerProfile>>(emptyList())
     private val liveEditSelectedIdFlow = MutableStateFlow<String?>(null)
     private val liveEditSnapGridFlow = MutableStateFlow(true)
+    private val liveEditGridDivisionsFlow = MutableStateFlow(12)
+    private val liveEditActiveSheetFlow = MutableStateFlow<LiveEditStudioSheet?>(null)
     private val liveEditControlEntryMap = linkedMapOf<String, Pair<ComposeView, WindowManager.LayoutParams>>()
 
     private val appLanguageFlow = MutableStateFlow(AppLanguage.SYSTEM)
@@ -1732,6 +1748,10 @@ class OverlayControllerService : Service() {
                 runCatching { windowManager.removeViewImmediate(tb) }
                 runCatching { windowManager.addView(tb, tp) }
             }
+            liveEditActiveSheetFlow.value?.let { activeSheet ->
+                dismissLiveEditStudioSheet(clearFlow = false)
+                showLiveEditStudioSheet(activeSheet)
+            }
         }
         if (floatingKeyboardOpen.value) {
             floatingKeyboardView?.let { kb ->
@@ -1859,8 +1879,11 @@ class OverlayControllerService : Service() {
         InputBridge.releaseAll()
 
         liveEditDraftProfileFlow.value = currentProfile
+        liveEditUndoStackFlow.value = emptyList()
         liveEditSelectedIdFlow.value = currentProfile.controls.firstOrNull()?.id
         liveEditSnapGridFlow.value = currentProfile.gridSnap
+        liveEditGridDivisionsFlow.value = lastRenderedSettings.gridDivisions.coerceIn(4, 32)
+        liveEditActiveSheetFlow.value = null
         liveEditModeFlow.value = true
         gyroAimEngine?.updateConfig(gyroAimFlow.value, pauseForEdit = true)
 
@@ -1876,7 +1899,9 @@ class OverlayControllerService : Service() {
         val snap = liveEditSnapGridFlow.value
         liveEditModeFlow.value = false
         liveEditDraftProfileFlow.value = null
+        liveEditUndoStackFlow.value = emptyList()
         liveEditSelectedIdFlow.value = null
+        dismissLiveEditStudioSheet()
         dismissLiveEditToolbar()
         dismissLiveEditBackdrop()
         gyroAimEngine?.updateConfig(gyroAimFlow.value, pauseForEdit = false)
@@ -1911,40 +1936,79 @@ class OverlayControllerService : Service() {
         ensureFloatingChromeOnTop()
     }
 
-    private fun adjustSelectedLiveEditControl(sizeDeltaDp: Float = 0f, opacityDelta: Float = 0f) {
-        val selectedId = liveEditSelectedIdFlow.value ?: return
-        val draft = liveEditDraftProfileFlow.value ?: return
-        val updatedControls = draft.controls.map { ctrl ->
-            if (ctrl.id == selectedId) {
-                ctrl.copy(
-                    sizeDp = (ctrl.sizeDp + sizeDeltaDp).coerceIn(32f, 240f),
-                    opacity = (ctrl.opacity + opacityDelta).coerceIn(0.18f, 1.0f)
-                )
-            } else {
-                ctrl
+    private fun syncLiveEditControlWindowBounds(ctrl: VirtualControl) {
+        val entry = liveEditControlEntryMap[ctrl.id] ?: return
+        val (view, params) = entry
+        val (screenW, screenH) = realScreenSize()
+        val density = resources.displayMetrics.density
+        val newW = (controlWidthDp(ctrl) * density).roundToInt()
+        val newH = (controlHeightDp(ctrl) * density).roundToInt()
+        params.width = newW
+        params.height = newH
+        params.x = (ctrl.xPercent * screenW - newW / 2f)
+            .roundToInt()
+            .coerceIn(0, (screenW - newW).coerceAtLeast(0))
+        params.y = (ctrl.yPercent * screenH - newH / 2f)
+            .roundToInt()
+            .coerceIn(0, (screenH - newH).coerceAtLeast(0))
+        runCatching { windowManager.updateViewLayout(view, params) }
+    }
+
+    private fun mutateLiveEditDraft(
+        nextSelectedId: String? = liveEditSelectedIdFlow.value,
+        rebuildWindows: Boolean = false,
+        recordUndo: Boolean = true,
+        transform: (ControllerProfile) -> ControllerProfile
+    ) {
+        val current = liveEditDraftProfileFlow.value ?: return
+        val updated = transform(current)
+        if (recordUndo) {
+            liveEditUndoStackFlow.value = (liveEditUndoStackFlow.value + current).takeLast(15)
+        }
+        liveEditDraftProfileFlow.value = updated
+        liveEditSelectedIdFlow.value = nextSelectedId
+
+        if (rebuildWindows) {
+            clearControlWindows()
+            renderLiveEditControlWindows(updated, lastRenderedSettings)
+            ensureFloatingChromeOnTop()
+        } else {
+            nextSelectedId?.let { id ->
+                updated.controls.firstOrNull { it.id == id }?.let { syncLiveEditControlWindowBounds(it) }
             }
         }
-        val nextDraft = draft.copy(controls = updatedControls)
-        liveEditDraftProfileFlow.value = nextDraft
+    }
 
-        // Resize the live control's WindowManager bounds immediately when size changes
-        if (sizeDeltaDp != 0f) {
-            val updatedCtrl = updatedControls.firstOrNull { it.id == selectedId } ?: return
-            val entry = liveEditControlEntryMap[selectedId] ?: return
-            val (view, params) = entry
-            val (screenW, screenH) = realScreenSize()
-            val density = resources.displayMetrics.density
-            val newW = (controlWidthDp(updatedCtrl) * density).roundToInt()
-            val newH = (controlHeightDp(updatedCtrl) * density).roundToInt()
-            params.width = newW
-            params.height = newH
-            params.x = (updatedCtrl.xPercent * screenW - newW / 2f)
-                .roundToInt()
-                .coerceIn(0, (screenW - newW).coerceAtLeast(0))
-            params.y = (updatedCtrl.yPercent * screenH - newH / 2f)
-                .roundToInt()
-                .coerceIn(0, (screenH - newH).coerceAtLeast(0))
-            runCatching { windowManager.updateViewLayout(view, params) }
+    private fun undoLiveEditDraft() {
+        val stack = liveEditUndoStackFlow.value
+        if (stack.isEmpty()) return
+        val previous = stack.last()
+        liveEditUndoStackFlow.value = stack.dropLast(1)
+        liveEditDraftProfileFlow.value = previous
+        val currentSel = liveEditSelectedIdFlow.value
+        if (currentSel != null && previous.controls.none { it.id == currentSel }) {
+            liveEditSelectedIdFlow.value = previous.controls.firstOrNull()?.id
+        }
+        clearControlWindows()
+        renderLiveEditControlWindows(previous, lastRenderedSettings)
+        ensureFloatingChromeOnTop()
+    }
+
+    private fun adjustSelectedLiveEditControl(sizeDeltaDp: Float = 0f, opacityDelta: Float = 0f) {
+        val selectedId = liveEditSelectedIdFlow.value ?: return
+        mutateLiveEditDraft(nextSelectedId = selectedId, rebuildWindows = false, recordUndo = true) { draft ->
+            draft.copy(
+                controls = draft.controls.map { ctrl ->
+                    if (ctrl.id == selectedId) {
+                        ctrl.copy(
+                            sizeDp = (ctrl.sizeDp + sizeDeltaDp).coerceIn(32f, 240f),
+                            opacity = (ctrl.opacity + opacityDelta).coerceIn(0.18f, 1.0f)
+                        )
+                    } else {
+                        ctrl
+                    }
+                }
+            )
         }
     }
 
@@ -1963,7 +2027,7 @@ class OverlayControllerService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = (screenW * 0.16f).roundToInt().coerceAtLeast((8 * density).roundToInt())
+            x = (screenW * 0.08f).roundToInt().coerceAtLeast((8 * density).roundToInt())
             y = (12 * density).roundToInt()
             applyFullScreenOverlayFlags(this)
         }
@@ -1973,6 +2037,7 @@ class OverlayControllerService : Service() {
             attachLifecycle(this)
             setContent {
                 val draft by liveEditDraftProfileFlow.collectAsState()
+                val undoStack by liveEditUndoStackFlow.collectAsState()
                 val selectedId by liveEditSelectedIdFlow.collectAsState()
                 val snapGrid by liveEditSnapGridFlow.collectAsState()
                 val appLang by appLanguageFlow.collectAsState()
@@ -2004,9 +2069,46 @@ class OverlayControllerService : Service() {
                             accentColor = accent,
                             onSizeDelta = { delta -> adjustSelectedLiveEditControl(sizeDeltaDp = delta) },
                             onOpacityDelta = { delta -> adjustSelectedLiveEditControl(opacityDelta = delta) },
-                            onToggleSnap = { liveEditSnapGridFlow.value = !liveEditSnapGridFlow.value },
+                            onToggleSnap = {
+                                val nextSnap = !liveEditSnapGridFlow.value
+                                liveEditSnapGridFlow.value = nextSnap
+                                serviceScope.launch { prefsRepoRef?.setGridSnapEnabled(nextSnap) }
+                            },
                             onCancel = { exitLiveEditMode(saveChanges = false) },
                             onSave = { exitLiveEditMode(saveChanges = true) },
+                            canUndo = undoStack.isNotEmpty(),
+                            onAddControl = { showLiveEditStudioSheet(LiveEditStudioSheet.ADD_CONTROL) },
+                            onRebindControl = {
+                                if (liveEditSelectedIdFlow.value != null) {
+                                    showLiveEditStudioSheet(LiveEditStudioSheet.REBIND_CONTROL)
+                                }
+                            },
+                            onCustomizeControl = {
+                                if (liveEditSelectedIdFlow.value != null) {
+                                    showLiveEditStudioSheet(LiveEditStudioSheet.CUSTOMIZE_CONTROL)
+                                }
+                            },
+                            onDuplicateControl = {
+                                val ctrl = selectedControl ?: return@LiveOverlayEditToolbar
+                                val clone = LayoutStudioHelper.duplicateControl(ctrl)
+                                mutateLiveEditDraft(
+                                    nextSelectedId = clone.id,
+                                    rebuildWindows = true
+                                ) { current ->
+                                    current.copy(controls = current.controls + clone)
+                                }
+                            },
+                            onDeleteControl = {
+                                val targetId = selectedControl?.id ?: return@LiveOverlayEditToolbar
+                                mutateLiveEditDraft(
+                                    nextSelectedId = null,
+                                    rebuildWindows = true
+                                ) { current ->
+                                    current.copy(controls = current.controls.filterNot { it.id == targetId })
+                                }
+                            },
+                            onUndo = { undoLiveEditDraft() },
+                            onOpenGridSettings = { showLiveEditStudioSheet(LiveEditStudioSheet.GRID_SETTINGS) },
                             modifier = Modifier.pointerInteropFilter { event ->
                                 val tp = liveEditToolbarParams ?: return@pointerInteropFilter false
                                 val tv = liveEditToolbarView ?: return@pointerInteropFilter false
@@ -2053,6 +2155,224 @@ class OverlayControllerService : Service() {
         runCatching { windowManager.addView(view, params) }
     }
 
+    private fun showLiveEditStudioSheet(sheet: LiveEditStudioSheet) {
+        dismissLiveEditStudioSheet(clearFlow = false)
+        liveEditActiveSheetFlow.value = sheet
+
+        // Focusable full-screen modal overlay so search/label TextFields can receive keyboard input
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            overlayWindowType(),
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            applyFullScreenOverlayFlags(this)
+        }
+
+        val view = ComposeView(this).apply {
+            attachLifecycle(this)
+            setContent {
+                val draft by liveEditDraftProfileFlow.collectAsState()
+                val selectedId by liveEditSelectedIdFlow.collectAsState()
+                val snapGrid by liveEditSnapGridFlow.collectAsState()
+                val divisions by liveEditGridDivisionsFlow.collectAsState()
+                val activeSheet by liveEditActiveSheetFlow.collectAsState()
+                val appLang by appLanguageFlow.collectAsState()
+                val colorScheme by colorSchemeFlow.collectAsState()
+                val fontConfig by fontConfigFlow.collectAsState()
+                val localizedStrings = remember(appLang) { AppLocalization.stringsFor(appLang) }
+                val accent = Color(colorScheme.effectivePrimaryHex())
+                val selectedCtrl = remember(draft, selectedId) {
+                    draft?.controls?.firstOrNull { it.id == selectedId }
+                }
+
+                CompositionLocalProvider(LocalNexusStrings provides localizedStrings) {
+                    NexusPadTheme(
+                        darkTheme = true,
+                        colorSchemeConfig = colorScheme,
+                        fontConfig = fontConfig
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.62f))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { dismissLiveEditStudioSheet() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(22.dp),
+                                color = Color(0xFF131622),
+                                shadowElevation = 16.dp,
+                                modifier = Modifier
+                                    .padding(horizontal = 20.dp, vertical = 16.dp)
+                                    .widthIn(max = 480.dp)
+                                    .heightIn(max = 520.dp)
+                                    .border(1.dp, accent.copy(alpha = 0.45f), RoundedCornerShape(22.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {}
+                            ) {
+                                when (activeSheet) {
+                                    LiveEditStudioSheet.ADD_CONTROL -> {
+                                        CommandPickerSheetContent(
+                                            title = "Add Virtual Control",
+                                            includeClusters = true,
+                                            onPick = { binding ->
+                                                val newCtrl = LayoutStudioHelper.createControlFromBinding(binding)
+                                                mutateLiveEditDraft(
+                                                    nextSelectedId = newCtrl.id,
+                                                    rebuildWindows = true
+                                                ) { current ->
+                                                    current.copy(controls = current.controls + newCtrl)
+                                                }
+                                                dismissLiveEditStudioSheet()
+                                            },
+                                            onClose = { dismissLiveEditStudioSheet() }
+                                        )
+                                    }
+
+                                    LiveEditStudioSheet.REBIND_CONTROL -> {
+                                        if (selectedCtrl != null) {
+                                            val isCluster = selectedCtrl.controlType == ControlType.ANALOG_STICK ||
+                                                selectedCtrl.controlType == ControlType.DPAD_CLUSTER ||
+                                                selectedCtrl.controlType == ControlType.WASD_CLUSTER ||
+                                                selectedCtrl.controlType == ControlType.TOUCHPAD
+                                            CommandPickerSheetContent(
+                                                title = "Rebind '${selectedCtrl.label}'",
+                                                includeClusters = isCluster,
+                                                onPick = { binding ->
+                                                    val rebound = LayoutStudioHelper.rebindControl(selectedCtrl, binding)
+                                                    val typeChanged = rebound.controlType != selectedCtrl.controlType
+                                                    mutateLiveEditDraft(
+                                                        nextSelectedId = rebound.id,
+                                                        rebuildWindows = typeChanged
+                                                    ) { current ->
+                                                        current.copy(
+                                                            controls = current.controls.map { c ->
+                                                                if (c.id == rebound.id) rebound else c
+                                                            }
+                                                        )
+                                                    }
+                                                    dismissLiveEditStudioSheet()
+                                                },
+                                                onClose = { dismissLiveEditStudioSheet() }
+                                            )
+                                        }
+                                    }
+
+                                    LiveEditStudioSheet.CUSTOMIZE_CONTROL -> {
+                                        if (selectedCtrl != null) {
+                                            ControlInspectorSheetContent(
+                                                control = selectedCtrl,
+                                                onChange = { updated ->
+                                                    mutateLiveEditDraft(
+                                                        nextSelectedId = updated.id,
+                                                        rebuildWindows = false
+                                                    ) { current ->
+                                                        current.copy(
+                                                            controls = current.controls.map { c ->
+                                                                if (c.id == updated.id) updated else c
+                                                            }
+                                                        )
+                                                    }
+                                                },
+                                                onPickCustomImage = null,
+                                                onNudge = { dx, dy ->
+                                                    val nudged = LayoutStudioHelper.nudgeControl(selectedCtrl, dx, dy)
+                                                    mutateLiveEditDraft(
+                                                        nextSelectedId = nudged.id,
+                                                        rebuildWindows = false
+                                                    ) { current ->
+                                                        current.copy(
+                                                            controls = current.controls.map { c ->
+                                                                if (c.id == nudged.id) nudged else c
+                                                            }
+                                                        )
+                                                    }
+                                                },
+                                                onMirror = {
+                                                    val mirrored = LayoutStudioHelper.mirrorControl(selectedCtrl)
+                                                    mutateLiveEditDraft(
+                                                        nextSelectedId = mirrored.id,
+                                                        rebuildWindows = false
+                                                    ) { current ->
+                                                        current.copy(
+                                                            controls = current.controls.map { c ->
+                                                                if (c.id == mirrored.id) mirrored else c
+                                                            }
+                                                        )
+                                                    }
+                                                },
+                                                onClose = { dismissLiveEditStudioSheet() }
+                                            )
+                                        }
+                                    }
+
+                                    LiveEditStudioSheet.GRID_SETTINGS -> {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 20.dp, vertical = 16.dp),
+                                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "Grid & Snapping",
+                                                    style = MaterialTheme.typography.titleLarge,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                IconButton(onClick = { dismissLiveEditStudioSheet() }) {
+                                                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                                                }
+                                            }
+                                            GridSettingsContent(
+                                                gridSnapEnabled = snapGrid,
+                                                gridDivisions = divisions,
+                                                onGridSnapChange = { enabled ->
+                                                    liveEditSnapGridFlow.value = enabled
+                                                    serviceScope.launch { prefsRepoRef?.setGridSnapEnabled(enabled) }
+                                                },
+                                                onGridDivisionsChange = { nextDiv ->
+                                                    val clamped = nextDiv.coerceIn(4, 32)
+                                                    liveEditGridDivisionsFlow.value = clamped
+                                                    serviceScope.launch { prefsRepoRef?.setGridDivisions(clamped) }
+                                                }
+                                            )
+                                        }
+                                    }
+
+                                    null -> Unit
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        liveEditStudioSheetView = view
+        runCatching { windowManager.addView(view, params) }
+    }
+
+    private fun dismissLiveEditStudioSheet(clearFlow: Boolean = true) {
+        liveEditStudioSheetView?.let { runCatching { windowManager.removeViewImmediate(it) } }
+        liveEditStudioSheetView = null
+        if (clearFlow) {
+            liveEditActiveSheetFlow.value = null
+        }
+    }
+
     @OptIn(ExperimentalComposeUiApi::class)
     private fun showLiveEditBackdrop() {
         dismissLiveEditBackdrop()
@@ -2076,7 +2396,10 @@ class OverlayControllerService : Service() {
             attachLifecycle(this)
             setContent {
                 val snapGrid by liveEditSnapGridFlow.collectAsState()
-                val divisions = lastRenderedSettings.gridDivisions.coerceIn(4, 32)
+                val divisions by liveEditGridDivisionsFlow.collectAsState()
+                val safeDivisions = divisions.coerceIn(4, 32)
+                val colorScheme by colorSchemeFlow.collectAsState()
+                val accent = Color(colorScheme.effectivePrimaryHex())
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -2084,26 +2407,29 @@ class OverlayControllerService : Service() {
                         .pointerInteropFilter { true }
                 ) {
                     if (snapGrid) {
-                        val rows = (divisions * 0.66f).roundToInt().coerceIn(4, 24)
+                        val rows = (safeDivisions * 0.66f).roundToInt().coerceIn(4, 24)
                         androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
                             val lineColor = Color.White.copy(alpha = 0.11f)
+                            val centerLineColor = accent.copy(alpha = 0.28f)
                             val strokePx = 1.dp.toPx()
-                            for (c in 1 until divisions) {
-                                val x = size.width * (c.toFloat() / divisions.toFloat())
+                            for (c in 1 until safeDivisions) {
+                                val x = size.width * (c.toFloat() / safeDivisions.toFloat())
+                                val isCenter = safeDivisions % 2 == 0 && c == safeDivisions / 2
                                 drawLine(
-                                    lineColor,
+                                    if (isCenter) centerLineColor else lineColor,
                                     androidx.compose.ui.geometry.Offset(x, 0f),
                                     androidx.compose.ui.geometry.Offset(x, size.height),
-                                    strokeWidth = strokePx
+                                    strokeWidth = if (isCenter) strokePx * 1.4f else strokePx
                                 )
                             }
                             for (r in 1 until rows) {
                                 val y = size.height * (r.toFloat() / rows.toFloat())
+                                val isCenter = rows % 2 == 0 && r == rows / 2
                                 drawLine(
-                                    lineColor,
+                                    if (isCenter) centerLineColor else lineColor,
                                     androidx.compose.ui.geometry.Offset(0f, y),
                                     androidx.compose.ui.geometry.Offset(size.width, y),
-                                    strokeWidth = strokePx
+                                    strokeWidth = if (isCenter) strokePx * 1.4f else strokePx
                                 )
                             }
                         }
@@ -2205,7 +2531,7 @@ class OverlayControllerService : Service() {
                                             val rawYPercent = ((rawNewY + ctrlParams.height / 2f) / sh.coerceAtLeast(1))
                                                 .coerceIn(0.04f, 0.96f)
 
-                                            val snapStep = 1f / settings.gridDivisions.coerceIn(4, 32)
+                                            val snapStep = 1f / liveEditGridDivisionsFlow.value.coerceIn(4, 32)
                                             val finalXPercent = if (liveEditSnapGridFlow.value) {
                                                 (kotlin.math.round(rawXPercent / snapStep) * snapStep).coerceIn(0.03f, 0.97f)
                                             } else {
@@ -2416,6 +2742,7 @@ class OverlayControllerService : Service() {
         performanceMonitor?.stop()
         performanceMonitor = null
         InputBridge.attachFloatKeyboardHandler(null)
+        dismissLiveEditStudioSheet()
         dismissLiveEditToolbar()
         dismissLiveEditBackdrop()
         dismissPerfHudOverlay()

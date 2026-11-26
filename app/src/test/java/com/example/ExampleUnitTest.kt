@@ -50,8 +50,10 @@ import com.example.model.PerfHudConfig
 import com.example.model.TouchpadMode
 import com.example.model.WebPlayerUserAgentMode
 import com.example.model.WebStreamQualityConfig
+import com.example.model.ControlType
 import com.example.service.KeyboardWordPredictor
 import com.example.service.PerformanceMonitor
+import com.example.ui.components.LayoutStudioHelper
 import com.example.ui.components.computeOverlayBlurRadius
 import com.example.ui.components.computeOverlayDimAmount
 import com.example.update.GitHubUpdateManager
@@ -1698,5 +1700,55 @@ class ExampleUnitTest {
         } finally {
             InputBridge.attachWebInputSink(null)
         }
+    }
+
+    @Test
+    fun `web player mouse click engine deduplicates native isTrusted clicks and pierces Shadow DOM`() {
+        val bootstrap = BetterGfnScriptEngine.buildBootstrapScript(WebStreamQualityConfig())
+        assertTrue(bootstrap.contains("deepElementFromPoint"))
+        assertTrue(bootstrap.contains("findStreamMediaElement"))
+        assertTrue(bootstrap.contains("lastNativeMouseDownAt"))
+        assertTrue(bootstrap.contains("lastNativeMouseUpAt"))
+        assertTrue(bootstrap.contains("e.isTrusted"))
+        assertTrue(bootstrap.contains("ensureMouseButton"))
+        assertTrue(bootstrap.contains("dispatchSyntheticMouseButton"))
+        assertTrue(bootstrap.contains("contextmenu"))
+
+        val lmbDownJs = BetterGfnScriptEngine.buildEnsureMouseButtonJs(0, true, 412.5f, 228.25f)
+        assertTrue(lmbDownJs.contains("ensureMouseButton(0, true, 412.50, 228.25)"))
+        val rmbUpJs = BetterGfnScriptEngine.buildEnsureMouseButtonJs(2, false, 412.5f, 228.25f)
+        assertTrue(rmbUpJs.contains("ensureMouseButton(2, false, 412.50, 228.25)"))
+    }
+
+    @Test
+    fun `layout studio helper creates rebinds duplicates mirrors and nudges controls accurately`() {
+        val rmb = CommandCatalog.findById("mouse_right")
+        val pad = CommandCatalog.findById("touchpad_arrows")
+        val lStick = CommandCatalog.findById("axis_left")
+
+        val createdBtn = LayoutStudioHelper.createControlFromBinding(rmb)
+        assertEquals(ControlType.SHOULDER_PADDLE, createdBtn.controlType)
+        assertEquals(rmb.id, createdBtn.binding.id)
+
+        val createdPad = LayoutStudioHelper.createControlFromBinding(pad)
+        assertEquals(ControlType.TOUCHPAD, createdPad.controlType)
+        assertTrue(createdPad.sizeDp >= 140f)
+
+        val rebound = LayoutStudioHelper.rebindControl(createdBtn, lStick)
+        assertEquals(createdBtn.id, rebound.id)
+        assertEquals(ControlType.ANALOG_STICK, rebound.controlType)
+        assertEquals(lStick.id, rebound.binding.id)
+
+        val clone = LayoutStudioHelper.duplicateControl(createdBtn)
+        assertFalse(clone.id == createdBtn.id)
+        assertTrue(clone.xPercent > createdBtn.xPercent)
+        assertTrue(clone.yPercent > createdBtn.yPercent)
+
+        val mirrored = LayoutStudioHelper.mirrorControl(createdBtn.copy(xPercent = 0.25f))
+        assertEquals(0.75f, mirrored.xPercent, 0.001f)
+
+        val nudged = LayoutStudioHelper.nudgeControl(createdBtn.copy(xPercent = 0.50f, yPercent = 0.50f), 0.01f, -0.02f)
+        assertEquals(0.51f, nudged.xPercent, 0.001f)
+        assertEquals(0.48f, nudged.yPercent, 0.001f)
     }
 }
