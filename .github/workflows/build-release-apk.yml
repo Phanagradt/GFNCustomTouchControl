@@ -128,43 +128,14 @@ jobs:
           path: ${{ steps.meta.outputs.apk_name }}
 
       - name: Generate What's New release notes
-        run: |
-          {
-            echo "## XenosPad — Virtual Controller & Keyboard Mapper for GeForce NOW"
-            echo ""
-            echo "Download \`${{ steps.meta.outputs.apk_name }}\` below (or update directly inside **XenosPad → Setup → App Updates** without uninstalling)."
-            echo ""
-            echo "**Build Metadata:** \`v${{ steps.meta.outputs.version_name }}\` • \`versionCode: ${{ steps.meta.outputs.version_code }}\` • Package: \`com.aistudio.nexuspad.vktrmz\`"
-            if [ -n "${{ steps.verify.outputs.cert_sha256 }}" ]; then
-              echo "**Signing SHA-256:** \`${{ steps.verify.outputs.cert_sha256 }}\`"
-            fi
-            echo ""
-            echo "## What's New"
-            echo ""
-            if [ -s RELEASE_NOTES.md ]; then
-              cat RELEASE_NOTES.md
-              echo ""
-            fi
-            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
-            if [ -n "$PREV_TAG" ]; then
-              COMMITS=$(git log "${PREV_TAG}..HEAD" -n 25 --no-merges --pretty=format:"- %s" || true)
-            else
-              COMMITS=$(git log -n 15 --no-merges --pretty=format:"- %s" || true)
-            fi
-            if [ -n "$COMMITS" ]; then
-              echo "### Commit Changes"
-              echo "$COMMITS"
-              echo ""
-            elif [ ! -s RELEASE_NOTES.md ]; then
-              echo "- Maintenance update and build improvements."
-              echo ""
-            fi
-            echo "### Quick Setup"
-            echo "1. Install \`${{ steps.meta.outputs.apk_name }}\` on your Android phone or tablet."
-            echo "2. Open **XenosPad** and go to **Setup** (or tap the readiness cards in **Cockpit**)."
-            echo "3. Grant **Display over other apps** to float custom virtual controls above GeForce NOW."
-            echo "4. Enable **XenosPad Gamepad & Keyboard** IME for live \`KeyEvent\` dispatch, or test layouts directly in the built-in **Sandbox**."
-          } > release_body.md
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION_NAME: ${{ steps.meta.outputs.version_name }}
+          VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          APK_NAME: ${{ steps.meta.outputs.apk_name }}
+          CERT_SHA256: ${{ steps.verify.outputs.cert_sha256 }}
+          OUTPUT_FILE: release_body.md
+        run: python3 .github/scripts/generate_release_notes.py
 
       - name: Create GitHub Release with APK
         env:

@@ -16,40 +16,52 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.model.GfnRegionPreset
 import com.example.model.LocalNexusStrings
 import com.example.model.WebPlayerUserAgentMode
 import com.example.model.WebStreamQualityConfig
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.TacticalCyan
+import com.example.webplayer.PingQuality
+import com.example.webplayer.RegionPingMonitor
+import com.example.webplayer.RegionPingResult
 
 /**
  * Prominent Better xCloud-style launch card displayed on CockpitScreen.
@@ -65,6 +77,13 @@ fun BetterGfnCockpitCard(
     val strings = LocalNexusStrings.current
     val primary = MaterialTheme.colorScheme.primary
     val secondary = MaterialTheme.colorScheme.secondary
+    val scope = rememberCoroutineScope()
+    val regionPings by RegionPingMonitor.pings.collectAsStateWithLifecycle()
+    val isRefreshingPings by RegionPingMonitor.isRefreshing.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        RegionPingMonitor.refreshIfStale(scope)
+    }
 
     Card(
         shape = MaterialTheme.shapes.extraLarge,
@@ -135,13 +154,17 @@ fun BetterGfnCockpitCard(
                         }
                     }
 
+                    val activePing = regionPings[config.regionPreset]
+                    val activePingText = activePing?.pingMs?.let { " • ${it}ms" } ?: ""
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = TacticalCyan.copy(alpha = 0.18f)
                     ) {
                         Text(
                             text = if (config.regionPreset.isEnabled) {
-                                "REGION: ${config.regionPreset.shortCode}"
+                                "REGION: ${config.regionPreset.shortCode}$activePingText"
+                            } else if (activePing?.pingMs != null) {
+                                "LOCAL • ${activePing.pingMs}ms"
                             } else {
                                 strings.webPlayerZeroPermBadge
                             },
@@ -184,36 +207,53 @@ fun BetterGfnCockpitCard(
                             fontWeight = FontWeight.SemiBold
                         )
                     }
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = primary.copy(alpha = 0.16f)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(
-                            text = "FREE 1H TIER",
-                            color = primary,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = JetBrainsMonoFontFamily,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        RegionPingRefreshButton(
+                            isRefreshing = isRefreshingPings,
+                            onRefresh = { RegionPingMonitor.refreshNow(scope) },
+                            testTag = "cockpit_refresh_region_ping"
                         )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = primary.copy(alpha = 0.16f)
+                        ) {
+                            Text(
+                                text = "FREE 1H TIER",
+                                color = primary,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = JetBrainsMonoFontFamily,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
                     }
                 }
 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(GfnRegionPreset.entries) { region ->
                         val selected = config.regionPreset == region
+                        val pingResult = regionPings[region]
                         FilterChip(
                             selected = selected,
                             onClick = { onSelectRegion(region) },
                             label = {
-                                Text(
-                                    text = if (region == GfnRegionPreset.OFF) {
-                                        region.displayName
-                                    } else {
-                                        "${region.shortCode} • ${region.displayName.substringBefore(" (")}"
-                                    },
-                                    fontSize = 12.sp
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = if (region == GfnRegionPreset.OFF) {
+                                            region.displayName
+                                        } else {
+                                            "${region.shortCode} • ${region.displayName.substringBefore(" (")}"
+                                        },
+                                        fontSize = 12.sp
+                                    )
+                                    RegionPingPill(result = pingResult)
+                                }
                             },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = TacticalCyan.copy(alpha = 0.22f),
@@ -265,6 +305,13 @@ fun WebPlayerSetupCard(
 ) {
     val strings = LocalNexusStrings.current
     val primary = MaterialTheme.colorScheme.primary
+    val scope = rememberCoroutineScope()
+    val regionPings by RegionPingMonitor.pings.collectAsStateWithLifecycle()
+    val isRefreshingPings by RegionPingMonitor.isRefreshing.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        RegionPingMonitor.refreshIfStale(scope)
+    }
 
     Card(
         shape = MaterialTheme.shapes.large,
@@ -309,18 +356,28 @@ fun WebPlayerSetupCard(
                     color = primary,
                     modifier = Modifier.weight(1f)
                 )
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = primary.copy(alpha = 0.16f)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = "ALL FREE 1H TIER",
-                        color = primary,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = JetBrainsMonoFontFamily,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    RegionPingRefreshButton(
+                        isRefreshing = isRefreshingPings,
+                        onRefresh = { RegionPingMonitor.refreshNow(scope) },
+                        testTag = "setup_refresh_region_ping"
                     )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = primary.copy(alpha = 0.16f)
+                    ) {
+                        Text(
+                            text = "ALL FREE 1H TIER",
+                            color = primary,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = JetBrainsMonoFontFamily,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
             FlowRow(
@@ -328,18 +385,25 @@ fun WebPlayerSetupCard(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 GfnRegionPreset.entries.forEach { region ->
+                    val pingResult = regionPings[region]
                     FilterChip(
                         selected = config.regionPreset == region,
                         onClick = { onUpdate(config.copy(regionPreset = region)) },
                         label = {
-                            Text(
-                                text = if (region.hasFreeOneHourTier) {
-                                    "${region.displayName} • ${region.tierLabel}"
-                                } else {
-                                    region.displayName
-                                },
-                                fontSize = 12.sp
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = if (region.hasFreeOneHourTier) {
+                                        "${region.displayName} • ${region.tierLabel}"
+                                    } else {
+                                        region.displayName
+                                    },
+                                    fontSize = 12.sp
+                                )
+                                RegionPingPill(result = pingResult)
+                            }
                         },
                         modifier = Modifier.testTag("setup_region_${region.name.lowercase()}")
                     )
@@ -468,5 +532,77 @@ private fun WebPlayerToggleRow(
             onCheckedChange = onCheckedChange,
             modifier = Modifier.testTag(testTag)
         )
+    }
+}
+
+@Composable
+fun RegionPingPill(
+    result: RegionPingResult?,
+    modifier: Modifier = Modifier
+) {
+    val quality = result?.quality ?: PingQuality.UNKNOWN
+    val color = when (quality) {
+        PingQuality.EXCELLENT -> Color(0xFF4ADE80)
+        PingQuality.GOOD -> TacticalCyan
+        PingQuality.FAIR -> Color(0xFFFBBF24)
+        PingQuality.POOR -> Color(0xFFFB7185)
+        PingQuality.UNKNOWN -> Color(0xFF94A3B8)
+    }
+    val text = RegionPingMonitor.formatBadgeText(result)
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = color.copy(alpha = 0.16f),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(5.dp)
+                    .clip(CircleShape)
+                    .background(color)
+            )
+            Text(
+                text = text,
+                color = color,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = JetBrainsMonoFontFamily
+            )
+        }
+    }
+}
+
+@Composable
+fun RegionPingRefreshButton(
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    testTag: String,
+    modifier: Modifier = Modifier
+) {
+    IconButton(
+        onClick = onRefresh,
+        enabled = !isRefreshing,
+        modifier = modifier
+            .size(28.dp)
+            .testTag(testTag)
+    ) {
+        if (isRefreshing) {
+            CircularProgressIndicator(
+                strokeWidth = 1.8.dp,
+                color = TacticalCyan,
+                modifier = Modifier.size(14.dp)
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = "Refresh server ping",
+                tint = TacticalCyan,
+                modifier = Modifier.size(16.dp)
+            )
+        }
     }
 }

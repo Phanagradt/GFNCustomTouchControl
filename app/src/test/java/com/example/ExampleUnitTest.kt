@@ -58,6 +58,9 @@ import com.example.ui.components.computeOverlayBlurRadius
 import com.example.ui.components.computeOverlayDimAmount
 import com.example.update.GitHubUpdateManager
 import com.example.webplayer.BetterGfnScriptEngine
+import com.example.webplayer.PingQuality
+import com.example.webplayer.RegionPingMonitor
+import com.example.webplayer.RegionPingResult
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.util.Locale
@@ -1784,5 +1787,23 @@ class ExampleUnitTest {
         val nudged = LayoutStudioHelper.nudgeControl(createdBtn.copy(xPercent = 0.50f, yPercent = 0.50f), 0.01f, -0.02f)
         assertEquals(0.51f, nudged.xPercent, 0.001f)
         assertEquals(0.48f, nudged.yPercent, 0.001f)
+    }
+
+    @Test
+    fun `region ping monitor defines geo-pinned probe hosts and classifies latency tiers accurately`() {
+        GfnRegionPreset.entries.forEach { region ->
+            assertTrue("${region.name} must define at least 2 probe hosts", region.probeHosts.size >= 2)
+            assertTrue("${region.name} probe hosts must be non-blank", region.probeHosts.all { it.isNotBlank() })
+        }
+        assertEquals(PingQuality.EXCELLENT, RegionPingMonitor.classifyQuality(32))
+        assertEquals(PingQuality.GOOD, RegionPingMonitor.classifyQuality(88))
+        assertEquals(PingQuality.FAIR, RegionPingMonitor.classifyQuality(155))
+        assertEquals(PingQuality.POOR, RegionPingMonitor.classifyQuality(240))
+        assertEquals(PingQuality.UNKNOWN, RegionPingMonitor.classifyQuality(null))
+
+        assertEquals("...", RegionPingMonitor.formatBadgeText(null))
+        assertEquals("...", RegionPingMonitor.formatBadgeText(RegionPingResult(pingMs = null, isMeasuring = true)))
+        assertEquals("44ms", RegionPingMonitor.formatBadgeText(RegionPingResult(pingMs = 44, isMeasuring = false)))
+        assertEquals("--", RegionPingMonitor.formatBadgeText(RegionPingResult(pingMs = null, isMeasuring = false)))
     }
 }

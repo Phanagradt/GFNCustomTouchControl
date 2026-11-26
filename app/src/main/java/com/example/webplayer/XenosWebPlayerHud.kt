@@ -53,6 +53,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,6 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.model.ControllerProfile
 import com.example.model.GameFilterState
@@ -75,6 +79,8 @@ import com.example.model.LocalNexusStrings
 import com.example.model.WebRtcStreamStats
 import com.example.model.WebStreamQualityConfig
 import com.example.service.PerfStatsSnapshot
+import com.example.ui.components.RegionPingPill
+import com.example.ui.components.RegionPingRefreshButton
 import com.example.ui.components.SmoothSlider
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.MacroCoral
@@ -454,6 +460,13 @@ fun WebPlayerQuickMenuCard(
             HorizontalDivider(color = Color.White.copy(alpha = 0.10f))
 
             // Region Bypass quick switcher
+            val pingScope = rememberCoroutineScope()
+            val regionPings by RegionPingMonitor.pings.collectAsStateWithLifecycle()
+            val isRefreshingPings by RegionPingMonitor.isRefreshing.collectAsStateWithLifecycle()
+            LaunchedEffect(Unit) {
+                RegionPingMonitor.refreshIfStale(pingScope)
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -479,18 +492,28 @@ fun WebPlayerQuickMenuCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = accentColor.copy(alpha = 0.18f)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = "FREE 1H",
-                        color = accentColor,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = JetBrainsMonoFontFamily,
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                    RegionPingRefreshButton(
+                        isRefreshing = isRefreshingPings,
+                        onRefresh = { RegionPingMonitor.refreshNow(pingScope) },
+                        testTag = "web_menu_refresh_region_ping"
                     )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = accentColor.copy(alpha = 0.18f)
+                    ) {
+                        Text(
+                            text = "FREE 1H",
+                            color = accentColor,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = JetBrainsMonoFontFamily,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
                 }
             }
             LazyRow(
@@ -499,14 +522,21 @@ fun WebPlayerQuickMenuCard(
             ) {
                 items(GfnRegionPreset.entries) { region ->
                     val selected = webConfig.regionPreset == region
+                    val pingResult = regionPings[region]
                     FilterChip(
                         selected = selected,
                         onClick = { onSelectRegion(region) },
                         label = {
-                            Text(
-                                text = if (region == GfnRegionPreset.OFF) "Off" else "${region.shortCode} • ${region.displayName.substringBefore(" (")}",
-                                fontSize = 11.sp
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Text(
+                                    text = if (region == GfnRegionPreset.OFF) "Off" else "${region.shortCode} • ${region.displayName.substringBefore(" (")}",
+                                    fontSize = 11.sp
+                                )
+                                RegionPingPill(result = pingResult)
+                            }
                         },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = TacticalCyan.copy(alpha = 0.22f),
