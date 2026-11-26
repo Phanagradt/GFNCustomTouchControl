@@ -856,8 +856,7 @@ private fun TouchpadSurface(
     var normY by remember(control.id) { mutableFloatStateOf(0f) }
     var flickJob by remember(control.id) { mutableStateOf<Job?>(null) }
 
-    val maxOffsetPx = with(density) { (36.dp / control.sensitivity.coerceIn(0.5f, 2.2f)).toPx() }
-        .coerceAtLeast(14f)
+    val stickRadiusPx = with(density) { 46.dp.toPx() }.coerceAtLeast(24f)
 
     Box(
         modifier = Modifier
@@ -892,12 +891,16 @@ private fun TouchpadSurface(
                             var totalTravel = 0f
                             var netDx = 0f
                             var netDy = 0f
+                            var sawSecondFinger = false
                             val touchSlop = viewConfiguration.touchSlop
                             val downTime = down.uptimeMillis
 
                             try {
                                 while (true) {
                                     val event = awaitPointerEvent()
+                                    if (event.changes.count { it.pressed } >= 2) {
+                                        sawSecondFinger = true
+                                    }
                                     val pointer = event.changes.firstOrNull { it.id == pointerId }
                                     if (pointer == null || !pointer.pressed) {
                                         break
@@ -936,29 +939,36 @@ private fun TouchpadSurface(
                                 var vx = vel.x.coerceIn(-4500f, 4500f)
                                 var vy = vel.y.coerceIn(-4500f, 4500f)
                                 val speed = hypot(vx, vy)
+                                val inWebPlayer = InputBridge.hasWebInputSink()
 
-                                if (totalTravel < touchSlop && elapsed < 240L) {
+                                if (totalTravel < touchSlop && elapsed < 260L) {
                                     normX = 0f
                                     normY = 0f
-                                    InputBridge.dispatchMouseTapClick(control.label)
+                                    if (sawSecondFinger) {
+                                        InputBridge.dispatchMouseRightTapClick(control.label)
+                                    } else {
+                                        InputBridge.dispatchMouseTapClick(control.label)
+                                    }
                                     InputBridge.endTouchpadMouseMove()
                                     InputBridge.endOverlayTouch()
-                                } else if (speed > 180f) {
-                                    // Commit smooth flick + inertia delta once finger lifts so OS never freezes trackpad drag
-                                    val flickBoostX = netDx + vx * 0.14f
-                                    val flickBoostY = netDy + vy * 0.14f
-                                    InputBridge.commitTouchpadFlickSwipe(
-                                        sourceLabel = control.label,
-                                        totalDeltaXPx = flickBoostX,
-                                        totalDeltaYPx = flickBoostY,
-                                        sensitivity = control.sensitivity,
-                                        invertY = control.invertY
-                                    )
+                                } else if (speed > if (inWebPlayer) 950f else 180f) {
+                                    if (!inWebPlayer) {
+                                        val flickBoostX = netDx + vx * 0.14f
+                                        val flickBoostY = netDy + vy * 0.14f
+                                        InputBridge.commitTouchpadFlickSwipe(
+                                            sourceLabel = control.label,
+                                            totalDeltaXPx = flickBoostX,
+                                            totalDeltaYPx = flickBoostY,
+                                            sensitivity = control.sensitivity,
+                                            invertY = control.invertY
+                                        )
+                                    }
                                     InputBridge.endOverlayTouch()
                                     isCoasting = true
+                                    val decay = if (inWebPlayer) 0.84f else 0.91f
                                     flickJob = scope.launch {
                                         try {
-                                            while (hypot(vx, vy) > 28f) {
+                                            while (hypot(vx, vy) > 36f) {
                                                 val stepX = vx * 0.016f
                                                 val stepY = vy * 0.016f
                                                 normX = (stepX / 16f).coerceIn(-1f, 1f)
@@ -974,8 +984,8 @@ private fun TouchpadSurface(
                                                     isFlickInertia = true,
                                                     active = true
                                                 )
-                                                vx *= 0.91f
-                                                vy *= 0.91f
+                                                vx *= decay
+                                                vy *= decay
                                                 delay(16L)
                                             }
                                         } finally {
@@ -986,13 +996,15 @@ private fun TouchpadSurface(
                                         }
                                     }
                                 } else {
-                                    InputBridge.commitTouchpadFlickSwipe(
-                                        sourceLabel = control.label,
-                                        totalDeltaXPx = netDx,
-                                        totalDeltaYPx = netDy,
-                                        sensitivity = control.sensitivity,
-                                        invertY = control.invertY
-                                    )
+                                    if (!inWebPlayer) {
+                                        InputBridge.commitTouchpadFlickSwipe(
+                                            sourceLabel = control.label,
+                                            totalDeltaXPx = netDx,
+                                            totalDeltaYPx = netDy,
+                                            sensitivity = control.sensitivity,
+                                            invertY = control.invertY
+                                        )
+                                    }
                                     normX = 0f
                                     normY = 0f
                                     InputBridge.endTouchpadMouseMove()
@@ -1002,9 +1014,9 @@ private fun TouchpadSurface(
                         }
                     }
                 } else if (!isEditMode && !isPassThrough) {
+                    // Analog mode: acts as a true smooth floating Right Analog Stick (AxisPair.RIGHT_STICK)
                     Modifier.pointerInput(
                         control.id,
-                        control.binding.axisPair,
                         control.touchpadMode,
                         control.deadzone,
                         control.sensitivity,
@@ -1015,42 +1027,40 @@ private fun TouchpadSurface(
                             val pointerId = down.id
                             down.consume()
                             isSwiping = true
-                            anchorPos = down.position
-                            fingerPos = down.position
+                            val clampedAnchor = Offset(
+                                down.position.x.coerceIn(0f, size.width.toFloat()),
+                                down.position.y.coerceIn(0f, size.height.toFloat())
+                            )
+                            anchorPos = clampedAnchor
+                            fingerPos = clampedAnchor
                             InputBridge.beginOverlayTouch()
 
-                            fun updateFromDrag(pos: Offset) {
-                                fingerPos = Offset(
-                                    pos.x.coerceIn(0f, size.width.toFloat()),
-                                    pos.y.coerceIn(0f, size.height.toFloat())
-                                )
-                                var dx = pos.x - anchorPos.x
-                                var dy = pos.y - anchorPos.y
-                                if (kotlin.math.abs(dx) > maxOffsetPx) {
-                                    anchorPos = anchorPos.copy(x = pos.x - kotlin.math.sign(dx) * maxOffsetPx)
-                                    dx = pos.x - anchorPos.x
-                                }
-                                if (kotlin.math.abs(dy) > maxOffsetPx) {
-                                    anchorPos = anchorPos.copy(y = pos.y - kotlin.math.sign(dy) * maxOffsetPx)
-                                    dy = pos.y - anchorPos.y
-                                }
-                                val nx = (dx / maxOffsetPx).coerceIn(-1f, 1f)
-                                val ny = (dy / maxOffsetPx).coerceIn(-1f, 1f)
+                            fun updateRightStick(pos: Offset) {
+                                val dx = pos.x - anchorPos.x
+                                val dy = pos.y - anchorPos.y
+                                val dist = hypot(dx, dy)
+                                val clamped = dist.coerceAtMost(stickRadiusPx)
+                                val angle = kotlin.math.atan2(dy, dx)
+                                val nx = if (stickRadiusPx > 0f) (clamped * cos(angle)) / stickRadiusPx else 0f
+                                val ny = if (stickRadiusPx > 0f) (clamped * sin(angle)) / stickRadiusPx else 0f
                                 normX = nx
                                 normY = ny
-                                InputBridge.updateTouchpadLook(
-                                    controlId = control.id,
+                                fingerPos = Offset(
+                                    anchorPos.x + nx * stickRadiusPx,
+                                    anchorPos.y + ny * stickRadiusPx
+                                )
+                                InputBridge.updateAnalogStick(
+                                    axisPair = AxisPair.RIGHT_STICK,
                                     sourceLabel = control.label,
-                                    axisPair = control.binding.axisPair,
-                                    normX = nx,
-                                    normY = ny,
+                                    rawX = nx,
+                                    rawY = if (control.invertY) -ny else ny,
                                     deadzone = control.deadzone,
-                                    invertY = control.invertY,
+                                    sensitivity = control.sensitivity,
                                     active = true
                                 )
                             }
 
-                            updateFromDrag(down.position)
+                            updateRightStick(down.position)
                             try {
                                 while (true) {
                                     val event = awaitPointerEvent()
@@ -1059,20 +1069,19 @@ private fun TouchpadSurface(
                                         break
                                     }
                                     pointer.consume()
-                                    updateFromDrag(pointer.position)
+                                    updateRightStick(pointer.position)
                                 }
                             } finally {
                                 isSwiping = false
                                 normX = 0f
                                 normY = 0f
-                                InputBridge.updateTouchpadLook(
-                                    controlId = control.id,
+                                InputBridge.updateAnalogStick(
+                                    axisPair = AxisPair.RIGHT_STICK,
                                     sourceLabel = control.label,
-                                    axisPair = control.binding.axisPair,
-                                    normX = 0f,
-                                    normY = 0f,
+                                    rawX = 0f,
+                                    rawY = 0f,
                                     deadzone = control.deadzone,
-                                    invertY = control.invertY,
+                                    sensitivity = control.sensitivity,
                                     active = false
                                 )
                                 InputBridge.endOverlayTouch()
@@ -1127,24 +1136,59 @@ private fun TouchpadSurface(
 
             if (isSwiping && !isPassThrough) {
                 if (!isMouseFlickMode) {
+                    // Floating Right Analog Stick ring + deadzone + puck
+                    drawCircle(
+                        color = Color(0xFF0C121B).copy(alpha = 0.46f),
+                        radius = stickRadiusPx,
+                        center = anchorPos
+                    )
+                    drawCircle(
+                        color = accentColor.copy(alpha = 0.65f),
+                        radius = stickRadiusPx,
+                        center = anchorPos,
+                        style = Stroke(width = 1.6.dp.toPx())
+                    )
+                    drawCircle(
+                        color = accentColor.copy(alpha = 0.24f),
+                        radius = stickRadiusPx * control.deadzone.coerceIn(0.05f, 0.45f),
+                        center = anchorPos,
+                        style = Stroke(width = 1.dp.toPx())
+                    )
                     drawLine(
                         color = accentColor.copy(alpha = 0.65f),
                         start = anchorPos,
                         end = fingerPos,
                         strokeWidth = 2.dp.toPx()
                     )
+                    drawCircle(
+                        color = Color(0xFF1A2434).copy(alpha = 0.92f),
+                        radius = 18.dp.toPx(),
+                        center = fingerPos
+                    )
+                    drawCircle(
+                        color = accentColor.copy(alpha = 0.45f),
+                        radius = 18.dp.toPx(),
+                        center = fingerPos
+                    )
+                    drawCircle(
+                        color = accentColor,
+                        radius = 18.dp.toPx(),
+                        center = fingerPos,
+                        style = Stroke(width = 2.dp.toPx())
+                    )
+                } else {
+                    drawCircle(
+                        color = accentColor.copy(alpha = 0.26f),
+                        radius = 22.dp.toPx(),
+                        center = fingerPos
+                    )
+                    drawCircle(
+                        color = accentColor,
+                        radius = 11.dp.toPx(),
+                        center = fingerPos,
+                        style = Stroke(width = 2.dp.toPx())
+                    )
                 }
-                drawCircle(
-                    color = accentColor.copy(alpha = 0.26f),
-                    radius = 22.dp.toPx(),
-                    center = fingerPos
-                )
-                drawCircle(
-                    color = accentColor,
-                    radius = 11.dp.toPx(),
-                    center = fingerPos,
-                    style = Stroke(width = 2.dp.toPx())
-                )
             }
         }
 
@@ -1157,7 +1201,7 @@ private fun TouchpadSurface(
             val modeSuffix = when {
                 isPassThrough -> "PASS"
                 isMouseFlickMode -> if (isCoasting) "FLICK" else "MOUSE"
-                else -> "STICK"
+                else -> "R-STICK"
             }
             Text(
                 text = if (isSwiping || isCoasting) {

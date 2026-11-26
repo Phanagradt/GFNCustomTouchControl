@@ -1606,8 +1606,97 @@ class ExampleUnitTest {
         assertTrue(js.contains("shadowRoot"))
         assertTrue(js.contains("xenos-gfn-fx-layer"))
     }
+
+    @Test
+    fun `web player trackpad analog routes to right stick and mouse mode avoids finger-lift double jump`() {
+        val log = mutableListOf<String>()
+        val sink = object : InputBridge.WebInputSink {
+            override fun onGamepadButton(androidKeyCode: Int, isDown: Boolean) {
+                log += "PAD:$androidKeyCode:$isDown"
+            }
+
+            override fun onKeyboardKey(androidKeyCode: Int, metaState: Int, isDown: Boolean) {
+                log += "KEY:$androidKeyCode:$isDown"
+            }
+
+            override fun onMouseButton(button: Int, isDown: Boolean) {
+                log += "MB:$button:$isDown"
+            }
+
+            override fun onMouseScroll(scrollUp: Boolean) {
+                log += "WHEEL:$scrollUp"
+            }
+
+            override fun onMouseMove(dxPx: Float, dyPx: Float) {
+                log += "MOVE:${dxPx.toInt()},${dyPx.toInt()}"
+            }
+
+            override fun onAnalogStick(isLeft: Boolean, x: Float, y: Float) {
+                log += "STICK:$isLeft:${(x * 100).toInt()},${(y * 100).toInt()}"
+            }
+
+            override fun onResetAll() {
+                log += "RESET"
+            }
+        }
+
+        try {
+            assertFalse(InputBridge.hasWebInputSink())
+            InputBridge.attachWebInputSink(sink)
+            assertTrue(InputBridge.hasWebInputSink())
+
+            // 1. Trackpad Analog mode routes smoothly to Right Analog Stick (isLeft = false) with zero digital key mashing
+            InputBridge.updateTouchpadLook(
+                controlId = "pad_analog",
+                sourceLabel = "TRACKPAD",
+                axisPair = AxisPair.RIGHT_STICK,
+                normX = 0.75f,
+                normY = -0.50f,
+                deadzone = 0.10f,
+                invertY = false,
+                active = true
+            )
+            assertTrue(log.any { it.startsWith("STICK:false:") })
+            assertTrue("Analog trackpad in Web Player must not mash digital keys", log.none { it.startsWith("KEY:") })
+
+            // 2. Trackpad Mouse mode streams live moves and skips redundant finger-lift flick swipe
+            log.clear()
+            InputBridge.updateTouchpadMouseMove(
+                controlId = "pad_mouse",
+                sourceLabel = "TRACKPAD",
+                axisPair = AxisPair.TOUCHPAD_ARROWS,
+                deltaXPx = 18f,
+                deltaYPx = -9f,
+                sensitivity = 1.0f,
+                invertY = false,
+                isFlickInertia = false,
+                active = true
+            )
+            assertEquals(listOf("MOVE:18,-9"), log)
+
+            log.clear()
+            InputBridge.commitTouchpadFlickSwipe(
+                sourceLabel = "TRACKPAD",
+                totalDeltaXPx = 18f,
+                totalDeltaYPx = -9f,
+                sensitivity = 1.0f,
+                invertY = false
+            )
+            assertTrue("commitTouchpadFlickSwipe must not double-jump Web Player mouse cursor", log.isEmpty())
+
+            // 3. Two-finger right-click tap dispatches RMB down/up (button 2)
+            InputBridge.dispatchMouseRightTapClick("TRACKPAD")
+            assertEquals(listOf("MB:2:true", "MB:2:false"), log)
+
+            // 4. BetterGfnScriptEngine emits full cursor sync + pointermove + elementFromPoint
+            val bootstrap = BetterGfnScriptEngine.buildBootstrapScript(WebStreamQualityConfig())
+            assertTrue(bootstrap.contains("elementFromPoint"))
+            assertTrue(bootstrap.contains("pointermove"))
+            assertTrue(bootstrap.contains("syncPointer"))
+            val syncJs = BetterGfnScriptEngine.buildSyncMouseMoveJs(320f, 180f, 12f, -4f, forceRelative = false)
+            assertTrue(syncJs.contains("syncPointer(320.00, 180.00, 12.00, -4.00, false)"))
+        } finally {
+            InputBridge.attachWebInputSink(null)
+        }
+    }
 }
-
-
-
-

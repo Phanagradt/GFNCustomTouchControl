@@ -238,6 +238,7 @@ class OverlayControllerService : Service() {
     private var captureBannerView: ComposeView? = null
     private var perfHudView: ComposeView? = null
     private var perfHudParams: WindowManager.LayoutParams? = null
+    private var liveEditBackdropView: ComposeView? = null
     private var liveEditToolbarView: ComposeView? = null
     private var liveEditToolbarParams: WindowManager.LayoutParams? = null
 
@@ -367,6 +368,7 @@ class OverlayControllerService : Service() {
         // Re-layout virtual controls edge-to-edge across the new orientation dimensions
         clearControlWindows()
         if (liveEditModeFlow.value) {
+            showLiveEditBackdrop()
             val draft = liveEditDraftProfileFlow.value
             if (draft != null) {
                 renderLiveEditControlWindows(draft, lastRenderedSettings)
@@ -1863,6 +1865,7 @@ class OverlayControllerService : Service() {
         gyroAimEngine?.updateConfig(gyroAimFlow.value, pauseForEdit = true)
 
         clearControlWindows()
+        showLiveEditBackdrop()
         renderLiveEditControlWindows(currentProfile, lastRenderedSettings)
         showLiveEditToolbar()
         ensureFloatingChromeOnTop()
@@ -1875,6 +1878,7 @@ class OverlayControllerService : Service() {
         liveEditDraftProfileFlow.value = null
         liveEditSelectedIdFlow.value = null
         dismissLiveEditToolbar()
+        dismissLiveEditBackdrop()
         gyroAimEngine?.updateConfig(gyroAimFlow.value, pauseForEdit = false)
 
         if (saveChanges && draft != null) {
@@ -2047,6 +2051,73 @@ class OverlayControllerService : Service() {
         }
         liveEditToolbarView = view
         runCatching { windowManager.addView(view, params) }
+    }
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    private fun showLiveEditBackdrop() {
+        dismissLiveEditBackdrop()
+        // Full-screen touch-blocking window (FLAG_NOT_FOCUSABLE only — NO FLAG_NOT_TOUCHABLE
+        // and NO FLAG_NOT_TOUCH_MODAL) placed below live-edit controls & toolbar so zero
+        // touches outside the user's layout controls can ever leak to the game underneath.
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            overlayWindowType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 0
+            applyFullScreenOverlayFlags(this)
+        }
+
+        val view = ComposeView(this).apply {
+            attachLifecycle(this)
+            setContent {
+                val snapGrid by liveEditSnapGridFlow.collectAsState()
+                val divisions = lastRenderedSettings.gridDivisions.coerceIn(4, 32)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF06070F).copy(alpha = 0.52f))
+                        .pointerInteropFilter { true }
+                ) {
+                    if (snapGrid) {
+                        val rows = (divisions * 0.66f).roundToInt().coerceIn(4, 24)
+                        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                            val lineColor = Color.White.copy(alpha = 0.11f)
+                            val strokePx = 1.dp.toPx()
+                            for (c in 1 until divisions) {
+                                val x = size.width * (c.toFloat() / divisions.toFloat())
+                                drawLine(
+                                    lineColor,
+                                    androidx.compose.ui.geometry.Offset(x, 0f),
+                                    androidx.compose.ui.geometry.Offset(x, size.height),
+                                    strokeWidth = strokePx
+                                )
+                            }
+                            for (r in 1 until rows) {
+                                val y = size.height * (r.toFloat() / rows.toFloat())
+                                drawLine(
+                                    lineColor,
+                                    androidx.compose.ui.geometry.Offset(0f, y),
+                                    androidx.compose.ui.geometry.Offset(size.width, y),
+                                    strokeWidth = strokePx
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        liveEditBackdropView = view
+        runCatching { windowManager.addView(view, params) }
+    }
+
+    private fun dismissLiveEditBackdrop() {
+        liveEditBackdropView?.let { runCatching { windowManager.removeViewImmediate(it) } }
+        liveEditBackdropView = null
     }
 
     private fun dismissLiveEditToolbar() {
@@ -2346,6 +2417,7 @@ class OverlayControllerService : Service() {
         performanceMonitor = null
         InputBridge.attachFloatKeyboardHandler(null)
         dismissLiveEditToolbar()
+        dismissLiveEditBackdrop()
         dismissPerfHudOverlay()
         dismissFloatingKeyboardOverlay()
         dismissFloatingLayoutPickerPanel()

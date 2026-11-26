@@ -61,8 +61,8 @@ enum class AxisPair(val displayName: String) {
 }
 
 enum class TouchpadMode(val displayName: String, val subtitle: String) {
-    MOUSE("Mouse (Flickable)", "1:1 relative cursor swipe with momentum flick"),
-    CONTROLLER("Controller (Analog)", "Hold-style right stick directional tilt")
+    MOUSE("Mouse (Full Cursor)", "Full GeForce NOW mouse cursor, drag, click & camera look"),
+    CONTROLLER("Right Analog Stick", "Smooth floating right thumbstick (axes Z/RZ)")
 }
 
 enum class TargetPlatformMode(val displayName: String, val shortLabel: String, val subtitle: String) {

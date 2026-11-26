@@ -677,6 +677,37 @@ object BetterGfnScriptEngine {
                   document;
               }
 
+              function pointTarget(x, y) {
+                if (document.pointerLockElement) return document.pointerLockElement;
+                try {
+                  var hit = document.elementFromPoint(x, y);
+                  if (hit) return hit;
+                } catch (e) {}
+                return streamTarget();
+              }
+
+              function dispatchRelativeMove(mx, my) {
+                var t = pointTarget(pointerX, pointerY);
+                var opts = {
+                  movementX: mx,
+                  movementY: my,
+                  clientX: pointerX,
+                  clientY: pointerY,
+                  screenX: pointerX,
+                  screenY: pointerY,
+                  buttons: mouseButtonsMask,
+                  bubbles: true,
+                  cancelable: true,
+                  composed: true
+                };
+                if (typeof PointerEvent !== 'undefined') {
+                  t.dispatchEvent(new PointerEvent('pointermove', Object.assign({ pointerType: 'mouse', isPrimary: true, pointerId: 1 }, opts)));
+                }
+                var ev = new MouseEvent('mousemove', opts);
+                t.dispatchEvent(ev);
+                if (t !== document) document.dispatchEvent(ev);
+              }
+
               window.__xenosInput = {
                 key: function(code, key, keyCode, isDown, shift, ctrl, alt) {
                   try {
@@ -702,7 +733,7 @@ object BetterGfnScriptEngine {
                   try {
                     var bit = button === 0 ? 1 : (button === 2 ? 2 : 4);
                     if (isDown) mouseButtonsMask |= bit; else mouseButtonsMask &= ~bit;
-                    var t = streamTarget();
+                    var t = pointTarget(pointerX, pointerY);
                     var type = isDown ? 'mousedown' : 'mouseup';
                     var pType = isDown ? 'pointerdown' : 'pointerup';
                     var opts = {
@@ -710,14 +741,23 @@ object BetterGfnScriptEngine {
                       buttons: mouseButtonsMask,
                       clientX: pointerX,
                       clientY: pointerY,
+                      screenX: pointerX,
+                      screenY: pointerY,
                       bubbles: true,
                       cancelable: true,
                       composed: true
                     };
                     if (typeof PointerEvent !== 'undefined') {
-                      t.dispatchEvent(new PointerEvent(pType, Object.assign({ pointerType: 'mouse', isPrimary: true }, opts)));
+                      t.dispatchEvent(new PointerEvent(pType, Object.assign({ pointerType: 'mouse', isPrimary: true, pointerId: 1 }, opts)));
                     }
                     t.dispatchEvent(new MouseEvent(type, opts));
+                    if (!isDown && !document.pointerLockElement) {
+                      if (button === 0) {
+                        t.dispatchEvent(new MouseEvent('click', opts));
+                      } else if (button === 2) {
+                        t.dispatchEvent(new MouseEvent('contextmenu', opts));
+                      }
+                    }
                   } catch (e) {}
                 },
                 mouseMove: function(dx, dy) {
@@ -726,24 +766,21 @@ object BetterGfnScriptEngine {
                     var my = Number(dy) || 0;
                     pointerX = Math.max(0, Math.min(window.innerWidth, pointerX + mx));
                     pointerY = Math.max(0, Math.min(window.innerHeight, pointerY + my));
-                    var t = streamTarget();
-                    var ev = new MouseEvent('mousemove', {
-                      movementX: mx,
-                      movementY: my,
-                      clientX: pointerX,
-                      clientY: pointerY,
-                      buttons: mouseButtonsMask,
-                      bubbles: true,
-                      cancelable: true,
-                      composed: true
-                    });
-                    t.dispatchEvent(ev);
-                    if (t !== document) document.dispatchEvent(ev);
+                    dispatchRelativeMove(mx, my);
+                  } catch (e) {}
+                },
+                syncPointer: function(cssX, cssY, dx, dy, forceRelative) {
+                  try {
+                    pointerX = Math.max(0, Math.min(window.innerWidth, Number(cssX) || 0));
+                    pointerY = Math.max(0, Math.min(window.innerHeight, Number(cssY) || 0));
+                    if (document.pointerLockElement || forceRelative) {
+                      dispatchRelativeMove(Number(dx) || 0, Number(dy) || 0);
+                    }
                   } catch (e) {}
                 },
                 wheel: function(deltaY) {
                   try {
-                    var t = streamTarget();
+                    var t = pointTarget(pointerX, pointerY);
                     t.dispatchEvent(new WheelEvent('wheel', {
                       deltaY: Number(deltaY) || 0,
                       deltaMode: 0,
@@ -883,6 +920,20 @@ object BetterGfnScriptEngine {
         val sdx = String.format(Locale.US, "%.2f", dxPx)
         val sdy = String.format(Locale.US, "%.2f", dyPx)
         return "window.__xenosInput && window.__xenosInput.mouseMove($sdx, $sdy);"
+    }
+
+    fun buildSyncMouseMoveJs(
+        cssX: Float,
+        cssY: Float,
+        dxCss: Float,
+        dyCss: Float,
+        forceRelative: Boolean
+    ): String {
+        val sx = String.format(Locale.US, "%.2f", cssX)
+        val sy = String.format(Locale.US, "%.2f", cssY)
+        val sdx = String.format(Locale.US, "%.2f", dxCss)
+        val sdy = String.format(Locale.US, "%.2f", dyCss)
+        return "window.__xenosInput && window.__xenosInput.syncPointer($sx, $sy, $sdx, $sdy, $forceRelative);"
     }
 
     fun buildMouseWheelJs(scrollUp: Boolean): String {

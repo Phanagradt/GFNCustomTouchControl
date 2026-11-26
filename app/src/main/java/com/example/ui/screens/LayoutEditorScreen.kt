@@ -1408,9 +1408,9 @@ private fun ControlInspectorSheetContent(
                         }
                         Text(
                             text = if (control.touchpadMode == TouchpadMode.MOUSE) {
-                                "Flickable Mouse: swipes & quick flicks glide with inertia, tap clicks LMB."
+                                "Full Mouse: moves the GeForce NOW cursor & camera 1:1. Tap = Left Click, 2-finger tap = Right Click."
                             } else {
-                                "Controller Analog: swipe acts like a virtual right thumbstick."
+                                "Right Analog Stick: turns the trackpad into a smooth floating right thumbstick."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant

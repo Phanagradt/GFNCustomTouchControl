@@ -6,6 +6,9 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.os.Message
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.CookieManager
@@ -22,6 +25,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -59,7 +63,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -91,12 +100,23 @@ import com.example.model.WebStreamQualityConfig
 import com.example.service.PerformanceMonitor
 import com.example.ui.components.CrosshairOverlayCanvas
 import com.example.ui.components.LiveOverlayEditToolbar
-import com.example.ui.components.VirtualControlCanvasItem
+import com.example.ui.components.PositionedVirtualControl
 import com.example.ui.theme.NexusPadTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+private data class VirtualMouseCursorState(
+    val xPx: Float = 0f,
+    val yPx: Float = 0f,
+    val visible: Boolean = false,
+    val leftPressed: Boolean = false,
+    val rightPressed: Boolean = false,
+    val initialized: Boolean = false,
+    val lastActivityMs: Long = 0L
+)
 
 /**
  * Dedicated Better xCloud-style GeForce NOW Web Player Activity.
@@ -127,6 +147,13 @@ class XenosWebPlayerActivity : ComponentActivity() {
     private val _pageProgress = MutableStateFlow(0)
     private val pageProgress = _pageProgress.asStateFlow()
 
+    private val _mouseCursorState = MutableStateFlow(VirtualMouseCursorState())
+    private val mouseCursorState = _mouseCursorState.asStateFlow()
+
+    private var mouseButtonMask: Int = 0
+    private var mouseDownTimeMs: Long = 0L
+    private var mouseHoverEntered: Boolean = false
+
     private var popupWebViewState by mutableStateOf<WebView?>(null)
 
     private val webInputSink = object : InputBridge.WebInputSink {
@@ -144,15 +171,15 @@ class XenosWebPlayerActivity : ComponentActivity() {
         }
 
         override fun onMouseButton(button: Int, isDown: Boolean) {
-            evalJs(BetterGfnScriptEngine.buildMouseButtonJs(button, isDown))
+            dispatchNativeMouseButton(button, isDown)
         }
 
         override fun onMouseScroll(scrollUp: Boolean) {
-            evalJs(BetterGfnScriptEngine.buildMouseWheelJs(scrollUp))
+            dispatchNativeMouseScroll(scrollUp)
         }
 
         override fun onMouseMove(dxPx: Float, dyPx: Float) {
-            evalJs(BetterGfnScriptEngine.buildMouseMoveJs(dxPx, dyPx))
+            dispatchNativeMouseMove(dxPx, dyPx)
         }
 
         override fun onAnalogStick(isLeft: Boolean, x: Float, y: Float) {
@@ -160,6 +187,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
         }
 
         override fun onResetAll() {
+            resetNativeMouseState()
             evalJs(BetterGfnScriptEngine.buildResetAllInputsJs())
         }
     }
@@ -216,6 +244,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
             val liveStreamStats by streamStats.collectAsStateWithLifecycle()
             val perfStats by performanceMonitor.stats.collectAsStateWithLifecycle()
             val progress by pageProgress.collectAsStateWithLifecycle()
+            val mouseCursor by mouseCursorState.collectAsStateWithLifecycle()
             val pressedIds by InputBridge.pressedControlIds.collectAsStateWithLifecycle()
             val toggledIds by InputBridge.toggledControlIds.collectAsStateWithLifecycle()
 
@@ -256,6 +285,10 @@ class XenosWebPlayerActivity : ComponentActivity() {
                         streamStats = liveStreamStats,
                         perfStats = perfStats,
                         loadProgress = progress,
+                        mouseCursor = mouseCursor,
+                        onHideMouseCursor = {
+                            _mouseCursorState.value = _mouseCursorState.value.copy(visible = false)
+                        },
                         pressedIds = pressedIds,
                         toggledIds = toggledIds,
                         popupWebView = popupWebViewState,
@@ -384,6 +417,304 @@ class XenosWebPlayerActivity : ComponentActivity() {
             if (mainWebView === web) {
                 web.evaluateJavascript(script, null)
             }
+        }
+    }
+
+    private fun obtainMouseMotionEvent(
+        downTime: Long,
+        eventTime: Long,
+        action: Int,
+        xPx: Float,
+        yPx: Float,
+        buttonState: Int,
+        vScroll: Float = 0f
+    ): MotionEvent {
+        val props = arrayOf(
+            MotionEvent.PointerProperties().apply {
+                id = 0
+                toolType = MotionEvent.TOOL_TYPE_MOUSE
+            }
+        )
+        val coords = arrayOf(
+            MotionEvent.PointerCoords().apply {
+                x = xPx
+                y = yPx
+                pressure = if (buttonState != 0) 1f else 0f
+                size = 1f
+                if (vScroll != 0f) {
+                    setAxisValue(MotionEvent.AXIS_VSCROLL, vScroll)
+                }
+            }
+        )
+        return MotionEvent.obtain(
+            downTime,
+            eventTime,
+            action,
+            1,
+            props,
+            coords,
+            0,
+            buttonState,
+            1f,
+            1f,
+            0,
+            0,
+            InputDevice.SOURCE_MOUSE,
+            0
+        )
+    }
+
+    private fun ensureMouseCursorCoords(web: WebView): Pair<Float, Float> {
+        val w = web.width.coerceAtLeast(1).toFloat()
+        val h = web.height.coerceAtLeast(1).toFloat()
+        val cur = _mouseCursorState.value
+        return if (!cur.initialized) {
+            (w / 2f) to (h / 2f)
+        } else {
+            cur.xPx.coerceIn(1f, (w - 1f).coerceAtLeast(1f)) to
+                cur.yPx.coerceIn(1f, (h - 1f).coerceAtLeast(1f))
+        }
+    }
+
+    private fun dispatchNativeMouseMove(dxPx: Float, dyPx: Float) {
+        val web = mainWebView ?: return
+        runOnUiThread {
+            if (mainWebView !== web) return@runOnUiThread
+            val w = web.width.coerceAtLeast(1).toFloat()
+            val h = web.height.coerceAtLeast(1).toFloat()
+            val (curX, curY) = ensureMouseCursorCoords(web)
+            val rawX = curX + dxPx
+            val rawY = curY + dyPx
+            val maxX = (w - 1f).coerceAtLeast(1f)
+            val maxY = (h - 1f).coerceAtLeast(1f)
+            val nextX = rawX.coerceIn(1f, maxX)
+            val nextY = rawY.coerceIn(1f, maxY)
+            val atEdge = rawX < 1f || rawX > maxX || rawY < 1f || rawY > maxY
+            val now = SystemClock.uptimeMillis()
+
+            _mouseCursorState.value = _mouseCursorState.value.copy(
+                xPx = nextX,
+                yPx = nextY,
+                visible = true,
+                initialized = true,
+                lastActivityMs = now
+            )
+
+            if (mouseButtonMask != 0) {
+                val moveEv = obtainMouseMotionEvent(
+                    downTime = mouseDownTimeMs,
+                    eventTime = now,
+                    action = MotionEvent.ACTION_MOVE,
+                    xPx = nextX,
+                    yPx = nextY,
+                    buttonState = mouseButtonMask
+                )
+                try {
+                    web.dispatchTouchEvent(moveEv)
+                } finally {
+                    moveEv.recycle()
+                }
+            } else {
+                if (!mouseHoverEntered) {
+                    mouseHoverEntered = true
+                    val enterEv = obtainMouseMotionEvent(
+                        downTime = now,
+                        eventTime = now,
+                        action = MotionEvent.ACTION_HOVER_ENTER,
+                        xPx = nextX,
+                        yPx = nextY,
+                        buttonState = 0
+                    )
+                    try {
+                        web.dispatchGenericMotionEvent(enterEv)
+                    } finally {
+                        enterEv.recycle()
+                    }
+                }
+                val hoverEv = obtainMouseMotionEvent(
+                    downTime = now,
+                    eventTime = now,
+                    action = MotionEvent.ACTION_HOVER_MOVE,
+                    xPx = nextX,
+                    yPx = nextY,
+                    buttonState = 0
+                )
+                try {
+                    web.dispatchGenericMotionEvent(hoverEv)
+                } finally {
+                    hoverEv.recycle()
+                }
+            }
+
+            val density = resources.displayMetrics.density.coerceAtLeast(1f)
+            web.evaluateJavascript(
+                BetterGfnScriptEngine.buildSyncMouseMoveJs(
+                    cssX = nextX / density,
+                    cssY = nextY / density,
+                    dxCss = dxPx / density,
+                    dyCss = dyPx / density,
+                    forceRelative = atEdge
+                ),
+                null
+            )
+        }
+    }
+
+    private fun dispatchNativeMouseButton(button: Int, isDown: Boolean) {
+        val web = mainWebView ?: return
+        runOnUiThread {
+            if (mainWebView !== web) return@runOnUiThread
+            val (curX, curY) = ensureMouseCursorCoords(web)
+            val bit = when (button) {
+                0 -> MotionEvent.BUTTON_PRIMARY
+                1 -> MotionEvent.BUTTON_TERTIARY
+                2 -> MotionEvent.BUTTON_SECONDARY
+                else -> MotionEvent.BUTTON_PRIMARY
+            }
+            val prevMask = mouseButtonMask
+            mouseButtonMask = if (isDown) (mouseButtonMask or bit) else (mouseButtonMask and bit.inv())
+            val now = SystemClock.uptimeMillis()
+
+            _mouseCursorState.value = _mouseCursorState.value.copy(
+                xPx = curX,
+                yPx = curY,
+                visible = true,
+                initialized = true,
+                leftPressed = (mouseButtonMask and MotionEvent.BUTTON_PRIMARY) != 0,
+                rightPressed = (mouseButtonMask and MotionEvent.BUTTON_SECONDARY) != 0,
+                lastActivityMs = now
+            )
+
+            if (isDown) {
+                web.requestFocus()
+                if (prevMask == 0) {
+                    mouseDownTimeMs = now
+                    val downEv = obtainMouseMotionEvent(
+                        downTime = mouseDownTimeMs,
+                        eventTime = now,
+                        action = MotionEvent.ACTION_DOWN,
+                        xPx = curX,
+                        yPx = curY,
+                        buttonState = mouseButtonMask
+                    )
+                    try {
+                        web.dispatchTouchEvent(downEv)
+                    } finally {
+                        downEv.recycle()
+                    }
+                } else {
+                    val chordEv = obtainMouseMotionEvent(
+                        downTime = mouseDownTimeMs,
+                        eventTime = now,
+                        action = MotionEvent.ACTION_MOVE,
+                        xPx = curX,
+                        yPx = curY,
+                        buttonState = mouseButtonMask
+                    )
+                    try {
+                        web.dispatchTouchEvent(chordEv)
+                    } finally {
+                        chordEv.recycle()
+                    }
+                }
+            } else {
+                if (mouseButtonMask == 0) {
+                    val upEv = obtainMouseMotionEvent(
+                        downTime = mouseDownTimeMs,
+                        eventTime = now,
+                        action = MotionEvent.ACTION_UP,
+                        xPx = curX,
+                        yPx = curY,
+                        buttonState = 0
+                    )
+                    try {
+                        web.dispatchTouchEvent(upEv)
+                    } finally {
+                        upEv.recycle()
+                    }
+                } else {
+                    val chordUpEv = obtainMouseMotionEvent(
+                        downTime = mouseDownTimeMs,
+                        eventTime = now,
+                        action = MotionEvent.ACTION_MOVE,
+                        xPx = curX,
+                        yPx = curY,
+                        buttonState = mouseButtonMask
+                    )
+                    try {
+                        web.dispatchTouchEvent(chordUpEv)
+                    } finally {
+                        chordUpEv.recycle()
+                    }
+                }
+            }
+
+            // When Pointer Lock is active (3D FPS stream), also mirror button state into JS
+            // without duplicating native clicks on unlocked GeForce NOW menus/UI.
+            val clampedBtn = button.coerceIn(0, 2)
+            web.evaluateJavascript(
+                "if (document.pointerLockElement && window.__xenosInput) window.__xenosInput.mouseButton($clampedBtn, $isDown);",
+                null
+            )
+        }
+    }
+
+    private fun dispatchNativeMouseScroll(scrollUp: Boolean) {
+        val web = mainWebView ?: return
+        runOnUiThread {
+            if (mainWebView !== web) return@runOnUiThread
+            val (curX, curY) = ensureMouseCursorCoords(web)
+            val now = SystemClock.uptimeMillis()
+            _mouseCursorState.value = _mouseCursorState.value.copy(
+                xPx = curX,
+                yPx = curY,
+                visible = true,
+                initialized = true,
+                lastActivityMs = now
+            )
+            val scrollEv = obtainMouseMotionEvent(
+                downTime = now,
+                eventTime = now,
+                action = MotionEvent.ACTION_SCROLL,
+                xPx = curX,
+                yPx = curY,
+                buttonState = mouseButtonMask,
+                vScroll = if (scrollUp) 1.5f else -1.5f
+            )
+            try {
+                web.dispatchGenericMotionEvent(scrollEv)
+            } finally {
+                scrollEv.recycle()
+            }
+        }
+    }
+
+    private fun resetNativeMouseState() {
+        val web = mainWebView
+        runOnUiThread {
+            if (mouseButtonMask != 0 && web != null && mainWebView === web) {
+                val (curX, curY) = ensureMouseCursorCoords(web)
+                val now = SystemClock.uptimeMillis()
+                val upEv = obtainMouseMotionEvent(
+                    downTime = mouseDownTimeMs,
+                    eventTime = now,
+                    action = MotionEvent.ACTION_UP,
+                    xPx = curX,
+                    yPx = curY,
+                    buttonState = 0
+                )
+                try {
+                    web.dispatchTouchEvent(upEv)
+                } finally {
+                    upEv.recycle()
+                }
+            }
+            mouseButtonMask = 0
+            mouseHoverEntered = false
+            _mouseCursorState.value = _mouseCursorState.value.copy(
+                leftPressed = false,
+                rightPressed = false
+            )
         }
     }
 
@@ -586,6 +917,8 @@ private fun WebPlayerScreenContent(
     streamStats: WebRtcStreamStats,
     perfStats: com.example.service.PerfStatsSnapshot,
     loadProgress: Int,
+    mouseCursor: VirtualMouseCursorState,
+    onHideMouseCursor: () -> Unit,
     pressedIds: Set<String>,
     toggledIds: Set<String>,
     popupWebView: WebView?,
@@ -620,8 +953,21 @@ private fun WebPlayerScreenContent(
 
     val displayedProfile = if (isLiveEditMode) liveEditDraft ?: activeProfile else activeProfile
 
+    BackHandler(enabled = isLiveEditMode) {
+        isLiveEditMode = false
+        liveEditDraft = null
+        selectedEditControlId = null
+    }
+
     BackHandler(enabled = menuExpanded && !isLiveEditMode) {
         menuExpanded = false
+    }
+
+    LaunchedEffect(mouseCursor.lastActivityMs, mouseCursor.visible, mouseCursor.leftPressed, mouseCursor.rightPressed) {
+        if (mouseCursor.visible && !mouseCursor.leftPressed && !mouseCursor.rightPressed) {
+            delay(6000L)
+            onHideMouseCursor()
+        }
     }
 
     BoxWithConstraints(
@@ -656,6 +1002,15 @@ private fun WebPlayerScreenContent(
             )
         }
 
+        // 1b. Non-interactive Virtual Mouse Cursor overlay (auto-hides after 6s idle)
+        if (mouseCursor.visible && !isLiveEditMode) {
+            VirtualMouseCursorOverlay(
+                cursor = mouseCursor,
+                accentColor = accent,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         // 2. Crosshair HUD (non-interactive overlay)
         if (settings.crosshair.enabled && !isLiveEditMode) {
             CrosshairOverlayCanvas(
@@ -664,20 +1019,58 @@ private fun WebPlayerScreenContent(
             )
         }
 
-        // 3. XenosPad Virtual Controls layer (direct WebInputSink routing!)
+        // 2b. Touch-Blocking Live Edit Canvas Scrim + Grid
+        // While editing layout live in-game, consumes 100% of background touches so nothing
+        // behind the user's controls or edit toolbar can ever tap the GeForce NOW screen.
+        if (isLiveEditMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF06070F).copy(alpha = 0.56f))
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            down.consume()
+                            var allReleased = false
+                            while (!allReleased) {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { it.consume() }
+                                if (event.changes.none { it.pressed }) {
+                                    allReleased = true
+                                }
+                            }
+                        }
+                    }
+                    .testTag("web_player_live_edit_scrim")
+            ) {
+                if (snapToGrid) {
+                    val cols = settings.gridDivisions.coerceIn(4, 32)
+                    val rows = (cols * 0.66f).roundToInt().coerceIn(4, 24)
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val lineColor = Color.White.copy(alpha = 0.11f)
+                        val strokePx = 1.dp.toPx()
+                        for (c in 1 until cols) {
+                            val x = size.width * (c.toFloat() / cols.toFloat())
+                            drawLine(lineColor, Offset(x, 0f), Offset(x, size.height), strokeWidth = strokePx)
+                        }
+                        for (r in 1 until rows) {
+                            val y = size.height * (r.toFloat() / rows.toFloat())
+                            drawLine(lineColor, Offset(0f, y), Offset(size.width, y), strokeWidth = strokePx)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. XenosPad Virtual Controls layer (direct WebInputSink routing in play mode,
+        //    smooth PositionedVirtualControl drag & snap in Live Edit mode!)
         if ((controlsVisible || isLiveEditMode) && displayedProfile != null) {
             Box(modifier = Modifier.fillMaxSize()) {
                 displayedProfile.controls.forEach { control ->
-                    val halfSizePx = with(density) { (control.sizeDp.dp / 2f).toPx() }
-                    val xPx = (control.xPercent * canvasWidthPx - halfSizePx)
-                        .roundToInt()
-                        .coerceIn(0, (canvasWidthPx - halfSizePx * 2f).roundToInt().coerceAtLeast(0))
-                    val yPx = (control.yPercent * canvasHeightPx - halfSizePx)
-                        .roundToInt()
-                        .coerceIn(0, (canvasHeightPx - halfSizePx * 2f).roundToInt().coerceAtLeast(0))
-
-                    VirtualControlCanvasItem(
+                    PositionedVirtualControl(
                         control = control,
+                        containerWidthPx = canvasWidthPx,
+                        containerHeightPx = canvasHeightPx,
                         notation = settings.controllerNotation,
                         globalOpacity = settings.globalOpacity,
                         vibrationMode = settings.vibrationMode,
@@ -690,24 +1083,30 @@ private fun WebPlayerScreenContent(
                                 selectedEditControlId = control.id
                             }
                         },
-                        onDragDelta = { dx, dy ->
+                        onCommitPercent = { rawX, rawY ->
                             if (isLiveEditMode) {
-                                val current = liveEditDraft ?: return@VirtualControlCanvasItem
+                                val current = liveEditDraft ?: return@PositionedVirtualControl
                                 val divs = settings.gridDivisions.coerceIn(4, 32).toFloat()
                                 val aspectY = (divs * 0.66f).roundToInt().coerceIn(4, 24).toFloat()
-                                val updatedControls = current.controls.map { c ->
-                                    if (c.id != control.id) c else {
-                                        val rawX = (c.xPercent + dx / canvasWidthPx).coerceIn(0.02f, 0.98f)
-                                        val rawY = (c.yPercent + dy / canvasHeightPx).coerceIn(0.03f, 0.97f)
-                                        val finalX = if (snapToGrid) ((rawX * divs).roundToInt() / divs).coerceIn(0.02f, 0.98f) else rawX
-                                        val finalY = if (snapToGrid) ((rawY * aspectY).roundToInt() / aspectY).coerceIn(0.03f, 0.97f) else rawY
-                                        c.copy(xPercent = finalX, yPercent = finalY)
-                                    }
+                                val clampedX = rawX.coerceIn(0.02f, 0.98f)
+                                val clampedY = rawY.coerceIn(0.03f, 0.97f)
+                                val finalX = if (snapToGrid) {
+                                    ((clampedX * divs).roundToInt() / divs).coerceIn(0.02f, 0.98f)
+                                } else {
+                                    clampedX
                                 }
-                                liveEditDraft = current.copy(controls = updatedControls)
+                                val finalY = if (snapToGrid) {
+                                    ((clampedY * aspectY).roundToInt() / aspectY).coerceIn(0.03f, 0.97f)
+                                } else {
+                                    clampedY
+                                }
+                                liveEditDraft = current.copy(
+                                    controls = current.controls.map { c ->
+                                        if (c.id == control.id) c.copy(xPercent = finalX, yPercent = finalY) else c
+                                    }
+                                )
                             }
-                        },
-                        modifier = Modifier.offset { IntOffset(xPx, yPx) }
+                        }
                     )
                 }
             }
@@ -916,5 +1315,59 @@ private fun WebPlayerScreenContent(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun VirtualMouseCursorOverlay(
+    cursor: VirtualMouseCursorState,
+    accentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val x = cursor.xPx.coerceIn(0f, size.width)
+        val y = cursor.yPx.coerceIn(0f, size.height)
+        val scale = 1.dp.toPx()
+
+        if (cursor.leftPressed || cursor.rightPressed) {
+            val ringColor = if (cursor.rightPressed) Color(0xFFFFB74D) else accentColor
+            drawCircle(
+                color = ringColor.copy(alpha = 0.28f),
+                radius = 16f * scale,
+                center = Offset(x, y)
+            )
+            drawCircle(
+                color = ringColor.copy(alpha = 0.85f),
+                radius = 9f * scale,
+                center = Offset(x, y),
+                style = Stroke(width = 1.8f * scale)
+            )
+        }
+
+        val pointerPath = Path().apply {
+            moveTo(x, y)
+            lineTo(x, y + 18f * scale)
+            lineTo(x + 4.8f * scale, y + 13.6f * scale)
+            lineTo(x + 8.4f * scale, y + 20.5f * scale)
+            lineTo(x + 11.4f * scale, y + 19.0f * scale)
+            lineTo(x + 7.8f * scale, y + 12.2f * scale)
+            lineTo(x + 13.8f * scale, y + 12.0f * scale)
+            close()
+        }
+
+        // Crisp dark outline + bright white interior (stays visible over light & dark scenes)
+        drawPath(
+            path = pointerPath,
+            color = Color(0xFF0A0C14),
+            style = Stroke(
+                width = 2.6f * scale,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
+        drawPath(
+            path = pointerPath,
+            color = Color.White
+        )
     }
 }

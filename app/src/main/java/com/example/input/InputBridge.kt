@@ -430,6 +430,8 @@ object InputBridge {
         _activeClusterDirections.update { it + (controlId to keySet) }
     }
 
+    fun hasWebInputSink(): Boolean = webInputSink != null
+
     fun updateTouchpadLook(
         controlId: String,
         sourceLabel: String,
@@ -441,6 +443,19 @@ object InputBridge {
         active: Boolean
     ) {
         val effY = if (invertY) -normY else normY
+        val web = webInputSink
+        if (web != null) {
+            val adjX = if (active) applyDeadzoneAndCurve(normX, deadzone, 1.0f) else 0f
+            val adjY = if (active) applyDeadzoneAndCurve(effY, deadzone, 1.0f) else 0f
+            _rightStick.value = StickState(
+                x = adjX.coerceIn(-1f, 1f),
+                y = adjY.coerceIn(-1f, 1f),
+                active = active
+            )
+            web.onAnalogStick(isLeft = false, x = adjX, y = adjY)
+            return
+        }
+
         val thresh = (deadzone * 2.2f).coerceIn(0.14f, 0.45f)
         val filteredX = if (!active || kotlin.math.abs(normX) < thresh) 0f else normX
         val filteredY = if (!active || kotlin.math.abs(effY) < thresh) 0f else effY
@@ -486,15 +501,16 @@ object InputBridge {
         sensitivity: Float,
         invertY: Boolean
     ) {
+        // Web Player already receives live frame-by-frame mouse deltas during drag;
+        // re-sending totalDelta on finger lift would cause the mouse cursor to jump twice.
+        if (webInputSink != null) return
+
         val effDy = if (invertY) -totalDeltaYPx else totalDeltaYPx
         val scaledDx = deltaXScaled(totalDeltaXPx, sensitivity)
         val scaledDy = deltaXScaled(effDy, sensitivity)
         if (kotlin.math.abs(scaledDx) < 0.5f && kotlin.math.abs(scaledDy) < 0.5f) return
 
-        val web = webInputSink
-        if (web != null) {
-            web.onMouseMove(scaledDx, scaledDy)
-        } else if (canDispatchAccessibilityGestureNow()) {
+        if (canDispatchAccessibilityGestureNow()) {
             pointerSink?.onMouseFlick(scaledDx, scaledDy)
         } else if (!_isAppInForeground.value) {
             pendingPointerAction = PendingPointerAction.FlickSwipe(scaledDx, scaledDy)
@@ -573,6 +589,25 @@ object InputBridge {
             pendingPointerAction = PendingPointerAction.LeftTap
         }
         recordTelemetry(sourceLabel, "LMB", "TAP_CLICK", "Touchpad Tap", BindingDomain.MOUSE)
+    }
+
+    fun dispatchMouseRightTapClick(sourceLabel: String) {
+        val web = webInputSink
+        if (web != null) {
+            web.onMouseButton(2, true)
+            web.onMouseButton(2, false)
+            recordTelemetry(sourceLabel, "RMB", "TAP_CLICK", "Web Touchpad 2-Finger Tap", BindingDomain.MOUSE)
+            return
+        }
+        sendKeyToSink(KeyEvent.KEYCODE_BUTTON_2, KeyEvent.ACTION_DOWN, 0, BindingDomain.MOUSE)
+        sendKeyToSink(KeyEvent.KEYCODE_BUTTON_2, KeyEvent.ACTION_UP, 0, BindingDomain.MOUSE)
+        if (canDispatchAccessibilityGestureNow()) {
+            pointerSink?.onRightButton(true)
+            pointerSink?.onRightButton(false)
+        } else if (!_isAppInForeground.value) {
+            pendingPointerAction = PendingPointerAction.RightTap
+        }
+        recordTelemetry(sourceLabel, "RMB", "TAP_CLICK", "Touchpad 2-Finger Tap", BindingDomain.MOUSE)
     }
 
     private fun deltaXScaled(rawPx: Float, sensitivity: Float): Float =
