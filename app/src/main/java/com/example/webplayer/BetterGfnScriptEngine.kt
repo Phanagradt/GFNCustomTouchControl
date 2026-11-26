@@ -663,25 +663,53 @@ object BetterGfnScriptEngine {
               };
               setTimeout(notifyGamepadConnected, 800);
 
-              // 3. Direct Keyboard / Mouse / Wheel Event Dispatcher
+              // 3. Direct Keyboard / Mouse / Wheel Dispatcher + Android WebView W3C Pointer Lock Polyfill
               var pointerX = Math.round(window.innerWidth / 2);
               var pointerY = Math.round(window.innerHeight / 2);
               var mouseButtonsMask = 0;
               var lastNativeMouseDownAt = [0, 0, 0];
               var lastNativeMouseUpAt = [0, 0, 0];
+              var moveRemX = 0;
+              var moveRemY = 0;
 
-              window.addEventListener('mousedown', function(e) {
-                if (e && e.isTrusted && e.button >= 0 && e.button <= 2) {
-                  lastNativeMouseDownAt[e.button] = performance.now();
+              // Virtual Pointer Lock state (Android WebView does not support native requestPointerLock;
+              // play.geforcenow.com requires document.pointerLockElement + pointerlockchange + movementX/Y
+              // to move the remote GeForce NOW mouse cursor in menus AND turn 3D game cameras 360 degrees!)
+              var virtualLockEl = null;
+              var lastRequestedLockEl = null;
+              var activationClickSent = false;
+              var lastReportedInGame = null;
+              var lastRtcVideoActive = false;
+
+              function isNodeConnected(el) {
+                return !!(el && (el.isConnected === true || (document.contains && document.contains(el))));
+              }
+
+              function findActiveStreamVideo(root) {
+                if (!root || !root.querySelectorAll) return null;
+                var vids = root.querySelectorAll('video');
+                for (var i = 0; i < vids.length; i++) {
+                  var v = vids[i];
+                  try {
+                    var rect = v.getBoundingClientRect();
+                    var bigEnough = rect.width >= window.innerWidth * 0.45 && rect.height >= window.innerHeight * 0.45;
+                    var hasStream = !!(v.srcObject) || (v.videoWidth >= 320 && v.videoHeight >= 180 && v.readyState >= 2);
+                    if (bigEnough && hasStream) return v;
+                  } catch (e) {}
                 }
-              }, true);
-              window.addEventListener('mouseup', function(e) {
-                if (e && e.isTrusted && e.button >= 0 && e.button <= 2) {
-                  lastNativeMouseUpAt[e.button] = performance.now();
+                var all = root.querySelectorAll('*');
+                for (var j = 0; j < all.length; j++) {
+                  if (all[j].shadowRoot) {
+                    var nested = findActiveStreamVideo(all[j].shadowRoot);
+                    if (nested) return nested;
+                  }
                 }
-              }, true);
+                return null;
+              }
 
               function findStreamMediaElement(root) {
+                var activeVid = findActiveStreamVideo(root);
+                if (activeVid) return activeVid;
                 if (!root || !root.querySelector) return null;
                 var direct = root.querySelector('video') || root.querySelector('canvas');
                 if (direct) return direct;
@@ -695,12 +723,112 @@ object BetterGfnScriptEngine {
                 return null;
               }
 
+              function findStreamLockHost() {
+                if (isNodeConnected(lastRequestedLockEl)) return lastRequestedLockEl;
+                var vid = findActiveStreamVideo(document) || findStreamMediaElement(document);
+                if (vid) return vid;
+                return document.body || document.documentElement;
+              }
+
+              function detectInGameStream() {
+                if (findActiveStreamVideo(document)) return true;
+                return !!lastRtcVideoActive;
+              }
+
+              function firePointerLockChange() {
+                try {
+                  var ev = new Event('pointerlockchange', { bubbles: true, cancelable: false });
+                  document.dispatchEvent(ev);
+                  if (typeof document.onpointerlockchange === 'function') {
+                    document.onpointerlockchange(ev);
+                  }
+                } catch (e) {}
+              }
+
+              function acquireVirtualPointerLock(el) {
+                var target = (el && isNodeConnected(el)) ? el : findStreamLockHost();
+                if (!target) return null;
+                lastRequestedLockEl = target;
+                if (virtualLockEl !== target) {
+                  virtualLockEl = target;
+                  try { if (typeof target.focus === 'function') target.focus({ preventScroll: true }); } catch (e) {}
+                  firePointerLockChange();
+                }
+                return virtualLockEl;
+              }
+
+              function releaseVirtualPointerLock() {
+                if (virtualLockEl !== null) {
+                  virtualLockEl = null;
+                  firePointerLockChange();
+                }
+              }
+
+              function reportStreamState(force) {
+                try {
+                  var inGame = detectInGameStream();
+                  if (!inGame) {
+                    activationClickSent = false;
+                    releaseVirtualPointerLock();
+                  }
+                  if (force || inGame !== lastReportedInGame) {
+                    lastReportedInGame = inGame;
+                    if (window.XenosWebBridge && window.XenosWebBridge.onStreamStateChanged) {
+                      window.XenosWebBridge.onStreamStateChanged(inGame);
+                    }
+                  }
+                } catch (e) {}
+              }
+
+              try {
+                var lockDescriptor = {
+                  get: function() {
+                    if (virtualLockEl && !isNodeConnected(virtualLockEl)) {
+                      virtualLockEl = null;
+                    }
+                    return virtualLockEl;
+                  },
+                  configurable: true
+                };
+                Object.defineProperty(Document.prototype, 'pointerLockElement', lockDescriptor);
+                Object.defineProperty(document, 'pointerLockElement', lockDescriptor);
+                Object.defineProperty(document, 'webkitPointerLockElement', lockDescriptor);
+                Object.defineProperty(document, 'mozPointerLockElement', lockDescriptor);
+              } catch (e) {}
+
+              try {
+                Element.prototype.requestPointerLock = function() {
+                  acquireVirtualPointerLock(this);
+                  reportStreamState(false);
+                  return Promise.resolve();
+                };
+                if ('webkitRequestPointerLock' in Element.prototype) {
+                  Element.prototype.webkitRequestPointerLock = Element.prototype.requestPointerLock;
+                }
+                Document.prototype.exitPointerLock = function() {
+                  releaseVirtualPointerLock();
+                };
+                document.exitPointerLock = function() {
+                  releaseVirtualPointerLock();
+                };
+              } catch (e) {}
+
+              setInterval(function() { reportStreamState(false); }, 350);
+
+              window.addEventListener('mousedown', function(e) {
+                if (e && e.isTrusted && e.button >= 0 && e.button <= 2) {
+                  lastNativeMouseDownAt[e.button] = performance.now();
+                }
+              }, true);
+              window.addEventListener('mouseup', function(e) {
+                if (e && e.isTrusted && e.button >= 0 && e.button <= 2) {
+                  lastNativeMouseUpAt[e.button] = performance.now();
+                }
+              }, true);
+
               function streamTarget() {
-                return document.pointerLockElement ||
-                  findStreamMediaElement(document) ||
-                  document.activeElement ||
-                  document.body ||
-                  document;
+                if (virtualLockEl && isNodeConnected(virtualLockEl)) return virtualLockEl;
+                return findStreamLockHost() || document.activeElement || document.body || document;
               }
 
               function deepElementFromPoint(root, x, y) {
@@ -721,17 +849,131 @@ object BetterGfnScriptEngine {
               }
 
               function pointTarget(x, y) {
-                if (document.pointerLockElement) return document.pointerLockElement;
+                if (virtualLockEl && isNodeConnected(virtualLockEl)) return virtualLockEl;
                 var hit = deepElementFromPoint(document, x, y);
                 if (hit) return hit;
                 return streamTarget();
               }
 
+              function centerCoordsFor(el) {
+                try {
+                  if (el && typeof el.getBoundingClientRect === 'function') {
+                    var r = el.getBoundingClientRect();
+                    if (r.width > 10 && r.height > 10) {
+                      return {
+                        x: Math.round(r.left + r.width / 2),
+                        y: Math.round(r.top + r.height / 2)
+                      };
+                    }
+                  }
+                } catch (e) {}
+                return {
+                  x: Math.round(window.innerWidth / 2),
+                  y: Math.round(window.innerHeight / 2)
+                };
+              }
+
+              function ensureGamePointerLock() {
+                if (virtualLockEl && isNodeConnected(virtualLockEl)) {
+                  return virtualLockEl;
+                }
+                if (isNodeConnected(lastRequestedLockEl)) {
+                  return acquireVirtualPointerLock(lastRequestedLockEl);
+                }
+                var host = findStreamLockHost();
+                if (host && !activationClickSent) {
+                  activationClickSent = true;
+                  try {
+                    if (typeof host.focus === 'function') host.focus({ preventScroll: true });
+                    var c = centerCoordsFor(host);
+                    var clickOpts = {
+                      button: 0,
+                      buttons: 0,
+                      detail: 1,
+                      clientX: c.x,
+                      clientY: c.y,
+                      screenX: c.x,
+                      screenY: c.y,
+                      view: window,
+                      bubbles: true,
+                      cancelable: true,
+                      composed: true
+                    };
+                    // Trigger GFN's own "click stream to requestPointerLock()" listener once if waiting
+                    host.dispatchEvent(new MouseEvent('click', clickOpts));
+                  } catch (e) {}
+                }
+                if (virtualLockEl && isNodeConnected(virtualLockEl)) {
+                  return virtualLockEl;
+                }
+                return acquireVirtualPointerLock(host);
+              }
+
+              function forceMovementProps(ev, intDx, intDy) {
+                try {
+                  if (ev.movementX !== intDx) {
+                    Object.defineProperty(ev, 'movementX', { value: intDx, configurable: true });
+                  }
+                  if (ev.movementY !== intDy) {
+                    Object.defineProperty(ev, 'movementY', { value: intDy, configurable: true });
+                  }
+                } catch (e) {}
+                return ev;
+              }
+
+              function dispatchLockedRelativeMove(mx, my) {
+                var t = ensureGamePointerLock() || streamTarget();
+                moveRemX += mx;
+                moveRemY += my;
+                var intDx = moveRemX > 0 ? Math.floor(moveRemX) : Math.ceil(moveRemX);
+                var intDy = moveRemY > 0 ? Math.floor(moveRemY) : Math.ceil(moveRemY);
+                if (intDx === 0 && intDy === 0) return;
+                moveRemX -= intDx;
+                moveRemY -= intDy;
+
+                var c = centerCoordsFor(t);
+                pointerX = c.x;
+                pointerY = c.y;
+
+                var opts = {
+                  movementX: intDx,
+                  movementY: intDy,
+                  clientX: c.x,
+                  clientY: c.y,
+                  pageX: c.x + (window.scrollX || 0),
+                  pageY: c.y + (window.scrollY || 0),
+                  screenX: c.x,
+                  screenY: c.y,
+                  buttons: mouseButtonsMask,
+                  view: window,
+                  bubbles: true,
+                  cancelable: true,
+                  composed: true
+                };
+                if (typeof PointerEvent !== 'undefined') {
+                  var pOpts = Object.assign({
+                    pointerType: 'mouse',
+                    isPrimary: true,
+                    pointerId: 1,
+                    width: 1,
+                    height: 1,
+                    pressure: mouseButtonsMask ? 0.5 : 0
+                  }, opts);
+                  try {
+                    t.dispatchEvent(forceMovementProps(new PointerEvent('pointerrawupdate', pOpts), intDx, intDy));
+                  } catch (e) {}
+                  t.dispatchEvent(forceMovementProps(new PointerEvent('pointermove', pOpts), intDx, intDy));
+                }
+                t.dispatchEvent(forceMovementProps(new MouseEvent('mousemove', opts), intDx, intDy));
+              }
+
               function dispatchRelativeMove(mx, my) {
                 var t = pointTarget(pointerX, pointerY);
+                var intDx = Math.round(mx);
+                var intDy = Math.round(my);
                 var opts = {
-                  movementX: mx,
-                  movementY: my,
+                  movementX: intDx,
+                  movementY: intDy,
                   clientX: pointerX,
                   clientY: pointerY,
                   pageX: pointerX + (window.scrollX || 0),
@@ -745,11 +987,47 @@ object BetterGfnScriptEngine {
                   composed: true
                 };
                 if (typeof PointerEvent !== 'undefined') {
-                  t.dispatchEvent(new PointerEvent('pointermove', Object.assign({ pointerType: 'mouse', isPrimary: true, pointerId: 1, width: 1, height: 1, pressure: mouseButtonsMask ? 0.5 : 0 }, opts)));
+                  t.dispatchEvent(forceMovementProps(new PointerEvent('pointermove', Object.assign({ pointerType: 'mouse', isPrimary: true, pointerId: 1, width: 1, height: 1, pressure: mouseButtonsMask ? 0.5 : 0 }, opts)), intDx, intDy));
                 }
-                var ev = new MouseEvent('mousemove', opts);
-                t.dispatchEvent(ev);
-                if (t !== document) document.dispatchEvent(ev);
+                t.dispatchEvent(forceMovementProps(new MouseEvent('mousemove', opts), intDx, intDy));
+              }
+
+              function dispatchLockedMouseButton(button, isDown) {
+                var t = ensureGamePointerLock() || streamTarget();
+                var c = centerCoordsFor(t);
+                pointerX = c.x;
+                pointerY = c.y;
+                var type = isDown ? 'mousedown' : 'mouseup';
+                var pType = isDown ? 'pointerdown' : 'pointerup';
+                var opts = {
+                  button: button,
+                  buttons: mouseButtonsMask,
+                  detail: 1,
+                  clientX: c.x,
+                  clientY: c.y,
+                  pageX: c.x + (window.scrollX || 0),
+                  pageY: c.y + (window.scrollY || 0),
+                  screenX: c.x,
+                  screenY: c.y,
+                  view: window,
+                  bubbles: true,
+                  cancelable: true,
+                  composed: true
+                };
+                if (isDown && t && typeof t.focus === 'function') {
+                  try { t.focus({ preventScroll: true }); } catch (e) {}
+                }
+                if (typeof PointerEvent !== 'undefined') {
+                  t.dispatchEvent(new PointerEvent(pType, Object.assign({
+                    pointerType: 'mouse',
+                    isPrimary: true,
+                    pointerId: 1,
+                    width: 1,
+                    height: 1,
+                    pressure: isDown ? 0.5 : 0
+                  }, opts)));
+                }
+                t.dispatchEvent(new MouseEvent(type, opts));
               }
 
               function dispatchSyntheticMouseButton(button, isDown) {
@@ -817,6 +1095,38 @@ object BetterGfnScriptEngine {
                     if (t !== window) window.dispatchEvent(ev);
                   } catch (e) {}
                 },
+                gameMouseMove: function(dx, dy) {
+                  try {
+                    var mx = Number(dx) || 0;
+                    var my = Number(dy) || 0;
+                    dispatchLockedRelativeMove(mx, my);
+                  } catch (e) {}
+                },
+                gameMouseButton: function(button, isDown) {
+                  try {
+                    var bit = button === 0 ? 1 : (button === 2 ? 2 : 4);
+                    if (isDown) mouseButtonsMask |= bit; else mouseButtonsMask &= ~bit;
+                    dispatchLockedMouseButton(button, isDown);
+                  } catch (e) {}
+                },
+                gameMouseWheel: function(deltaY) {
+                  try {
+                    var t = ensureGamePointerLock() || streamTarget();
+                    var c = centerCoordsFor(t);
+                    t.dispatchEvent(new WheelEvent('wheel', {
+                      deltaY: Number(deltaY) || 0,
+                      deltaMode: 0,
+                      clientX: c.x,
+                      clientY: c.y,
+                      bubbles: true,
+                      cancelable: true,
+                      composed: true
+                    }));
+                  } catch (e) {}
+                },
+                releasePointerLock: function() {
+                  try { releaseVirtualPointerLock(); } catch (e) {}
+                },
                 mouseButton: function(button, isDown, cssX, cssY) {
                   try {
                     if (typeof cssX === 'number' && !isNaN(cssX)) {
@@ -852,9 +1162,13 @@ object BetterGfnScriptEngine {
                   try {
                     var mx = Number(dx) || 0;
                     var my = Number(dy) || 0;
-                    pointerX = Math.max(0, Math.min(window.innerWidth, pointerX + mx));
-                    pointerY = Math.max(0, Math.min(window.innerHeight, pointerY + my));
-                    dispatchRelativeMove(mx, my);
+                    if (detectInGameStream() || virtualLockEl) {
+                      dispatchLockedRelativeMove(mx, my);
+                    } else {
+                      pointerX = Math.max(0, Math.min(window.innerWidth, pointerX + mx));
+                      pointerY = Math.max(0, Math.min(window.innerHeight, pointerY + my));
+                      dispatchRelativeMove(mx, my);
+                    }
                   } catch (e) {}
                 },
                 syncPointer: function(cssX, cssY, dx, dy, forceRelative) {
@@ -882,6 +1196,8 @@ object BetterGfnScriptEngine {
                 },
                 reset: function() {
                   mouseButtonsMask = 0;
+                  moveRemX = 0;
+                  moveRemY = 0;
                   if (window.__xenosPad) window.__xenosPad.reset();
                 }
               };
@@ -914,7 +1230,11 @@ object BetterGfnScriptEngine {
                         break;
                       }
                     }
-                    if (!activePc || !window.XenosWebBridge || !window.XenosWebBridge.onWebRtcStats) return;
+                    if (!activePc || !window.XenosWebBridge || !window.XenosWebBridge.onWebRtcStats) {
+                      lastRtcVideoActive = false;
+                      reportStreamState(false);
+                      return;
+                    }
                     activePc.getStats().then(function(report) {
                       var fps = 0, rttMs = 0, bitrateMbps = 0, lossPct = 0, jitterMs = 0, decodeMs = 0;
                       var res = '', codec = '';
@@ -965,6 +1285,9 @@ object BetterGfnScriptEngine {
                       if (pair && typeof pair.currentRoundTripTime === 'number') {
                         rttMs = Math.round(pair.currentRoundTripTime * 1000);
                       }
+                      var isConnected = activePc.connectionState === 'connected' || fps > 0;
+                      lastRtcVideoActive = isConnected && (fps > 0 || !!res);
+                      reportStreamState(false);
                       var payload = JSON.stringify({
                         fps: fps,
                         rttMs: rttMs,
@@ -974,7 +1297,7 @@ object BetterGfnScriptEngine {
                         decodeMs: decodeMs,
                         resolution: res,
                         codec: codec,
-                        connected: activePc.connectionState === 'connected' || fps > 0
+                        connected: isConnected
                       });
                       window.XenosWebBridge.onWebRtcStats(payload);
                     }).catch(function() {});
@@ -1035,6 +1358,23 @@ object BetterGfnScriptEngine {
         val sdy = String.format(Locale.US, "%.2f", dyCss)
         return "window.__xenosInput && window.__xenosInput.syncPointer($sx, $sy, $sdx, $sdy, $forceRelative);"
     }
+
+    fun buildGameMouseMoveJs(dxCss: Float, dyCss: Float): String {
+        val sdx = String.format(Locale.US, "%.2f", dxCss)
+        val sdy = String.format(Locale.US, "%.2f", dyCss)
+        return "window.__xenosInput && window.__xenosInput.gameMouseMove($sdx, $sdy);"
+    }
+
+    fun buildGameMouseButtonJs(button: Int, isDown: Boolean): String =
+        "window.__xenosInput && window.__xenosInput.gameMouseButton(${button.coerceIn(0, 2)}, $isDown);"
+
+    fun buildGameMouseWheelJs(scrollUp: Boolean): String {
+        val delta = if (scrollUp) -120 else 120
+        return "window.__xenosInput && window.__xenosInput.gameMouseWheel($delta);"
+    }
+
+    fun buildReleasePointerLockJs(): String =
+        "window.__xenosInput && window.__xenosInput.releasePointerLock();"
 
     fun buildMouseWheelJs(scrollUp: Boolean): String {
         val delta = if (scrollUp) -120 else 120

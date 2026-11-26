@@ -411,7 +411,7 @@ class NexusStrings internal constructor() {
     var webPlayerLaunchButton: String = "Play GeForce NOW"; internal set
     var webPlayerZeroPermBadge: String = "ZERO EXTRA PERMS"; internal set
     var webPlayerCardHeader: String = "BETTER GFN WEB PLAYER & REGION BYPASS"; internal set
-    var webPlayerRegionHeader: String = "Built-in Region Bypass (Better xCloud Style)"; internal set
+    var webPlayerRegionHeader: String = "Built-in Region Bypass"; internal set
     var webPlayerRegionNote: String = "Sends regional X-Forwarded-For, Accept-Language, and timezone headers to GeForce NOW endpoints (header bypass, not a remote VPN tunnel)."; internal set
     var webPlayerUserAgentLabel: String = "Browser User-Agent"; internal set
     var webPlayerSpoofLocaleTitle: String = "Match Region Timezone & Language"; internal set
@@ -834,7 +834,7 @@ object AppLocalization {
         webPlayerLaunchButton = "เปิดเล่น GeForce NOW"
         webPlayerZeroPermBadge = "ไม่ต้องขอสิทธิ์เพิ่ม"
         webPlayerCardHeader = "BETTER GFN เว็บเพลเยอร์ & บายพาสโซน"
-        webPlayerRegionHeader = "บายพาสโซนในตัว (สไตล์ Better xCloud)"
+        webPlayerRegionHeader = "บายพาสโซนในตัว"
         webPlayerRegionNote = "ส่งเฮดเดอร์ X-Forwarded-For, Accept-Language และโซนเวลาตามภูมิภาคไปยังเซิร์ฟเวอร์ GeForce NOW (บายพาสระดับเฮดเดอร์ ไม่ใช่เซิร์ฟเวอร์ VPN ภายนอก)"
         webPlayerUserAgentLabel = "โปรไฟล์เบราว์เซอร์ (User-Agent)"
         webPlayerSpoofLocaleTitle = "ปรับโซนเวลาและภาษาให้ตรงภูมิภาค"
@@ -1222,7 +1222,7 @@ object AppLocalization {
         webPlayerLaunchButton = "Jugar GeForce NOW"
         webPlayerZeroPermBadge = "SIN PERMISOS EXTRA"
         webPlayerCardHeader = "REPRODUCTOR WEB BETTER GFN Y BYPASS DE REGIÓN"
-        webPlayerRegionHeader = "Bypass de Región Integrado (Estilo Better xCloud)"
+        webPlayerRegionHeader = "Bypass de Región Integrado"
         webPlayerRegionNote = "Envía cabeceras X-Forwarded-For, Accept-Language y zona horaria a los servidores de GeForce NOW (bypass de cabeceras, no un túnel VPN remoto)."
         webPlayerUserAgentLabel = "User-Agent del Navegador"
         webPlayerSpoofLocaleTitle = "Igualar Zona Horaria e Idioma"
@@ -1610,7 +1610,7 @@ object AppLocalization {
         webPlayerLaunchButton = "GeForce NOWを起動"
         webPlayerZeroPermBadge = "追加権限不要"
         webPlayerCardHeader = "BETTER GFN ウェブプレーヤー & リージョンバイパス"
-        webPlayerRegionHeader = "内蔵リージョンバイパス (Better xCloud方式)"
+        webPlayerRegionHeader = "内蔵リージョンバイパス"
         webPlayerRegionNote = "GeForce NOW通信に地域別X-Forwarded-For・Accept-Language・タイムゾーンヘッダーを付与します（ヘッダー方式であり外部VPNサーバーではありません）。"
         webPlayerUserAgentLabel = "ブラウザ User-Agent"
         webPlayerSpoofLocaleTitle = "タイムゾーン・言語を地域に合わせる"
@@ -1998,7 +1998,7 @@ object AppLocalization {
         webPlayerLaunchButton = "启动 GeForce NOW"
         webPlayerZeroPermBadge = "零额外权限"
         webPlayerCardHeader = "BETTER GFN 网页播放器与地区绕过"
-        webPlayerRegionHeader = "内置地区绕过 (Better xCloud 方式)"
+        webPlayerRegionHeader = "内置地区绕过"
         webPlayerRegionNote = "向 GeForce NOW 接口注入对应地区的 X-Forwarded-For、Accept-Language 和时区信息（请求头绕过，非远程 VPN 隧道）。"
         webPlayerUserAgentLabel = "浏览器标识 (User-Agent)"
         webPlayerSpoofLocaleTitle = "匹配所选地区时区与语言"

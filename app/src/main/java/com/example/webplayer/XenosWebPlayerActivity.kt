@@ -180,6 +180,9 @@ class XenosWebPlayerActivity : ComponentActivity() {
     private val _mouseCursorState = MutableStateFlow(VirtualMouseCursorState())
     private val mouseCursorState = _mouseCursorState.asStateFlow()
 
+    private val _inGameStream = MutableStateFlow(false)
+    private val inGameStream = _inGameStream.asStateFlow()
+
     private var mouseButtonMask: Int = 0
     private var mouseDownTimeMs: Long = 0L
     private var mouseHoverEntered: Boolean = false
@@ -234,6 +237,21 @@ class XenosWebPlayerActivity : ComponentActivity() {
         fun onWebRtcStats(rawJson: String) {
             val parsed = BetterGfnScriptEngine.parseWebRtcStatsJson(rawJson)
             _streamStats.value = parsed
+            if (parsed.connected && (parsed.fps > 0 || parsed.resolution.isNotBlank())) {
+                if (!_inGameStream.value) {
+                    _inGameStream.value = true
+                    _mouseCursorState.value = _mouseCursorState.value.copy(visible = false)
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun onStreamStateChanged(active: Boolean) {
+            _inGameStream.value = active
+            if (active) {
+                mouseHoverEntered = false
+                _mouseCursorState.value = _mouseCursorState.value.copy(visible = false)
+            }
         }
     }
 
@@ -282,6 +300,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
             val perfStats by performanceMonitor.stats.collectAsStateWithLifecycle()
             val progress by pageProgress.collectAsStateWithLifecycle()
             val mouseCursor by mouseCursorState.collectAsStateWithLifecycle()
+            val isInGameStream by inGameStream.collectAsStateWithLifecycle()
             val pressedIds by InputBridge.pressedControlIds.collectAsStateWithLifecycle()
             val toggledIds by InputBridge.toggledControlIds.collectAsStateWithLifecycle()
 
@@ -323,6 +342,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
                         perfStats = perfStats,
                         loadProgress = progress,
                         mouseCursor = mouseCursor,
+                        inGameStream = isInGameStream,
                         onHideMouseCursor = {
                             _mouseCursorState.value = _mouseCursorState.value.copy(visible = false)
                         },
@@ -528,6 +548,25 @@ class XenosWebPlayerActivity : ComponentActivity() {
         val web = mainWebView ?: return
         runOnUiThread {
             if (mainWebView !== web) return@runOnUiThread
+            val density = resources.displayMetrics.density.coerceAtLeast(1f)
+            if (_inGameStream.value) {
+                // Inside an active GeForce NOW game stream: NEVER show the app's duplicate cursor
+                // and NEVER spam clamped Android hover events. Stream pure relative deltas directly
+                // into GeForce NOW's locked pointer engine so both the in-game GFN cursor (menus)
+                // and 360-degree 3D camera turning (gameplay) work natively.
+                if (_mouseCursorState.value.visible) {
+                    _mouseCursorState.value = _mouseCursorState.value.copy(visible = false)
+                }
+                web.evaluateJavascript(
+                    BetterGfnScriptEngine.buildGameMouseMoveJs(
+                        dxCss = dxPx / density,
+                        dyCss = dyPx / density
+                    ),
+                    null
+                )
+                return@runOnUiThread
+            }
+
             val w = web.width.coerceAtLeast(1).toFloat()
             val h = web.height.coerceAtLeast(1).toFloat()
             val (curX, curY) = ensureMouseCursorCoords(web)
@@ -594,7 +633,6 @@ class XenosWebPlayerActivity : ComponentActivity() {
                 }
             }
 
-            val density = resources.displayMetrics.density.coerceAtLeast(1f)
             web.evaluateJavascript(
                 BetterGfnScriptEngine.buildSyncMouseMoveJs(
                     cssX = nextX / density,
@@ -649,6 +687,26 @@ class XenosWebPlayerActivity : ComponentActivity() {
         val now = SystemClock.uptimeMillis()
         if (isDown) {
             buttonDownUptimeMs[clampedBtn] = now
+        }
+
+        if (_inGameStream.value) {
+            // Inside active GeForce NOW game stream: keep app cursor hidden and dispatch exact
+            // LMB / MMB / RMB events directly to GeForce NOW's locked pointer target (avoids
+            // Android WebView converting secondary mouse clicks into left clicks or context menus).
+            if (isDown) {
+                web.requestFocus()
+            }
+            _mouseCursorState.value = _mouseCursorState.value.copy(
+                visible = false,
+                leftPressed = (mouseButtonMask and MotionEvent.BUTTON_PRIMARY) != 0,
+                rightPressed = (mouseButtonMask and MotionEvent.BUTTON_SECONDARY) != 0,
+                lastActivityMs = now
+            )
+            web.evaluateJavascript(
+                BetterGfnScriptEngine.buildGameMouseButtonJs(clampedBtn, isDown),
+                null
+            )
+            return
         }
 
         _mouseCursorState.value = _mouseCursorState.value.copy(
@@ -805,6 +863,16 @@ class XenosWebPlayerActivity : ComponentActivity() {
         val web = mainWebView ?: return
         runOnUiThread {
             if (mainWebView !== web) return@runOnUiThread
+            if (_inGameStream.value) {
+                if (_mouseCursorState.value.visible) {
+                    _mouseCursorState.value = _mouseCursorState.value.copy(visible = false)
+                }
+                web.evaluateJavascript(
+                    BetterGfnScriptEngine.buildGameMouseWheelJs(scrollUp),
+                    null
+                )
+                return@runOnUiThread
+            }
             val (curX, curY) = ensureMouseCursorCoords(web)
             val now = SystemClock.uptimeMillis()
             _mouseCursorState.value = _mouseCursorState.value.copy(
@@ -948,6 +1016,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
+                _inGameStream.value = false
                 view?.evaluateJavascript(
                     BetterGfnScriptEngine.buildBootstrapScript(latestWebConfig),
                     null
@@ -1069,6 +1138,7 @@ private fun WebPlayerScreenContent(
     perfStats: com.example.service.PerfStatsSnapshot,
     loadProgress: Int,
     mouseCursor: VirtualMouseCursorState,
+    inGameStream: Boolean,
     onHideMouseCursor: () -> Unit,
     pressedIds: Set<String>,
     toggledIds: Set<String>,
@@ -1194,8 +1264,9 @@ private fun WebPlayerScreenContent(
             )
         }
 
-        // 1b. Non-interactive Virtual Mouse Cursor overlay (auto-hides after 6s idle)
-        if (mouseCursor.visible && !isLiveEditMode) {
+        // 1b. Non-interactive Virtual Mouse Cursor overlay (ONLY outside active game streams,
+        // auto-hides after 6s idle — inside games GeForce NOW renders & owns the cursor directly)
+        if (mouseCursor.visible && !isLiveEditMode && !inGameStream) {
             VirtualMouseCursorOverlay(
                 cursor = mouseCursor,
                 accentColor = accent,

@@ -1707,6 +1707,17 @@ class ExampleUnitTest {
         val bootstrap = BetterGfnScriptEngine.buildBootstrapScript(WebStreamQualityConfig())
         assertTrue(bootstrap.contains("deepElementFromPoint"))
         assertTrue(bootstrap.contains("findStreamMediaElement"))
+        assertTrue(bootstrap.contains("findActiveStreamVideo"))
+        assertTrue(bootstrap.contains("onStreamStateChanged"))
+        assertTrue(bootstrap.contains("requestPointerLock"))
+        assertTrue(bootstrap.contains("exitPointerLock"))
+        assertTrue(bootstrap.contains("pointerLockElement"))
+        assertTrue(bootstrap.contains("pointerlockchange"))
+        assertTrue(bootstrap.contains("pointerrawupdate"))
+        assertTrue(bootstrap.contains("forceMovementProps"))
+        assertTrue(bootstrap.contains("gameMouseMove"))
+        assertTrue(bootstrap.contains("gameMouseButton"))
+        assertTrue(bootstrap.contains("gameMouseWheel"))
         assertTrue(bootstrap.contains("lastNativeMouseDownAt"))
         assertTrue(bootstrap.contains("lastNativeMouseUpAt"))
         assertTrue(bootstrap.contains("e.isTrusted"))
@@ -1718,6 +1729,29 @@ class ExampleUnitTest {
         assertTrue(lmbDownJs.contains("ensureMouseButton(0, true, 412.50, 228.25)"))
         val rmbUpJs = BetterGfnScriptEngine.buildEnsureMouseButtonJs(2, false, 412.5f, 228.25f)
         assertTrue(rmbUpJs.contains("ensureMouseButton(2, false, 412.50, 228.25)"))
+
+        val gameMoveJs = BetterGfnScriptEngine.buildGameMouseMoveJs(14.5f, -7.25f)
+        assertTrue(gameMoveJs.contains("gameMouseMove(14.50, -7.25)"))
+        val gameBtnJs = BetterGfnScriptEngine.buildGameMouseButtonJs(2, true)
+        assertTrue(gameBtnJs.contains("gameMouseButton(2, true)"))
+        val gameWheelJs = BetterGfnScriptEngine.buildGameMouseWheelJs(scrollUp = true)
+        assertTrue(gameWheelJs.contains("gameMouseWheel(-120)"))
+
+        // Verify "(Better xCloud Style)" suffix is removed across all 5 locales
+        listOf(
+            AppLanguage.ENGLISH,
+            AppLanguage.THAI,
+            AppLanguage.SPANISH,
+            AppLanguage.JAPANESE,
+            AppLanguage.CHINESE
+        ).forEach { lang ->
+            val header = AppLocalization.stringsFor(lang).webPlayerRegionHeader
+            assertTrue("$lang region header should not be blank", header.isNotBlank())
+            assertFalse(
+                "$lang region header must not contain Better xCloud: $header",
+                header.contains("xcloud", ignoreCase = true)
+            )
+        }
     }
 
     @Test
