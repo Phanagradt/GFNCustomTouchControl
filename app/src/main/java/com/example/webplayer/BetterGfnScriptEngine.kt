@@ -5,6 +5,8 @@ import com.example.model.ColorMatrixBuilder
 import com.example.model.ColorblindMode
 import com.example.model.GameFilterStyle
 import com.example.model.GfnRegionPreset
+import com.example.model.PhysicalControllerConfig
+import com.example.model.SpecialFxMode
 import com.example.model.WebRtcStreamStats
 import com.example.model.WebStreamQualityConfig
 import java.util.Locale
@@ -265,7 +267,13 @@ object BetterGfnScriptEngine {
         if (style.detailsEnabled && style.detailsSharpen > 0.01f) {
             strength += style.detailsSharpen * 0.55f
         }
-        val s = strength.coerceIn(0f, 1.85f)
+        if (style.painterlyEnabled && style.painterlyEdgeSharpening > 0.01f) {
+            strength += style.painterlyEdgeSharpening * 0.65f
+        }
+        if (style.specialFxEnabled && style.specialFxMode == SpecialFxMode.SKETCH && style.specialFxIntensity > 0.05f) {
+            strength += style.specialFxIntensity * 1.15f
+        }
+        val s = strength.coerceIn(0f, 1.95f)
         if (s < 0.03f) return null
         val center = 1f + 4f * s
         val neg = -s
@@ -321,6 +329,61 @@ object BetterGfnScriptEngine {
             -1f
         }
 
+        val bloomStrength = if (activeStyle != null && activeStyle.detailsEnabled) {
+            activeStyle.detailsBloom.coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        val oldFilmStrength = if (activeStyle != null && activeStyle.oldFilmEnabled) {
+            activeStyle.oldFilmStrength.coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        val oldFilmDirt = if (activeStyle != null && activeStyle.oldFilmEnabled) {
+            activeStyle.oldFilmDirtStrength.coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        val dofNear = if (activeStyle != null && activeStyle.dofEnabled) {
+            activeStyle.dofNearBlur.coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        val dofFar = if (activeStyle != null && activeStyle.dofEnabled) {
+            activeStyle.dofFarBlur.coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        val dofFocus = if (activeStyle != null && activeStyle.dofEnabled) {
+            activeStyle.dofFocusDepth.coerceIn(0.15f, 0.85f)
+        } else {
+            0.5f
+        }
+        val fxModeName = if (activeStyle != null && activeStyle.specialFxEnabled && activeStyle.specialFxIntensity > 0.02f) {
+            activeStyle.specialFxMode.name
+        } else {
+            "NONE"
+        }
+        val fxIntensity = if (activeStyle != null && activeStyle.specialFxEnabled) {
+            activeStyle.specialFxIntensity.coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        val posterizeSteps = when {
+            activeStyle == null -> 0
+            activeStyle.painterlyEnabled -> (12 - (activeStyle.painterlyFilterRadius.coerceIn(0.1f, 1f) * 7f).roundToInt()).coerceIn(4, 12)
+            activeStyle.specialFxEnabled && activeStyle.specialFxMode == SpecialFxMode.RETRO && activeStyle.specialFxIntensity > 0.05f ->
+                (14 - (activeStyle.specialFxIntensity * 9f).roundToInt()).coerceIn(4, 14)
+            else -> 0
+        }
+        val posterizeTable = if (posterizeSteps >= 2) {
+            (0 until posterizeSteps).joinToString(" ") { idx ->
+                String.format(Locale.US, "%.3f", idx.toFloat() / (posterizeSteps - 1).toFloat())
+            }
+        } else {
+            ""
+        }
+
         val svgFilterExpr = if (hasActiveFilter) "url(#xenos-gfn-video-filter)" else "none"
         val sharpenKernelJs = if (sharpenKernel != null) "'${escapeJs(sharpenKernel)}'" else "null"
 
@@ -333,11 +396,20 @@ object BetterGfnScriptEngine {
                   cssFallback: '${escapeJs(cssFallback)}',
                   svgMatrix: '${escapeJs(svgMatrix)}',
                   sharpenKernel: $sharpenKernelJs,
+                  posterizeTable: '${escapeJs(posterizeTable)}',
+                  bloomStrength: ${String.format(Locale.US, "%.3f", bloomStrength)},
                   objectFit: '$objectFit',
                   vignetteAlpha: ${String.format(Locale.US, "%.3f", vignetteAlpha)},
                   letterboxH: ${String.format(Locale.US, "%.2f", letterboxH)},
                   letterboxW: ${String.format(Locale.US, "%.2f", letterboxW)},
-                  splitPos: ${String.format(Locale.US, "%.1f", splitPos)}
+                  splitPos: ${String.format(Locale.US, "%.1f", splitPos)},
+                  oldFilmStrength: ${String.format(Locale.US, "%.3f", oldFilmStrength)},
+                  oldFilmDirt: ${String.format(Locale.US, "%.3f", oldFilmDirt)},
+                  dofNear: ${String.format(Locale.US, "%.3f", dofNear)},
+                  dofFar: ${String.format(Locale.US, "%.3f", dofFar)},
+                  dofFocus: ${String.format(Locale.US, "%.3f", dofFocus)},
+                  fxMode: '$fxModeName',
+                  fxIntensity: ${String.format(Locale.US, "%.3f", fxIntensity)}
                 };
 
                 function ensureSvgFilter(cfg) {
@@ -355,11 +427,28 @@ object BetterGfnScriptEngine {
                     (document.body || document.documentElement).appendChild(svg);
                   }
                   var inner = '<defs><filter id="xenos-gfn-video-filter" color-interpolation-filters="sRGB">';
+                  var lastIn = 'SourceGraphic';
                   if (cfg.sharpenKernel) {
-                    inner += '<feConvolveMatrix order="3" preserveAlpha="true" kernelMatrix="' + cfg.sharpenKernel + '" result="sharp"/>';
-                    inner += '<feColorMatrix in="sharp" type="matrix" values="' + cfg.svgMatrix + '"/>';
-                  } else {
-                    inner += '<feColorMatrix type="matrix" values="' + cfg.svgMatrix + '"/>';
+                    inner += '<feConvolveMatrix in="' + lastIn + '" order="3" preserveAlpha="true" kernelMatrix="' + cfg.sharpenKernel + '" result="sharp"/>';
+                    lastIn = 'sharp';
+                  }
+                  inner += '<feColorMatrix in="' + lastIn + '" type="matrix" values="' + cfg.svgMatrix + '" result="graded"/>';
+                  lastIn = 'graded';
+                  if (cfg.posterizeTable) {
+                    inner += '<feComponentTransfer in="' + lastIn + '" result="poster">' +
+                      '<feFuncR type="discrete" tableValues="' + cfg.posterizeTable + '"/>' +
+                      '<feFuncG type="discrete" tableValues="' + cfg.posterizeTable + '"/>' +
+                      '<feFuncB type="discrete" tableValues="' + cfg.posterizeTable + '"/>' +
+                      '</feComponentTransfer>';
+                    lastIn = 'poster';
+                  }
+                  if (cfg.bloomStrength > 0.02) {
+                    var blurStd = (1.5 + cfg.bloomStrength * 6.5).toFixed(2);
+                    var bGain = (cfg.bloomStrength * 0.42).toFixed(3);
+                    inner += '<feGaussianBlur in="' + lastIn + '" stdDeviation="' + blurStd + '" result="bloomBlur"/>';
+                    inner += '<feColorMatrix in="bloomBlur" type="matrix" values="' + bGain + ' 0 0 0 0  0 ' + bGain + ' 0 0 0  0 0 ' + bGain + ' 0 0  0 0 0 1 0" result="bloomSoft"/>';
+                    inner += '<feBlend in="' + lastIn + '" in2="bloomSoft" mode="screen" result="bloomOut"/>';
+                    lastIn = 'bloomOut';
                   }
                   inner += '</filter></defs>';
                   if (svg.__lastInner !== inner) {
@@ -384,7 +473,16 @@ object BetterGfnScriptEngine {
                 function ensureFxOverlay(cfg) {
                   var fxId = 'xenos-gfn-fx-layer';
                   var fx = document.getElementById(fxId);
-                  var needsFx = cfg.active && (Math.abs(cfg.vignetteAlpha) > 0.01 || cfg.letterboxH > 0.1 || cfg.letterboxW > 0.1 || cfg.splitPos > 0);
+                  var needsFx = cfg.active && (
+                    Math.abs(cfg.vignetteAlpha) > 0.01 ||
+                    cfg.letterboxH > 0.1 ||
+                    cfg.letterboxW > 0.1 ||
+                    cfg.splitPos > 0 ||
+                    cfg.oldFilmStrength > 0.02 ||
+                    cfg.dofNear > 0.02 ||
+                    cfg.dofFar > 0.02 ||
+                    (cfg.fxMode && cfg.fxMode !== 'NONE' && cfg.fxIntensity > 0.02)
+                  );
                   if (!needsFx) {
                     if (fx && fx.parentNode) fx.parentNode.removeChild(fx);
                     return;
@@ -395,14 +493,45 @@ object BetterGfnScriptEngine {
                     fx.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483640;overflow:hidden;';
                     (document.body || document.documentElement).appendChild(fx);
                   }
-                  var bg = 'none';
+                  var bgLayers = [];
                   if (Math.abs(cfg.vignetteAlpha) > 0.01) {
                     var a = Math.min(0.92, Math.abs(cfg.vignetteAlpha) * 0.85).toFixed(2);
                     var col = cfg.vignetteAlpha > 0 ? 'rgba(0,0,0,' + a + ')' : 'rgba(255,255,255,' + a + ')';
-                    bg = 'radial-gradient(ellipse at center, transparent 48%, ' + col + ' 100%)';
+                    bgLayers.push('radial-gradient(ellipse at center, transparent 48%, ' + col + ' 100%)');
                   }
-                  fx.style.background = bg;
+                  if (cfg.oldFilmStrength > 0.02) {
+                    var fa = Math.min(0.32, cfg.oldFilmStrength * 0.24).toFixed(2);
+                    bgLayers.push('linear-gradient(180deg, rgba(168,125,68,' + fa + '), rgba(92,62,28,' + fa + '))');
+                  }
+                  if (cfg.fxMode === 'RETRO' && cfg.fxIntensity > 0.02) {
+                    var ra = Math.min(0.36, cfg.fxIntensity * 0.28).toFixed(2);
+                    bgLayers.push('repeating-linear-gradient(0deg, rgba(0,0,0,' + ra + ') 0px, rgba(0,0,0,' + ra + ') 1.5px, transparent 1.5px, transparent 4.5px)');
+                  } else if (cfg.fxMode === 'HALFTONE' && cfg.fxIntensity > 0.02) {
+                    var ha = Math.min(0.34, cfg.fxIntensity * 0.26).toFixed(2);
+                    bgLayers.push('radial-gradient(circle, rgba(0,0,0,' + ha + ') 1.4px, transparent 1.6px)');
+                  } else if (cfg.fxMode === 'SKETCH' && cfg.fxIntensity > 0.02) {
+                    var sa = Math.min(0.24, cfg.fxIntensity * 0.20).toFixed(2);
+                    bgLayers.push('linear-gradient(135deg, rgba(245,239,224,' + sa + '), rgba(225,216,195,' + sa + '))');
+                  }
+                  fx.style.background = bgLayers.length ? bgLayers.join(', ') : 'none';
+                  fx.style.backgroundSize = (cfg.fxMode === 'HALFTONE') ? '10px 10px' : 'auto';
+
                   var bars = '';
+                  if (cfg.dofFar > 0.02) {
+                    var topH = Math.max(8, Math.min(45, (cfg.dofFocus - 0.14) * 100)).toFixed(1);
+                    var topBlur = (cfg.dofFar * 7.5).toFixed(1);
+                    bars += '<div style="position:absolute;top:0;left:0;right:0;height:' + topH + '%;backdrop-filter:blur(' + topBlur + 'px);-webkit-backdrop-filter:blur(' + topBlur + 'px);-webkit-mask-image:linear-gradient(to bottom, #000 35%, transparent 100%);mask-image:linear-gradient(to bottom, #000 35%, transparent 100%);"></div>';
+                  }
+                  if (cfg.dofNear > 0.02) {
+                    var botH = Math.max(8, Math.min(45, (0.86 - cfg.dofFocus) * 100)).toFixed(1);
+                    var botBlur = (cfg.dofNear * 7.5).toFixed(1);
+                    bars += '<div style="position:absolute;bottom:0;left:0;right:0;height:' + botH + '%;backdrop-filter:blur(' + botBlur + 'px);-webkit-backdrop-filter:blur(' + botBlur + 'px);-webkit-mask-image:linear-gradient(to top, #000 35%, transparent 100%);mask-image:linear-gradient(to top, #000 35%, transparent 100%);"></div>';
+                  }
+                  if (cfg.oldFilmStrength > 0.02 && cfg.oldFilmDirt > 0.05) {
+                    var lineAlpha = Math.min(0.42, cfg.oldFilmStrength * cfg.oldFilmDirt * 0.45).toFixed(2);
+                    bars += '<div style="position:absolute;top:0;bottom:0;left:28%;width:1.5px;background:rgba(255,244,220,' + lineAlpha + ');opacity:0.75;"></div>';
+                    bars += '<div style="position:absolute;top:0;bottom:0;left:73%;width:1px;background:rgba(255,244,220,' + lineAlpha + ');opacity:0.55;"></div>';
+                  }
                   if (cfg.letterboxH > 0.1) {
                     bars += '<div style="position:absolute;top:0;left:0;right:0;height:' + cfg.letterboxH + '%;background:#000;"></div>';
                     bars += '<div style="position:absolute;bottom:0;left:0;right:0;height:' + cfg.letterboxH + '%;background:#000;"></div>';
@@ -412,7 +541,8 @@ object BetterGfnScriptEngine {
                     bars += '<div style="position:absolute;top:0;bottom:0;right:0;width:' + cfg.letterboxW + '%;background:#000;"></div>';
                   }
                   if (cfg.splitPos > 0) {
-                    bars += '<div style="position:absolute;top:0;bottom:0;left:' + cfg.splitPos + '%;width:2px;background:#8E9CFF;box-shadow:0 0 8px #8E9CFF;"></div>';
+                    bars += '<div style="position:absolute;top:0;bottom:0;left:' + cfg.splitPos + '%;width:2px;background:#8CE000;box-shadow:0 0 8px #8CE000;"></div>';
+                    bars += '<div style="position:absolute;top:14px;left:calc(' + cfg.splitPos + '% + 8px);padding:2px 6px;border-radius:5px;background:rgba(10,15,22,0.78);color:#8CE000;font:700 10px monospace;">FILTERED</div>';
                   }
                   if (fx.__lastBars !== bars) {
                     fx.innerHTML = bars;
@@ -473,7 +603,10 @@ object BetterGfnScriptEngine {
      * - Installs Direct Keyboard / Mouse / Wheel dispatcher
      * - Installs RTCPeerConnection.getStats() live telemetry reporter
      */
-    fun buildBootstrapScript(config: WebStreamQualityConfig): String {
+    fun buildBootstrapScript(
+        config: WebStreamQualityConfig,
+        physicalConfig: PhysicalControllerConfig = PhysicalControllerConfig()
+    ): String {
         val region = config.regionPreset
         val regionEnabled = region.isEnabled
         val fakeIp = escapeJs(region.fakeIp)
@@ -482,6 +615,11 @@ object BetterGfnScriptEngine {
         val timeZone = escapeJs(region.timeZone)
         val spoofLocale = regionEnabled && config.spoofTimezoneAndLocale
         val virtualPadEnabled = config.enableVirtualGamepad
+        val antiAfkEnabled = config.antiAfkEnabled
+        val antiAfkIntervalMs = (config.antiAfkIntervalSec.coerceIn(15, 180)) * 1000
+        val preferPhysical = physicalConfig.preferPhysicalSlotZero
+        val swapFaceAB = physicalConfig.swapFaceButtonsAB
+        val physDeadzone = String.format(Locale.US, "%.3f", physicalConfig.stickDeadzone.coerceIn(0f, 0.35f))
 
         return """
             (function() {
@@ -493,12 +631,20 @@ object BetterGfnScriptEngine {
                 primaryLocale: '$primaryLocale',
                 timeZone: '$timeZone',
                 spoofLocale: $spoofLocale,
-                virtualPadEnabled: $virtualPadEnabled
+                virtualPadEnabled: $virtualPadEnabled,
+                antiAfkEnabled: $antiAfkEnabled,
+                antiAfkIntervalMs: $antiAfkIntervalMs,
+                preferPhysicalSlotZero: $preferPhysical,
+                swapFaceButtonsAB: $swapFaceAB,
+                physStickDeadzone: $physDeadzone
               };
 
               if (window.__xenosBetterGfnInstalled) {
                 if (window.__xenosPad && window.__xenosPad.syncConnectedState) {
                   window.__xenosPad.syncConnectedState();
+                }
+                if (window.__xenosAntiAfk && window.__xenosAntiAfk.sync) {
+                  window.__xenosAntiAfk.sync();
                 }
                 return;
               }
@@ -598,19 +744,76 @@ object BetterGfnScriptEngine {
               var padDispatched = false;
               var origGetGamepads = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : function() { return []; };
 
+              function wrapPhysicalGamepad(gp, cfg) {
+                if (!gp) return null;
+                var dz = (cfg && typeof cfg.physStickDeadzone === 'number') ? cfg.physStickDeadzone : 0;
+                var swap = !!(cfg && cfg.swapFaceButtonsAB);
+                if (!swap && dz <= 0.005) return gp;
+                try {
+                  var axes = [];
+                  for (var a = 0; a < (gp.axes ? gp.axes.length : 0); a++) {
+                    var v = gp.axes[a] || 0;
+                    axes.push(Math.abs(v) < dz ? 0 : v);
+                  }
+                  var btns = [];
+                  for (var i = 0; i < (gp.buttons ? gp.buttons.length : 0); i++) {
+                    btns.push(gp.buttons[i]);
+                  }
+                  if (swap && btns.length >= 4) {
+                    var tmp0 = btns[0]; btns[0] = btns[1]; btns[1] = tmp0;
+                    var tmp2 = btns[2]; btns[2] = btns[3]; btns[3] = tmp2;
+                  }
+                  return {
+                    id: gp.id,
+                    index: gp.index,
+                    connected: gp.connected,
+                    timestamp: gp.timestamp,
+                    mapping: gp.mapping,
+                    axes: axes,
+                    buttons: btns,
+                    vibrationActuator: gp.vibrationActuator || null,
+                    hapticActuators: gp.hapticActuators || []
+                  };
+                } catch (e) {
+                  return gp;
+                }
+              }
+
               navigator.getGamepads = function() {
+                var cfg = window.__xenosConfig || {};
                 var real = [];
                 try {
                   var raw = origGetGamepads();
                   if (raw) {
-                    for (var i = 0; i < raw.length; i++) real.push(raw[i]);
+                    for (var i = 0; i < raw.length; i++) {
+                      if (raw[i] && raw[i].connected) {
+                        real.push(wrapPhysicalGamepad(raw[i], cfg));
+                      }
+                    }
                   }
                 } catch (e) {}
-                if (window.__xenosConfig && window.__xenosConfig.virtualPadEnabled) {
+
+                // If a real physical Bluetooth/USB gamepad is connected and prioritized,
+                // keep it in slot 0 so GeForce NOW natively binds Player 1 to the hardware controller.
+                if (real.length > 0 && cfg.preferPhysicalSlotZero) {
+                  var out = [null, null, null, null];
+                  for (var k = 0; k < real.length && k < 4; k++) {
+                    out[k] = real[k];
+                  }
+                  if (cfg.virtualPadEnabled && real.length < 4) {
+                    virtualPad.connected = true;
+                    virtualPad.index = real.length;
+                    out[real.length] = virtualPad;
+                  }
+                  return out;
+                }
+
+                if (cfg.virtualPadEnabled) {
                   virtualPad.connected = true;
+                  virtualPad.index = 0;
                   var result = [virtualPad, null, null, null];
                   for (var j = 0; j < real.length && j < 3; j++) {
-                    if (real[j]) result[j + 1] = real[j];
+                    result[j + 1] = real[j];
                   }
                   return result;
                 }
@@ -1304,6 +1507,62 @@ object BetterGfnScriptEngine {
                   } catch (e) {}
                 }, 1000);
               }
+
+              // 5. Anti-AFK / Queue Keeper Heartbeat
+              var lastUserActivityMs = performance.now();
+              var antiAfkTimer = null;
+              var antiAfkPulseCount = 0;
+              function markUserActive() { lastUserActivityMs = performance.now(); }
+              ['keydown', 'mousedown', 'pointerdown', 'touchstart'].forEach(function(evtName) {
+                window.addEventListener(evtName, function(e) {
+                  if (e && e.isTrusted) markUserActive();
+                }, true);
+              });
+
+              function sendAntiAfkPulse() {
+                var cfg = window.__xenosConfig;
+                if (!cfg || !cfg.antiAfkEnabled) return;
+                if (performance.now() - lastUserActivityMs < 16000) return;
+                antiAfkPulseCount++;
+                try {
+                  if (detectInGameStream() || virtualLockEl) {
+                    // Subtle zero-net-movement camera nudge (+1px then -1px) keeps GFN AFK timer reset
+                    dispatchLockedRelativeMove(1, 0);
+                    setTimeout(function() {
+                      try { dispatchLockedRelativeMove(-1, 0); } catch (e) {}
+                    }, 90);
+                  } else {
+                    // Lobby / Free-tier queue keep-alive tick
+                    var t = document.body || document.documentElement;
+                    if (t) {
+                      t.dispatchEvent(new MouseEvent('mousemove', {
+                        clientX: Math.round(window.innerWidth / 2) + (antiAfkPulseCount % 2),
+                        clientY: Math.round(window.innerHeight / 2),
+                        bubbles: true
+                      }));
+                    }
+                  }
+                } catch (e) {}
+              }
+
+              function syncAntiAfkTimer() {
+                if (antiAfkTimer) {
+                  clearInterval(antiAfkTimer);
+                  antiAfkTimer = null;
+                }
+                var cfg = window.__xenosConfig;
+                if (cfg && cfg.antiAfkEnabled) {
+                  var intervalMs = Math.max(15000, Math.min(180000, Number(cfg.antiAfkIntervalMs) || 45000));
+                  antiAfkTimer = setInterval(sendAntiAfkPulse, intervalMs);
+                }
+              }
+
+              window.__xenosAntiAfk = {
+                sync: syncAntiAfkTimer,
+                pulseNow: sendAntiAfkPulse,
+                getPulseCount: function() { return antiAfkPulseCount; }
+              };
+              syncAntiAfkTimer();
             })();
         """.trimIndent()
     }

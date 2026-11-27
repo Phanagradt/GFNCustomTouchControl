@@ -162,7 +162,17 @@ data class WebStreamQualityConfig(
     val stretchVideoToFill: Boolean = false,
     val enableCssFilters: Boolean = true,
     val showWebRtcStatsHud: Boolean = true,
-    val showControlsByDefault: Boolean = true
+    val showControlsByDefault: Boolean = true,
+    val antiAfkEnabled: Boolean = false,
+    val antiAfkIntervalSec: Int = 45
+)
+
+@JsonClass(generateAdapter = true)
+data class PhysicalControllerConfig(
+    val autoHideTouchControls: Boolean = true,
+    val preferPhysicalSlotZero: Boolean = true,
+    val swapFaceButtonsAB: Boolean = false,
+    val stickDeadzone: Float = 0.12f
 )
 
 /**

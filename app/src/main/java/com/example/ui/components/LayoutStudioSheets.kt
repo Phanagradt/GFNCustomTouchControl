@@ -728,6 +728,111 @@ fun ControlInspectorSheetContent(
                     )
                 }
             }
+
+            item {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            1.dp,
+                            if (control.dragToAimEnabled) TacticalCyan.copy(alpha = 0.65f) else MaterialTheme.colorScheme.outlineVariant,
+                            MaterialTheme.shapes.medium
+                        )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Drag Button to Aim / Turn", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    text = "Hold this button to press its key while sliding your finger to turn the camera",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = control.dragToAimEnabled,
+                                onCheckedChange = { onChange(control.copy(dragToAimEnabled = it)) },
+                                modifier = Modifier.testTag("inspector_drag_to_aim_switch")
+                            )
+                        }
+
+                        if (control.dragToAimEnabled) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                TouchpadMode.entries.forEach { mode ->
+                                    FilterChip(
+                                        selected = control.dragAimMode == mode,
+                                        onClick = { onChange(control.copy(dragAimMode = mode)) },
+                                        label = { Text(mode.displayName, fontSize = 11.sp) },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("inspector_drag_aim_${mode.name.lowercase()}")
+                                    )
+                                }
+                            }
+
+                            var dragSensDraft by remember(control.id) {
+                                mutableFloatStateOf(control.dragAimSensitivity.coerceIn(0.4f, 3.0f))
+                            }
+                            var dragSensDragging by remember(control.id) { mutableStateOf(false) }
+                            LaunchedEffect(control.dragAimSensitivity, dragSensDragging) {
+                                if (!dragSensDragging) {
+                                    dragSensDraft = control.dragAimSensitivity.coerceIn(0.4f, 3.0f)
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Drag Aim Sensitivity", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    text = "%.2fx".format(dragSensDraft),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = TacticalCyan
+                                )
+                            }
+                            SmoothSlider(
+                                value = control.dragAimSensitivity.coerceIn(0.4f, 3.0f),
+                                onValueChange = { v ->
+                                    dragSensDragging = true
+                                    dragSensDraft = v
+                                },
+                                onValueChangeFinished = { v ->
+                                    dragSensDragging = false
+                                    dragSensDraft = v
+                                    onChange(control.copy(dragAimSensitivity = v))
+                                },
+                                valueRange = 0.4f..3.0f,
+                                accentColor = TacticalCyan
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Invert Drag Y-Axis", style = MaterialTheme.typography.bodyMedium)
+                                Switch(
+                                    checked = control.dragAimInvertY,
+                                    onCheckedChange = { onChange(control.copy(dragAimInvertY = it)) },
+                                    modifier = Modifier.testTag("inspector_drag_aim_invert_y")
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if (control.controlType == ControlType.ANALOG_STICK || control.controlType == ControlType.TOUCHPAD) {

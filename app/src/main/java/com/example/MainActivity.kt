@@ -255,6 +255,7 @@ private fun NexusPadAppShell(
     val cloudUser by viewModel.cloudUser.collectAsStateWithLifecycle()
     val cloudSyncState by viewModel.cloudSyncState.collectAsStateWithLifecycle()
     val shareCodeState by viewModel.shareCodeState.collectAsStateWithLifecycle()
+    val connectedControllers by viewModel.connectedControllers.collectAsStateWithLifecycle()
     val hasUpdateBadge = updateState is UpdateUiState.UpdateAvailable || updateState is UpdateUiState.ReadyToInstall
 
     var showOverlayPermissionDialog by remember { mutableStateOf(false) }
@@ -505,6 +506,8 @@ private fun NexusPadAppShell(
                                 isOverlayRunning = isOverlayRunning,
                                 vibrationMode = settings.vibrationMode,
                                 webPlayerConfig = settings.webPlayerConfig,
+                                pinnedGames = settings.pinnedGames,
+                                filterState = liveFilterState,
                                 updateState = updateState,
                                 onDownloadUpdate = viewModel::downloadAvailableUpdate,
                                 onCancelUpdateDownload = viewModel::cancelUpdateDownload,
@@ -517,6 +520,13 @@ private fun NexusPadAppShell(
                                 onLaunchWebPlayer = {
                                     XenosWebPlayerActivity.launch(context)
                                 },
+                                onLaunchPinnedGame = { pinned ->
+                                    viewModel.prepareLaunchPinnedGame(pinned) { launchUrl ->
+                                        XenosWebPlayerActivity.launch(context, launchUrl)
+                                    }
+                                },
+                                onSavePinnedGame = viewModel::savePinnedGame,
+                                onDeletePinnedGame = viewModel::deletePinnedGame,
                                 onVibrationModeChange = viewModel::setVibrationMode,
                                 onToggleOverlay = toggleOverlayAction,
                                 onSelectProfile = viewModel::setActiveProfile,
@@ -676,11 +686,13 @@ private fun NexusPadAppShell(
                                 cloudSyncState = cloudSyncState,
                                 localProfileCount = profiles.size,
                                 hasHardwareGyro = viewModel.hasGyroSensor,
+                                connectedControllers = connectedControllers,
                                 onCloudSignIn = { viewModel.signInForCloudSave(activity) },
                                 onCloudBackupNow = viewModel::backupAllLayoutsToCloud,
                                 onCloudRestore = viewModel::restoreLayoutsFromCloud,
                                 onCloudSignOut = viewModel::signOutCloudSave,
                                 onWebPlayerConfigChange = viewModel::updateWebPlayerConfig,
+                                onPhysicalControllerChange = viewModel::updatePhysicalController,
                                 onLaunchWebPlayer = {
                                     XenosWebPlayerActivity.launch(context)
                                 },

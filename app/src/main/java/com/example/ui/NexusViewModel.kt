@@ -19,6 +19,8 @@ import com.example.data.VibrationMode
 import com.example.filter.GameFilterBridge
 import com.example.input.GyroAimEngine
 import com.example.input.InputBridge
+import com.example.input.PhysicalControllerInfo
+import com.example.input.PhysicalControllerMonitor
 import com.example.model.AppColorSchemeConfig
 import com.example.model.AppFontConfig
 import com.example.model.AppFontPreset
@@ -41,6 +43,8 @@ import com.example.model.GameGenre
 import com.example.model.GyroAimConfig
 import com.example.model.InputBinding
 import com.example.model.PerfHudConfig
+import com.example.model.PhysicalControllerConfig
+import com.example.model.PinnedGame
 import com.example.model.PresetProfiles
 import com.example.model.ProfileTemplate
 import com.example.model.RecordingFps
@@ -139,6 +143,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     val rightStick: StateFlow<StickState> = InputBridge.rightStick
     val liveFilterState: StateFlow<GameFilterState> = GameFilterBridge.liveFilterState
     val isGpuShaderActive: StateFlow<Boolean> = GameFilterBridge.isGpuShaderActive
+    val connectedControllers: StateFlow<List<PhysicalControllerInfo>> = PhysicalControllerMonitor.connectedControllers
 
     private val _readiness = MutableStateFlow(SystemReadiness())
     val readiness: StateFlow<SystemReadiness> = _readiness.asStateFlow()
@@ -197,6 +202,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        PhysicalControllerMonitor.ensureStarted(application)
         viewModelScope.launch {
             profileRepo.ensureSeeded()
         }
@@ -683,6 +689,39 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateWebPlayerConfig(config: WebStreamQualityConfig) {
         viewModelScope.launch { prefsRepo.updateWebPlayerConfig(config) }
+    }
+
+    fun updatePhysicalController(config: PhysicalControllerConfig) {
+        viewModelScope.launch { prefsRepo.updatePhysicalController(config) }
+    }
+
+    fun savePinnedGame(game: PinnedGame) {
+        viewModelScope.launch {
+            prefsRepo.upsertPinnedGame(game)
+            _snackbarMessage.value = "Pinned \"${game.title}\" to Cockpit Hub"
+        }
+    }
+
+    fun deletePinnedGame(gameId: String) {
+        viewModelScope.launch {
+            prefsRepo.deletePinnedGame(gameId)
+            _snackbarMessage.value = "Removed pinned game"
+        }
+    }
+
+    fun prepareLaunchPinnedGame(game: PinnedGame, onReady: (String?) -> Unit) {
+        viewModelScope.launch {
+            if (game.profileId.isNotBlank()) {
+                profileRepo.setActiveProfile(game.profileId)
+            }
+            val safeSlot = game.filterSlot.coerceIn(0, 3)
+            GameFilterBridge.selectLiveSlot(safeSlot)
+            prefsRepo.setActiveFilterSlot(safeSlot)
+            val nextWebConfig = settings.value.webPlayerConfig.copy(regionPreset = game.regionPreset)
+            prefsRepo.updateWebPlayerConfig(nextWebConfig)
+            prefsRepo.markPinnedGamePlayed(game.id)
+            onReady(game.normalizedLaunchUrl())
+        }
     }
 
     // Personalization: App Color Scheme, Custom Fonts, Floating Bubble, Custom Test BG, What's New

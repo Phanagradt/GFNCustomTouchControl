@@ -24,8 +24,11 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,6 +41,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,7 +49,10 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
@@ -112,6 +119,8 @@ import com.example.data.ProfileRepository
 import com.example.filter.GameFilterBridge
 import com.example.input.GyroAimEngine
 import com.example.input.InputBridge
+import com.example.input.PhysicalControllerInfo
+import com.example.input.PhysicalControllerMonitor
 import com.example.model.AppLocalization
 import com.example.model.ControlType
 import com.example.model.ControllerProfile
@@ -119,6 +128,7 @@ import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
 import com.example.model.GfnRegionPreset
 import com.example.model.LocalNexusStrings
+import com.example.model.StickerPreset
 import com.example.model.WebRtcStreamStats
 import com.example.model.WebStreamQualityConfig
 import com.example.service.PerformanceMonitor
@@ -126,9 +136,11 @@ import com.example.ui.components.CommandPickerSheetContent
 import com.example.ui.components.ControlInspectorSheetContent
 import com.example.ui.components.CrosshairOverlayCanvas
 import com.example.ui.components.EditProfileMetaDialog
+import com.example.ui.components.GeForceFilterPanelContent
 import com.example.ui.components.GridSettingsContent
 import com.example.ui.components.LayoutStudioHelper
 import com.example.ui.components.PositionedVirtualControl
+import com.example.ui.components.StickerOverlayCanvas
 import com.example.ui.theme.NexusPadTheme
 import com.example.ui.theme.TacticalCyan
 import com.example.util.ButtonImageCodec
@@ -168,6 +180,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
     private lateinit var performanceMonitor: PerformanceMonitor
 
     private var mainWebView: WebView? = null
+    private var initialLaunchUrl: String? = null
     private var latestWebConfig: WebStreamQualityConfig = WebStreamQualityConfig()
     private var latestSettings: OverlaySettings = OverlaySettings()
 
@@ -261,10 +274,15 @@ class XenosWebPlayerActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         applyImmersiveFullscreen()
 
+        initialLaunchUrl = intent?.getStringExtra(EXTRA_INITIAL_URL)?.takeIf {
+            it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true)
+        }
+
         prefsRepo = PreferencesRepository(applicationContext)
         profileRepo = ProfileRepository(NexusDatabase.getInstance(applicationContext).profileDao())
         gyroAimEngine = GyroAimEngine(applicationContext)
         performanceMonitor = PerformanceMonitor(applicationContext)
+        PhysicalControllerMonitor.ensureStarted(applicationContext)
 
         lifecycleScope.launch {
             profileRepo.ensureSeeded()
@@ -303,6 +321,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
             val isInGameStream by inGameStream.collectAsStateWithLifecycle()
             val pressedIds by InputBridge.pressedControlIds.collectAsStateWithLifecycle()
             val toggledIds by InputBridge.toggledControlIds.collectAsStateWithLifecycle()
+            val connectedControllers by PhysicalControllerMonitor.connectedControllers.collectAsStateWithLifecycle()
 
             LaunchedEffect(settings.gameFilter) {
                 GameFilterBridge.syncFromPersisted(settings.gameFilter)
@@ -338,6 +357,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
                         settings = effectiveSettings,
                         activeProfile = activeProfile,
                         allProfiles = allProfiles,
+                        connectedControllers = connectedControllers,
                         streamStats = liveStreamStats,
                         perfStats = perfStats,
                         loadProgress = progress,
@@ -352,7 +372,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
                         onClosePopup = { closePopupWebView() },
                         onBindMainWebView = { webView ->
                             mainWebView = webView
-                            loadGeForceNow(webView, effectiveSettings.webPlayerConfig)
+                            loadGeForceNow(webView, effectiveSettings.webPlayerConfig, initialLaunchUrl)
                         },
                         onSelectProfile = { id ->
                             lifecycleScope.launch { profileRepo.setActiveProfile(id) }
@@ -388,6 +408,14 @@ class XenosWebPlayerActivity : ComponentActivity() {
                             applyLiveStyleAndBootstrap(updatedSettings)
                             lifecycleScope.launch { prefsRepo.setActiveFilterSlot(slot) }
                         },
+                        onPreviewFilterStyle = { previewStyle ->
+                            GameFilterBridge.updateLiveStyle(previewStyle)
+                            val nextFilter = liveFilterState.withUpdatedStyle(previewStyle)
+                                .copy(activeSlot = previewStyle.slot.coerceIn(1, 3))
+                            val updatedSettings = effectiveSettings.copy(gameFilter = nextFilter)
+                            latestSettings = updatedSettings
+                            applyLiveStyleAndBootstrap(updatedSettings)
+                        },
                         onUpdateFilterStyle = { updatedStyle ->
                             GameFilterBridge.updateLiveStyle(updatedStyle)
                             val nextFilter = liveFilterState.withUpdatedStyle(updatedStyle)
@@ -396,6 +424,45 @@ class XenosWebPlayerActivity : ComponentActivity() {
                             latestSettings = updatedSettings
                             applyLiveStyleAndBootstrap(updatedSettings)
                             lifecycleScope.launch { prefsRepo.updateFilterStyle(updatedStyle) }
+                        },
+                        onResetFilterSlot = {
+                            val current = GameFilterBridge.liveFilterState.value
+                            val slot = current.activeSlot
+                            if (slot in 1..3) {
+                                val resetState = current.withResetSlot(slot)
+                                GameFilterBridge.syncFromPersisted(resetState)
+                                val updatedSettings = effectiveSettings.copy(gameFilter = resetState)
+                                latestSettings = updatedSettings
+                                applyLiveStyleAndBootstrap(updatedSettings)
+                                lifecycleScope.launch { prefsRepo.resetFilterSlot(slot) }
+                            }
+                        },
+                        onPickStickerImage = { uri ->
+                            lifecycleScope.launch {
+                                ButtonImageCodec.encodeUriToBase64(this@XenosWebPlayerActivity, uri, cropSquare = false)
+                                    .onSuccess { encoded ->
+                                        val currentState = GameFilterBridge.liveFilterState.value
+                                        val slot = if (currentState.activeSlot in 1..3) currentState.activeSlot else 1
+                                        val updated = currentState.styleForSlot(slot).copy(
+                                            stickersEnabled = true,
+                                            stickerPreset = StickerPreset.CUSTOM_IMAGE,
+                                            customStickerBase64 = encoded
+                                        )
+                                        GameFilterBridge.updateLiveStyle(updated)
+                                        val nextFilter = currentState.withUpdatedStyle(updated).copy(activeSlot = slot)
+                                        val updatedSettings = effectiveSettings.copy(gameFilter = nextFilter)
+                                        latestSettings = updatedSettings
+                                        applyLiveStyleAndBootstrap(updatedSettings)
+                                        prefsRepo.updateFilterStyle(updated)
+                                    }
+                                    .onFailure { err ->
+                                        Toast.makeText(
+                                            this@XenosWebPlayerActivity,
+                                            err.localizedMessage ?: "Unable to load custom sticker",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                            }
                         },
                         onToggleStretch = {
                             val next = settings.webPlayerConfig.copy(
@@ -417,11 +484,28 @@ class XenosWebPlayerActivity : ComponentActivity() {
                             )
                             lifecycleScope.launch { prefsRepo.updateWebPlayerConfig(next) }
                         },
+                        onToggleAntiAfk = {
+                            val next = settings.webPlayerConfig.copy(
+                                antiAfkEnabled = !settings.webPlayerConfig.antiAfkEnabled
+                            )
+                            lifecycleScope.launch { prefsRepo.updateWebPlayerConfig(next) }
+                            Toast.makeText(
+                                this@XenosWebPlayerActivity,
+                                if (next.antiAfkEnabled) "Anti-AFK / Queue Keeper ON" else "Anti-AFK OFF",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        onToggleAutoHideTouch = {
+                            val next = settings.physicalController.copy(
+                                autoHideTouchControls = !settings.physicalController.autoHideTouchControls
+                            )
+                            lifecycleScope.launch { prefsRepo.updatePhysicalController(next) }
+                        },
                         onBrowserBack = {
                             mainWebView?.let { if (it.canGoBack()) it.goBack() }
                         },
                         onBrowserReload = {
-                            mainWebView?.let { loadGeForceNow(it, latestWebConfig) }
+                            mainWebView?.let { loadGeForceNow(it, latestWebConfig, initialLaunchUrl) }
                         },
                         onResetInputs = {
                             InputBridge.releaseAll()
@@ -436,6 +520,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         applyImmersiveFullscreen()
+        PhysicalControllerMonitor.scanNow()
         InputBridge.attachWebInputSink(webInputSink)
         mainWebView?.onResume()
         if (latestSettings.gyroAim.enabled) gyroAimEngine.start()
@@ -941,7 +1026,10 @@ class XenosWebPlayerActivity : ComponentActivity() {
                 web.settings.userAgentString = desiredUa
             }
             web.evaluateJavascript(
-                BetterGfnScriptEngine.buildBootstrapScript(settings.webPlayerConfig),
+                BetterGfnScriptEngine.buildBootstrapScript(
+                    config = settings.webPlayerConfig,
+                    physicalConfig = settings.physicalController
+                ),
                 null
             )
             web.evaluateJavascript(
@@ -955,10 +1043,16 @@ class XenosWebPlayerActivity : ComponentActivity() {
         }
     }
 
-    private fun loadGeForceNow(webView: WebView, config: WebStreamQualityConfig) {
+    private fun loadGeForceNow(
+        webView: WebView,
+        config: WebStreamQualityConfig,
+        overrideUrl: String? = null
+    ) {
         webView.settings.userAgentString = config.userAgentMode.userAgentString
         val headers = BetterGfnScriptEngine.buildNavigationHeaders(config)
-        val targetUrl = BetterGfnScriptEngine.GFN_WEB_URL
+        val targetUrl = overrideUrl?.takeIf {
+            it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true)
+        } ?: BetterGfnScriptEngine.GFN_WEB_URL
         if (headers.isEmpty()) {
             webView.loadUrl(targetUrl)
         } else {
@@ -1018,7 +1112,10 @@ class XenosWebPlayerActivity : ComponentActivity() {
                 super.onPageStarted(view, url, favicon)
                 _inGameStream.value = false
                 view?.evaluateJavascript(
-                    BetterGfnScriptEngine.buildBootstrapScript(latestWebConfig),
+                    BetterGfnScriptEngine.buildBootstrapScript(
+                        config = latestWebConfig,
+                        physicalConfig = latestSettings.physicalController
+                    ),
                     null
                 )
             }
@@ -1026,7 +1123,10 @@ class XenosWebPlayerActivity : ComponentActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 view?.evaluateJavascript(
-                    BetterGfnScriptEngine.buildBootstrapScript(latestWebConfig),
+                    BetterGfnScriptEngine.buildBootstrapScript(
+                        config = latestWebConfig,
+                        physicalConfig = latestSettings.physicalController
+                    ),
                     null
                 )
                 view?.evaluateJavascript(
@@ -1120,9 +1220,14 @@ class XenosWebPlayerActivity : ComponentActivity() {
 
     companion object {
         private const val MIN_MOUSE_CLICK_HOLD_MS = 50L
+        const val EXTRA_INITIAL_URL = "extra_initial_url"
 
-        fun launch(context: Context) {
-            val intent = Intent(context, XenosWebPlayerActivity::class.java)
+        fun launch(context: Context, initialUrl: String? = null) {
+            val intent = Intent(context, XenosWebPlayerActivity::class.java).apply {
+                if (!initialUrl.isNullOrBlank()) {
+                    putExtra(EXTRA_INITIAL_URL, initialUrl)
+                }
+            }
             context.startActivity(intent)
         }
     }
@@ -1134,6 +1239,7 @@ private fun WebPlayerScreenContent(
     settings: OverlaySettings,
     activeProfile: ControllerProfile?,
     allProfiles: List<ControllerProfile>,
+    connectedControllers: List<PhysicalControllerInfo>,
     streamStats: WebRtcStreamStats,
     perfStats: com.example.service.PerfStatsSnapshot,
     loadProgress: Int,
@@ -1151,11 +1257,16 @@ private fun WebPlayerScreenContent(
     onGridDivisionsChange: (Int) -> Unit,
     onSelectRegion: (GfnRegionPreset) -> Unit,
     onSelectFilterSlot: (Int) -> Unit,
+    onPreviewFilterStyle: (GameFilterStyle) -> Unit,
     onUpdateFilterStyle: (GameFilterStyle) -> Unit,
+    onResetFilterSlot: () -> Unit,
+    onPickStickerImage: (Uri) -> Unit,
     onToggleStretch: () -> Unit,
     onToggleCrosshair: () -> Unit,
     onToggleGyro: () -> Unit,
     onToggleStatsHud: () -> Unit,
+    onToggleAntiAfk: () -> Unit,
+    onToggleAutoHideTouch: () -> Unit,
     onBrowserBack: () -> Unit,
     onBrowserReload: () -> Unit,
     onResetInputs: () -> Unit,
@@ -1168,7 +1279,9 @@ private fun WebPlayerScreenContent(
     val scope = rememberCoroutineScope()
 
     var controlsVisible by remember { mutableStateOf(settings.webPlayerConfig.showControlsByDefault) }
+    var manualShowControlsOverride by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var showFullFilterStudio by remember { mutableStateOf(false) }
     var isLiveEditMode by remember { mutableStateOf(false) }
     var liveEditDraft by remember { mutableStateOf<ControllerProfile?>(null) }
     var liveEditUndoStack by remember { mutableStateOf<List<ControllerProfile>>(emptyList()) }
@@ -1183,6 +1296,28 @@ private fun WebPlayerScreenContent(
     var showLiveMetaDialog by remember { mutableStateOf(false) }
     var bubbleOffsetX by remember { mutableFloatStateOf(24f) }
     var bubbleOffsetY by remember { mutableFloatStateOf(16f) }
+
+    val stickerPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            onPickStickerImage(uri)
+        }
+    }
+
+    LaunchedEffect(connectedControllers.isEmpty()) {
+        if (connectedControllers.isEmpty()) {
+            manualShowControlsOverride = false
+        }
+    }
+
+    val touchAutoHidden = PhysicalControllerMonitor.shouldAutoHideTouchControls(
+        connectedCount = connectedControllers.size,
+        autoHideEnabled = settings.physicalController.autoHideTouchControls,
+        manualOverrideShow = manualShowControlsOverride
+    )
+    val effectiveControlsVisible = controlsVisible && !touchAutoHidden
+    val primaryControllerName = connectedControllers.firstOrNull()?.name
 
     val displayedProfile = if (isLiveEditMode) liveEditDraft ?: activeProfile else activeProfile
 
@@ -1221,7 +1356,11 @@ private fun WebPlayerScreenContent(
         }
     }
 
-    BackHandler(enabled = menuExpanded && !isLiveEditMode) {
+    BackHandler(enabled = showFullFilterStudio && !isLiveEditMode) {
+        showFullFilterStudio = false
+    }
+
+    BackHandler(enabled = menuExpanded && !isLiveEditMode && !showFullFilterStudio) {
         menuExpanded = false
     }
 
@@ -1270,6 +1409,15 @@ private fun WebPlayerScreenContent(
             VirtualMouseCursorOverlay(
                 cursor = mouseCursor,
                 accentColor = accent,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // 1c. Freestyle Stickers & Frame Overlay (Tactical HUD, Cinema REC, Neon Corners, CRT Bezel, Custom PNG)
+        val activeFilterStyle = settings.gameFilter.activeStyle
+        if (settings.webPlayerConfig.enableCssFilters && activeFilterStyle != null && activeFilterStyle.stickersEnabled && !isLiveEditMode) {
+            StickerOverlayCanvas(
+                style = activeFilterStyle,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -1338,8 +1486,8 @@ private fun WebPlayerScreenContent(
         }
 
         // 3. XenosPad Virtual Controls layer (direct WebInputSink routing in play mode,
-        //    smooth PositionedVirtualControl drag & snap in Live Studio mode!)
-        if ((controlsVisible || isLiveEditMode) && displayedProfile != null) {
+        //    auto-hides when a physical controller is connected unless manually overridden)
+        if ((effectiveControlsVisible || isLiveEditMode) && displayedProfile != null) {
             Box(modifier = Modifier.fillMaxSize()) {
                 displayedProfile.controls.forEach { control ->
                     PositionedVirtualControl(
@@ -1395,6 +1543,8 @@ private fun WebPlayerScreenContent(
                 perfStats = perfStats,
                 region = settings.webPlayerConfig.regionPreset,
                 accentColor = accent,
+                antiAfkEnabled = settings.webPlayerConfig.antiAfkEnabled,
+                connectedControllerName = primaryControllerName,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 12.dp, end = 16.dp)
@@ -1648,7 +1798,7 @@ private fun WebPlayerScreenContent(
             WebPlayerQuickBubble(
                 accentColor = accent,
                 regionActive = settings.webPlayerConfig.regionPreset.isEnabled,
-                controlsVisible = controlsVisible,
+                controlsVisible = effectiveControlsVisible,
                 onClick = {
                     val opening = !menuExpanded
                     if (opening) {
@@ -1697,12 +1847,26 @@ private fun WebPlayerScreenContent(
                 allProfiles = allProfiles,
                 webConfig = settings.webPlayerConfig,
                 filterState = settings.gameFilter,
-                controlsVisible = controlsVisible,
+                controlsVisible = effectiveControlsVisible,
                 crosshairEnabled = settings.crosshair.enabled,
                 gyroEnabled = settings.gyroAim.enabled,
                 accentColor = accent,
+                connectedControllerName = primaryControllerName,
+                autoHideTouchForController = settings.physicalController.autoHideTouchControls,
+                touchAutoHiddenByController = touchAutoHidden,
                 onClose = { menuExpanded = false },
-                onToggleControlsVisible = { controlsVisible = !controlsVisible },
+                onToggleControlsVisible = {
+                    if (touchAutoHidden) {
+                        manualShowControlsOverride = true
+                        controlsVisible = true
+                    } else if (effectiveControlsVisible) {
+                        controlsVisible = false
+                        manualShowControlsOverride = false
+                    } else {
+                        controlsVisible = true
+                        manualShowControlsOverride = true
+                    }
+                },
                 onEnterLiveEdit = {
                     if (activeProfile != null) {
                         InputBridge.releaseAll()
@@ -1714,6 +1878,7 @@ private fun WebPlayerScreenContent(
                         hideLiveStudioTools = false
                         isLiveEditMode = true
                         controlsVisible = true
+                        manualShowControlsOverride = true
                         menuExpanded = false
                     }
                 },
@@ -1724,10 +1889,19 @@ private fun WebPlayerScreenContent(
                 },
                 onSelectFilterSlot = onSelectFilterSlot,
                 onUpdateFilterStyle = onUpdateFilterStyle,
+                onOpenFullFilterStudio = {
+                    menuExpanded = false
+                    if (settings.gameFilter.activeSlot == 0) {
+                        onSelectFilterSlot(1)
+                    }
+                    showFullFilterStudio = true
+                },
                 onToggleStretch = onToggleStretch,
                 onToggleCrosshair = onToggleCrosshair,
                 onToggleGyro = onToggleGyro,
                 onToggleStatsHud = onToggleStatsHud,
+                onToggleAntiAfk = onToggleAntiAfk,
+                onToggleAutoHideTouch = onToggleAutoHideTouch,
                 onBrowserBack = onBrowserBack,
                 onBrowserReload = {
                     onBrowserReload()
@@ -1742,6 +1916,72 @@ private fun WebPlayerScreenContent(
                     .align(Alignment.CenterStart)
                     .padding(16.dp)
             )
+        }
+
+        // 7b. Full 18-Module GeForce Freestyle Filter Studio Side Drawer inside Web Play Mode
+        if (showFullFilterStudio && !isLiveEditMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.22f))
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            down.consume()
+                            var allReleased = false
+                            while (!allReleased) {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { it.consume() }
+                                if (event.changes.none { it.pressed }) {
+                                    allReleased = true
+                                }
+                            }
+                            showFullFilterStudio = false
+                        }
+                    }
+                    .testTag("web_player_filter_studio_scrim")
+            )
+            Surface(
+                shape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp),
+                color = Color(0xF20D1117),
+                shadowElevation = 18.dp,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .fillMaxHeight()
+                    .widthIn(min = 320.dp, max = 385.dp)
+                    .padding(vertical = 8.dp)
+                    .border(
+                        width = 1.dp,
+                        color = accent.copy(alpha = 0.55f),
+                        shape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp)
+                    )
+                    .pointerInput(Unit) {
+                        // Intercept touches inside the Filter Studio drawer so they never hit the scrim or game
+                    }
+                    .testTag("web_player_full_filter_studio")
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(10.dp)
+                ) {
+                    GeForceFilterPanelContent(
+                        filterState = settings.gameFilter,
+                        onSelectSlot = onSelectFilterSlot,
+                        onPreviewStyle = onPreviewFilterStyle,
+                        onUpdateStyle = onUpdateFilterStyle,
+                        onResetSlot = onResetFilterSlot,
+                        onUploadStickerClick = {
+                            stickerPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        compactMode = true,
+                        onClose = { showFullFilterStudio = false }
+                    )
+                }
+            }
         }
 
         // 8. In-App OAuth Popup Window Overlay (NVIDIA / Steam / Epic / Microsoft sign-in)

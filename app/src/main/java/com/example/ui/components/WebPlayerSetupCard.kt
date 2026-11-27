@@ -489,6 +489,34 @@ fun WebPlayerSetupCard(
                 onCheckedChange = { onUpdate(config.copy(showWebRtcStatsHud = it)) },
                 testTag = "setup_web_stats_hud"
             )
+            WebPlayerToggleRow(
+                title = "Anti-AFK / Queue Keeper",
+                subtitle = "Prevents GeForce NOW idle disconnects during queues or short breaks with harmless micro keep-alive ticks",
+                checked = config.antiAfkEnabled,
+                onCheckedChange = { onUpdate(config.copy(antiAfkEnabled = it)) },
+                testTag = "setup_web_anti_afk"
+            )
+            if (config.antiAfkEnabled) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "Interval:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    listOf(30, 45, 60, 90).forEach { sec ->
+                        FilterChip(
+                            selected = config.antiAfkIntervalSec == sec,
+                            onClick = { onUpdate(config.copy(antiAfkIntervalSec = sec)) },
+                            label = { Text("${sec}s", fontSize = 11.sp) },
+                            modifier = Modifier.testTag("setup_web_anti_afk_${sec}s")
+                        )
+                    }
+                }
+            }
 
             Button(
                 onClick = onLaunchWebPlayer,

@@ -555,12 +555,20 @@ class OverlayControllerService : Service() {
                 }
                 .distinctUntilChanged()
 
+            com.example.input.PhysicalControllerMonitor.ensureStarted(applicationContext)
+
             combine(
                 profileRepo.activeProfile,
                 controlSettingsFlow,
-                buttonsVisible
-            ) { profile, settings, visible ->
-                Triple(profile, settings, visible)
+                buttonsVisible,
+                com.example.input.PhysicalControllerMonitor.connectedControllers
+            ) { profile, settings, visible, controllers ->
+                val autoHidden = com.example.input.PhysicalControllerMonitor.shouldAutoHideTouchControls(
+                    connectedCount = controllers.size,
+                    autoHideEnabled = settings.physicalController.autoHideTouchControls,
+                    manualOverrideShow = false
+                )
+                Triple(profile, settings, visible && !autoHidden)
             }.collect { (profile, settings, visible) ->
                 lastRenderedProfile = profile
                 lastRenderedSettings = settings

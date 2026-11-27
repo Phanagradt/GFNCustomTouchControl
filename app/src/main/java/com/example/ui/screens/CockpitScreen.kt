@@ -73,12 +73,15 @@ import com.example.data.VibrationMode
 import com.example.model.BindingDomain
 import com.example.model.ControlType
 import com.example.model.ControllerProfile
+import com.example.model.GameFilterState
 import com.example.model.GfnRegionPreset
 import com.example.model.LocalNexusStrings
+import com.example.model.PinnedGame
 import com.example.model.WebStreamQualityConfig
 import com.example.capture.CaptureBridge
 import com.example.ui.SystemReadiness
 import com.example.ui.components.BetterGfnCockpitCard
+import com.example.ui.components.PinnedGamesHubCard
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.MacroCoral
 import com.example.ui.theme.MacroViolet
@@ -96,12 +99,17 @@ fun CockpitScreen(
     isOverlayRunning: Boolean,
     vibrationMode: VibrationMode,
     webPlayerConfig: WebStreamQualityConfig,
+    pinnedGames: List<PinnedGame> = emptyList(),
+    filterState: GameFilterState = GameFilterState.default(),
     updateState: UpdateUiState = UpdateUiState.Idle,
     onDownloadUpdate: () -> Unit = {},
     onCancelUpdateDownload: () -> Unit = {},
     onInstallUpdate: () -> Unit = {},
     onSelectWebRegion: (GfnRegionPreset) -> Unit,
     onLaunchWebPlayer: () -> Unit,
+    onLaunchPinnedGame: (PinnedGame) -> Unit = {},
+    onSavePinnedGame: (PinnedGame) -> Unit = {},
+    onDeletePinnedGame: (String) -> Unit = {},
     onVibrationModeChange: (VibrationMode) -> Unit,
     onToggleOverlay: () -> Unit,
     onSelectProfile: (String) -> Unit,
@@ -154,6 +162,19 @@ fun CockpitScreen(
                     config = webPlayerConfig,
                     onSelectRegion = onSelectWebRegion,
                     onLaunchWebPlayer = onLaunchWebPlayer
+                )
+            }
+
+            item {
+                PinnedGamesHubCard(
+                    pinnedGames = pinnedGames,
+                    profiles = allProfiles,
+                    activeProfileId = activeProfile?.id,
+                    filterState = filterState,
+                    defaultRegion = webPlayerConfig.regionPreset,
+                    onLaunchPinnedGame = onLaunchPinnedGame,
+                    onSavePinnedGame = onSavePinnedGame,
+                    onDeletePinnedGame = onDeletePinnedGame
                 )
             }
 

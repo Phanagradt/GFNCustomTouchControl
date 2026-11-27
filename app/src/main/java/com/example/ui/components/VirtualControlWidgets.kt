@@ -229,15 +229,24 @@ private fun ActionButtonSurface(
     onPressStart: () -> Unit,
     onPressEnd: () -> Unit
 ) {
+    val density = LocalDensity.current
     var isLocallyPressed by remember(control.id) { mutableStateOf(false) }
     val active = isPressed || isLocallyPressed || isToggled
     val fillAlpha = if (active) 0.42f else 0.16f
     val borderColor = if (active) accentColor else accentColor.copy(alpha = 0.72f)
     val latestOnPressStart by rememberUpdatedState(onPressStart)
     val latestOnPressEnd by rememberUpdatedState(onPressEnd)
+    val latestControl by rememberUpdatedState(control)
+    val dragStickRadiusPx = with(density) { 46.dp.toPx() }.coerceAtLeast(24f)
 
     val touchModifier = if (!isEditMode) {
-        Modifier.pointerInput(control.id) {
+        Modifier.pointerInput(
+            control.id,
+            control.dragToAimEnabled,
+            control.dragAimMode,
+            control.dragAimSensitivity,
+            control.dragAimInvertY
+        ) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 val pointerId = down.id
@@ -245,6 +254,13 @@ private fun ActionButtonSurface(
                 isLocallyPressed = true
                 InputBridge.beginOverlayTouch()
                 latestOnPressStart()
+
+                val dragEnabled = latestControl.dragToAimEnabled
+                val dragMode = latestControl.dragAimMode
+                val anchorPos = down.position
+                var prevPos = down.position
+                var didAimMove = false
+
                 try {
                     while (true) {
                         val event = awaitPointerEvent()
@@ -253,9 +269,64 @@ private fun ActionButtonSurface(
                             break
                         }
                         tracked.consume()
+
+                        if (dragEnabled) {
+                            val dx = tracked.position.x - prevPos.x
+                            val dy = tracked.position.y - prevPos.y
+                            prevPos = tracked.position
+                            if (dragMode == TouchpadMode.MOUSE) {
+                                if (dx != 0f || dy != 0f) {
+                                    didAimMove = true
+                                    InputBridge.updateTouchpadMouseMove(
+                                        controlId = latestControl.id,
+                                        sourceLabel = "${latestControl.label} Aim",
+                                        axisPair = AxisPair.TOUCHPAD_DIRECT_PASS,
+                                        deltaXPx = dx,
+                                        deltaYPx = dy,
+                                        sensitivity = latestControl.dragAimSensitivity,
+                                        invertY = latestControl.dragAimInvertY,
+                                        isFlickInertia = false,
+                                        active = true
+                                    )
+                                }
+                            } else {
+                                val adx = tracked.position.x - anchorPos.x
+                                val ady = tracked.position.y - anchorPos.y
+                                val dist = hypot(adx, ady)
+                                val clamped = dist.coerceAtMost(dragStickRadiusPx)
+                                val angle = kotlin.math.atan2(ady, adx)
+                                val nx = if (dragStickRadiusPx > 0f) (clamped * cos(angle)) / dragStickRadiusPx else 0f
+                                val ny = if (dragStickRadiusPx > 0f) (clamped * sin(angle)) / dragStickRadiusPx else 0f
+                                didAimMove = true
+                                InputBridge.updateAnalogStick(
+                                    axisPair = AxisPair.RIGHT_STICK,
+                                    sourceLabel = "${latestControl.label} Aim",
+                                    rawX = nx,
+                                    rawY = if (latestControl.dragAimInvertY) -ny else ny,
+                                    deadzone = latestControl.deadzone,
+                                    sensitivity = latestControl.dragAimSensitivity,
+                                    active = true
+                                )
+                            }
+                        }
                     }
                 } finally {
                     isLocallyPressed = false
+                    if (dragEnabled && didAimMove) {
+                        if (dragMode == TouchpadMode.MOUSE) {
+                            InputBridge.endTouchpadMouseMove()
+                        } else {
+                            InputBridge.updateAnalogStick(
+                                axisPair = AxisPair.RIGHT_STICK,
+                                sourceLabel = "${latestControl.label} Aim",
+                                rawX = 0f,
+                                rawY = 0f,
+                                deadzone = latestControl.deadzone,
+                                sensitivity = latestControl.dragAimSensitivity,
+                                active = false
+                            )
+                        }
+                    }
                     latestOnPressEnd()
                     InputBridge.endOverlayTouch()
                 }
@@ -406,7 +477,9 @@ private fun ActionButtonSurface(
             }
         }
 
-        val hasBadge = control.label != displayCode || control.behavior != TriggerBehavior.HOLD
+        val hasBadge = control.label != displayCode ||
+            control.behavior != TriggerBehavior.HOLD ||
+            control.dragToAimEnabled
         if (control.label.isNotBlank() || hasBadge) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -444,6 +517,10 @@ private fun ActionButtonSurface(
                         } else if (control.behavior == TriggerBehavior.TURBO) {
                             if (isNotEmpty()) append(" • ")
                             append("${control.turboRateHz}Hz")
+                        }
+                        if (control.dragToAimEnabled) {
+                            if (isNotEmpty()) append(" • ")
+                            append("AIM")
                         }
                     }
                     if (badge.isNotEmpty()) {

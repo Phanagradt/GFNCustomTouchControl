@@ -1806,4 +1806,128 @@ class ExampleUnitTest {
         assertEquals("44ms", RegionPingMonitor.formatBadgeText(RegionPingResult(pingMs = 44, isMeasuring = false)))
         assertEquals("--", RegionPingMonitor.formatBadgeText(RegionPingResult(pingMs = null, isMeasuring = false)))
     }
+
+    @Test
+    fun `physical controller auto-hide helper and bootstrap gamepad config behave accurately`() {
+        assertFalse(
+            com.example.input.PhysicalControllerMonitor.shouldAutoHideTouchControls(
+                connectedCount = 0,
+                autoHideEnabled = true,
+                manualOverrideShow = false
+            )
+        )
+        assertTrue(
+            com.example.input.PhysicalControllerMonitor.shouldAutoHideTouchControls(
+                connectedCount = 1,
+                autoHideEnabled = true,
+                manualOverrideShow = false
+            )
+        )
+        assertFalse(
+            com.example.input.PhysicalControllerMonitor.shouldAutoHideTouchControls(
+                connectedCount = 1,
+                autoHideEnabled = true,
+                manualOverrideShow = true
+            )
+        )
+        assertFalse(
+            com.example.input.PhysicalControllerMonitor.shouldAutoHideTouchControls(
+                connectedCount = 1,
+                autoHideEnabled = false,
+                manualOverrideShow = false
+            )
+        )
+
+        val bootstrap = BetterGfnScriptEngine.buildBootstrapScript(
+            config = WebStreamQualityConfig(antiAfkEnabled = true, antiAfkIntervalSec = 30),
+            physicalConfig = com.example.model.PhysicalControllerConfig(
+                autoHideTouchControls = true,
+                preferPhysicalSlotZero = true,
+                swapFaceButtonsAB = true,
+                stickDeadzone = 0.15f
+            )
+        )
+        assertTrue(bootstrap.contains("antiAfkEnabled: true"))
+        assertTrue(bootstrap.contains("antiAfkIntervalMs: 30000"))
+        assertTrue(bootstrap.contains("preferPhysicalSlotZero: true"))
+        assertTrue(bootstrap.contains("swapFaceButtonsAB: true"))
+        assertTrue(bootstrap.contains("window.__xenosAntiAfk"))
+        assertTrue(bootstrap.contains("wrapPhysicalGamepad"))
+    }
+
+    @Test
+    fun `pinned game model validates launch URLs and draggable aim buttons preserve settings`() {
+        val validPinned = com.example.model.PinnedGame(
+            title = "Apex Legends",
+            profileId = "fps_profile",
+            filterSlot = 2,
+            regionPreset = GfnRegionPreset.US_WEST,
+            customLaunchUrl = "  https://play.geforcenow.com/games?game-id=123  "
+        )
+        assertEquals("https://play.geforcenow.com/games?game-id=123", validPinned.normalizedLaunchUrl())
+
+        val invalidPinned = validPinned.copy(customLaunchUrl = "javascript:alert(1)")
+        assertEquals(null, invalidPinned.normalizedLaunchUrl())
+
+        val blankPinned = validPinned.copy(customLaunchUrl = "   ")
+        assertEquals(null, blankPinned.normalizedLaunchUrl())
+
+        val fireBtn = LayoutStudioHelper.createControlFromBinding(CommandCatalog.findById("mouse_left"))
+        assertFalse(fireBtn.dragToAimEnabled)
+        val dragAimBtn = fireBtn.copy(
+            dragToAimEnabled = true,
+            dragAimMode = com.example.model.TouchpadMode.CONTROLLER,
+            dragAimSensitivity = 2.2f,
+            dragAimInvertY = true
+        )
+        assertTrue(dragAimBtn.dragToAimEnabled)
+        assertEquals(com.example.model.TouchpadMode.CONTROLLER, dragAimBtn.dragAimMode)
+        assertEquals(2.2f, dragAimBtn.dragAimSensitivity, 0.001f)
+        assertTrue(dragAimBtn.dragAimInvertY)
+    }
+
+    @Test
+    fun `web player video style script renders all 18 freestyle filter modules including bloom painterly dof old film and special fx`() {
+        val style = GameFilterStyle(
+            slot = 1,
+            name = "Full FX Test",
+            sharpenEnabled = true,
+            sharpenAmount = 0.65f,
+            detailsEnabled = true,
+            detailsBloom = 0.6f,
+            painterlyEnabled = true,
+            painterlyFilterRadius = 0.5f,
+            specialFxEnabled = true,
+            specialFxMode = com.example.model.SpecialFxMode.RETRO,
+            specialFxIntensity = 0.75f,
+            oldFilmEnabled = true,
+            oldFilmStrength = 0.7f,
+            oldFilmDirtStrength = 0.45f,
+            dofEnabled = true,
+            dofFocusDepth = 0.5f,
+            dofBlurCurve = 0.45f,
+            dofFarBlur = 0.6f,
+            dofNearBlur = 0.5f,
+            splitscreenEnabled = true,
+            splitscreenPosition = 0.5f,
+            letterboxEnabled = true,
+            letterboxHeight = 0.12f,
+            vignetteEnabled = true,
+            vignetteIntensity = 0.5f
+        )
+
+        val script = BetterGfnScriptEngine.buildVideoStyleScript(
+            style = style,
+            stretchToFill = false,
+            enableCssFilters = true
+        )
+        assertTrue("Expected SVG Bloom filter", script.contains("feGaussianBlur"))
+        assertTrue("Expected SVG Painterly posterize table", script.contains("feComponentTransfer"))
+        assertTrue("Expected Retro scanline overlay", script.contains("repeating-linear-gradient"))
+        assertTrue("Expected FX overlay layer", script.contains("xenos-gfn-fx-layer"))
+        assertTrue("Expected Depth of Field backdrop blur", script.contains("backdrop-filter:blur("))
+        assertTrue("Expected Splitscreen filtered badge", script.contains("FILTERED"))
+        assertTrue("Expected non-zero bloomStrength in config", script.contains("bloomStrength: 0.600"))
+        assertTrue("Expected non-zero letterboxH in config", script.contains("letterboxH: 12.00"))
+    }
 }

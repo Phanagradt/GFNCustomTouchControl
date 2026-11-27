@@ -28,8 +28,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BatteryStd
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeviceThermostat
@@ -41,9 +43,12 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -99,6 +104,8 @@ fun WebPlayerStatsPill(
     perfStats: PerfStatsSnapshot,
     region: GfnRegionPreset,
     accentColor: Color,
+    antiAfkEnabled: Boolean = false,
+    connectedControllerName: String? = null,
     modifier: Modifier = Modifier
 ) {
     val displayFps = if (streamStats.fps > 0) streamStats.fps else perfStats.fps
@@ -141,6 +148,38 @@ fun WebPlayerStatsPill(
                     Text(
                         text = region.shortCode,
                         color = TacticalCyan,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JetBrainsMonoFontFamily,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
+            }
+
+            if (antiAfkEnabled) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = TurboAmber.copy(alpha = 0.20f)
+                ) {
+                    Text(
+                        text = "AFK",
+                        color = TurboAmber,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JetBrainsMonoFontFamily,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
+            }
+
+            if (connectedControllerName != null) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF4ADE80).copy(alpha = 0.20f)
+                ) {
+                    Text(
+                        text = "PAD",
+                        color = Color(0xFF4ADE80),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = JetBrainsMonoFontFamily,
@@ -307,6 +346,9 @@ fun WebPlayerQuickMenuCard(
     crosshairEnabled: Boolean,
     gyroEnabled: Boolean,
     accentColor: Color,
+    connectedControllerName: String? = null,
+    autoHideTouchForController: Boolean = true,
+    touchAutoHiddenByController: Boolean = false,
     onClose: () -> Unit,
     onToggleControlsVisible: () -> Unit,
     onEnterLiveEdit: () -> Unit,
@@ -314,10 +356,13 @@ fun WebPlayerQuickMenuCard(
     onSelectRegion: (GfnRegionPreset) -> Unit,
     onSelectFilterSlot: (Int) -> Unit,
     onUpdateFilterStyle: (GameFilterStyle) -> Unit,
+    onOpenFullFilterStudio: () -> Unit = {},
     onToggleStretch: () -> Unit,
     onToggleCrosshair: () -> Unit,
     onToggleGyro: () -> Unit,
     onToggleStatsHud: () -> Unit,
+    onToggleAntiAfk: () -> Unit = {},
+    onToggleAutoHideTouch: () -> Unit = {},
     onBrowserBack: () -> Unit,
     onBrowserReload: () -> Unit,
     onResetInputs: () -> Unit,
@@ -455,6 +500,85 @@ fun WebPlayerQuickMenuCard(
                     testTag = "web_menu_toggle_stats",
                     modifier = Modifier.weight(1f)
                 )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                QuickMenuTile(
+                    icon = Icons.Default.Bolt,
+                    label = "Anti-AFK",
+                    active = webConfig.antiAfkEnabled,
+                    accentColor = TurboAmber,
+                    onClick = onToggleAntiAfk,
+                    testTag = "web_menu_toggle_anti_afk",
+                    modifier = Modifier.weight(1f)
+                )
+                QuickMenuTile(
+                    icon = Icons.Default.AutoAwesome,
+                    label = "18 Filters",
+                    active = filterState.activeSlot in 1..3,
+                    accentColor = accentColor,
+                    onClick = onOpenFullFilterStudio,
+                    testTag = "web_menu_open_full_filters",
+                    modifier = Modifier.weight(1f)
+                )
+                QuickMenuTile(
+                    icon = Icons.Default.SportsEsports,
+                    label = "Auto-Hide",
+                    active = autoHideTouchForController,
+                    accentColor = Color(0xFF4ADE80),
+                    onClick = onToggleAutoHideTouch,
+                    testTag = "web_menu_toggle_auto_hide_pad",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            if (connectedControllerName != null) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF4ADE80).copy(alpha = 0.14f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Color(0xFF4ADE80).copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SportsEsports,
+                                contentDescription = null,
+                                tint = Color(0xFF4ADE80),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = connectedControllerName,
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            text = if (touchAutoHiddenByController) "AUTO-HIDDEN" else "CONNECTED",
+                            color = Color(0xFF4ADE80),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = JetBrainsMonoFontFamily
+                        )
+                    }
+                }
             }
 
             HorizontalDivider(color = Color.White.copy(alpha = 0.10f))
@@ -599,6 +723,33 @@ fun WebPlayerQuickMenuCard(
                         )
                     }
                 }
+            }
+
+            Button(
+                onClick = onOpenFullFilterStudio,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = accentColor.copy(alpha = 0.20f),
+                    contentColor = accentColor
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(38.dp)
+                    .border(1.dp, accentColor.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+                    .testTag("web_menu_filter_studio_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Tune,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "Open Full Filter Studio (All 18 Modules)",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
             // Live in-stream Clarity Boost & Color Sliders when Style 1..3 is active

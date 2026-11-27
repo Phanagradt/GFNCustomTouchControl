@@ -78,6 +78,7 @@ import com.example.capture.CaptureBridge
 import com.example.cloud.CloudUserInfo
 import com.example.data.OverlaySettings
 import com.example.data.VibrationMode
+import com.example.input.PhysicalControllerInfo
 import com.example.model.AppColorSchemeConfig
 import com.example.model.AppFontConfig
 import com.example.model.AppLanguage
@@ -89,6 +90,7 @@ import com.example.model.RecordingFps
 import com.example.model.RecordingResolution
 import com.example.model.GyroAimConfig
 import com.example.model.PerfHudConfig
+import com.example.model.PhysicalControllerConfig
 import com.example.model.TargetPlatformMode
 import com.example.model.WebStreamQualityConfig
 import com.example.ui.CloudSaveUiState
@@ -99,6 +101,7 @@ import com.example.ui.components.FloatingBubbleCustomizationCard
 import com.example.ui.components.FontCustomizationCard
 import com.example.ui.components.GyroAimSetupCard
 import com.example.ui.components.PerfHudSetupCard
+import com.example.ui.components.PhysicalControllerSetupCard
 import com.example.ui.components.SmoothSlider
 import com.example.ui.components.WebPlayerSetupCard
 import com.example.ui.theme.JetBrainsMonoFontFamily
@@ -120,11 +123,13 @@ fun SetupScreen(
     cloudSyncState: CloudSaveUiState,
     localProfileCount: Int,
     hasHardwareGyro: Boolean,
+    connectedControllers: List<PhysicalControllerInfo> = emptyList(),
     onCloudSignIn: () -> Unit,
     onCloudBackupNow: () -> Unit,
     onCloudRestore: () -> Unit,
     onCloudSignOut: () -> Unit,
     onWebPlayerConfigChange: (WebStreamQualityConfig) -> Unit,
+    onPhysicalControllerChange: (PhysicalControllerConfig) -> Unit = {},
     onLaunchWebPlayer: () -> Unit,
     onGyroAimChange: (GyroAimConfig) -> Unit,
     onPerfHudChange: (PerfHudConfig) -> Unit,
@@ -193,6 +198,14 @@ fun SetupScreen(
                     config = settings.webPlayerConfig,
                     onUpdate = onWebPlayerConfigChange,
                     onLaunchWebPlayer = onLaunchWebPlayer
+                )
+            }
+
+            item {
+                PhysicalControllerSetupCard(
+                    config = settings.physicalController,
+                    connectedControllers = connectedControllers,
+                    onUpdate = onPhysicalControllerChange
                 )
             }
 

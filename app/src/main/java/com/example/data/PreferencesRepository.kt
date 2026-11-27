@@ -20,11 +20,14 @@ import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
 import com.example.model.GyroAimConfig
 import com.example.model.PerfHudConfig
+import com.example.model.PhysicalControllerConfig
+import com.example.model.PinnedGame
 import com.example.model.RecordingFps
 import com.example.model.RecordingResolution
 import com.example.model.TargetPlatformMode
 import com.example.model.WebStreamQualityConfig
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -75,6 +78,8 @@ data class OverlaySettings(
     val gyroAim: GyroAimConfig = GyroAimConfig(),
     val perfHud: PerfHudConfig = PerfHudConfig(),
     val webPlayerConfig: WebStreamQualityConfig = WebStreamQualityConfig(),
+    val physicalController: PhysicalControllerConfig = PhysicalControllerConfig(),
+    val pinnedGames: List<PinnedGame> = emptyList(),
     val appearanceUpdatedAtMs: Long = 0L
 ) {
     val hapticsEnabled: Boolean
@@ -95,6 +100,9 @@ class PreferencesRepository(private val context: Context) {
     private val gyroAimAdapter = moshi.adapter(GyroAimConfig::class.java)
     private val perfHudAdapter = moshi.adapter(PerfHudConfig::class.java)
     private val webPlayerAdapter = moshi.adapter(WebStreamQualityConfig::class.java)
+    private val physicalControllerAdapter = moshi.adapter(PhysicalControllerConfig::class.java)
+    private val pinnedGamesListType = Types.newParameterizedType(List::class.java, PinnedGame::class.java)
+    private val pinnedGamesAdapter = moshi.adapter<List<PinnedGame>>(pinnedGamesListType)
 
     private object Keys {
         val HAPTICS = booleanPreferencesKey("haptics_enabled")
@@ -124,6 +132,8 @@ class PreferencesRepository(private val context: Context) {
         val GYRO_AIM_JSON = stringPreferencesKey("gyro_aim_json")
         val PERF_HUD_JSON = stringPreferencesKey("perf_hud_json")
         val WEB_PLAYER_CONFIG_JSON = stringPreferencesKey("web_player_config_json")
+        val PHYSICAL_CONTROLLER_JSON = stringPreferencesKey("physical_controller_json")
+        val PINNED_GAMES_JSON = stringPreferencesKey("pinned_games_json")
         val APPEARANCE_UPDATED_AT = longPreferencesKey("appearance_updated_at_ms")
     }
 
@@ -165,6 +175,8 @@ class PreferencesRepository(private val context: Context) {
         val gyroAim = decodeGyroAim(prefs[Keys.GYRO_AIM_JSON])
         val perfHud = decodePerfHud(prefs[Keys.PERF_HUD_JSON])
         val webPlayerConfig = decodeWebPlayerConfig(prefs[Keys.WEB_PLAYER_CONFIG_JSON])
+        val physicalController = decodePhysicalController(prefs[Keys.PHYSICAL_CONTROLLER_JSON])
+        val pinnedGames = decodePinnedGames(prefs[Keys.PINNED_GAMES_JSON])
 
         OverlaySettings(
             vibrationMode = vibrationMode,
@@ -193,6 +205,8 @@ class PreferencesRepository(private val context: Context) {
             gyroAim = gyroAim,
             perfHud = perfHud,
             webPlayerConfig = webPlayerConfig,
+            physicalController = physicalController,
+            pinnedGames = pinnedGames,
             appearanceUpdatedAtMs = prefs[Keys.APPEARANCE_UPDATED_AT] ?: 0L
         )
     }
@@ -241,6 +255,16 @@ class PreferencesRepository(private val context: Context) {
     private fun decodeWebPlayerConfig(raw: String?): WebStreamQualityConfig {
         if (raw.isNullOrBlank()) return WebStreamQualityConfig()
         return runCatching { webPlayerAdapter.fromJson(raw) }.getOrNull() ?: WebStreamQualityConfig()
+    }
+
+    private fun decodePhysicalController(raw: String?): PhysicalControllerConfig {
+        if (raw.isNullOrBlank()) return PhysicalControllerConfig()
+        return runCatching { physicalControllerAdapter.fromJson(raw) }.getOrNull() ?: PhysicalControllerConfig()
+    }
+
+    private fun decodePinnedGames(raw: String?): List<PinnedGame> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching { pinnedGamesAdapter.fromJson(raw) }.getOrNull() ?: emptyList()
     }
 
     suspend fun setVibrationMode(mode: VibrationMode) {
@@ -383,6 +407,41 @@ class PreferencesRepository(private val context: Context) {
     suspend fun updateWebPlayerConfig(config: WebStreamQualityConfig) {
         context.nexusDataStore.edit { prefs ->
             prefs[Keys.WEB_PLAYER_CONFIG_JSON] = webPlayerAdapter.toJson(config)
+        }
+    }
+
+    suspend fun updatePhysicalController(config: PhysicalControllerConfig) {
+        context.nexusDataStore.edit { prefs ->
+            prefs[Keys.PHYSICAL_CONTROLLER_JSON] = physicalControllerAdapter.toJson(config)
+        }
+    }
+
+    suspend fun upsertPinnedGame(game: PinnedGame) {
+        context.nexusDataStore.edit { prefs ->
+            val current = decodePinnedGames(prefs[Keys.PINNED_GAMES_JSON]).toMutableList()
+            val idx = current.indexOfFirst { it.id == game.id }
+            if (idx >= 0) {
+                current[idx] = game
+            } else {
+                current.add(0, game)
+            }
+            prefs[Keys.PINNED_GAMES_JSON] = pinnedGamesAdapter.toJson(current.take(24))
+        }
+    }
+
+    suspend fun deletePinnedGame(gameId: String) {
+        context.nexusDataStore.edit { prefs ->
+            val current = decodePinnedGames(prefs[Keys.PINNED_GAMES_JSON]).filterNot { it.id == gameId }
+            prefs[Keys.PINNED_GAMES_JSON] = pinnedGamesAdapter.toJson(current)
+        }
+    }
+
+    suspend fun markPinnedGamePlayed(gameId: String, playedAtMs: Long = System.currentTimeMillis()) {
+        context.nexusDataStore.edit { prefs ->
+            val current = decodePinnedGames(prefs[Keys.PINNED_GAMES_JSON]).map {
+                if (it.id == gameId) it.copy(lastPlayedAtMs = playedAtMs) else it
+            }
+            prefs[Keys.PINNED_GAMES_JSON] = pinnedGamesAdapter.toJson(current)
         }
     }
 

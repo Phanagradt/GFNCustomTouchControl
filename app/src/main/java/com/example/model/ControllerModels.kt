@@ -122,6 +122,10 @@ data class VirtualControl(
     val hapticOnPress: Boolean = true,
     val invertY: Boolean = false,
     val touchpadMode: TouchpadMode = TouchpadMode.MOUSE,
+    val dragToAimEnabled: Boolean = false,
+    val dragAimMode: TouchpadMode = TouchpadMode.MOUSE,
+    val dragAimSensitivity: Float = 1.4f,
+    val dragAimInvertY: Boolean = false,
     val customImageBase64: String? = null,
     val binding: InputBinding
 )
