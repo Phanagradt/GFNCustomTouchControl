@@ -257,8 +257,10 @@ private fun ActionButtonSurface(
 
                 val dragEnabled = latestControl.dragToAimEnabled
                 val dragMode = latestControl.dragAimMode
-                val anchorPos = down.position
+                var anchorPos = down.position
                 var prevPos = down.position
+                var netDx = 0f
+                var netDy = 0f
                 var didAimMove = false
 
                 try {
@@ -277,6 +279,8 @@ private fun ActionButtonSurface(
                             if (dragMode == TouchpadMode.MOUSE) {
                                 if (dx != 0f || dy != 0f) {
                                     didAimMove = true
+                                    netDx += dx
+                                    netDy += dy
                                     InputBridge.updateTouchpadMouseMove(
                                         controlId = latestControl.id,
                                         sourceLabel = "${latestControl.label} Aim",
@@ -290,9 +294,20 @@ private fun ActionButtonSurface(
                                     )
                                 }
                             } else {
-                                val adx = tracked.position.x - anchorPos.x
-                                val ady = tracked.position.y - anchorPos.y
-                                val dist = hypot(adx, ady)
+                                var adx = tracked.position.x - anchorPos.x
+                                var ady = tracked.position.y - anchorPos.y
+                                var dist = hypot(adx, ady)
+                                if (dist > dragStickRadiusPx) {
+                                    // Follow-anchor: pull anchor smoothly behind finger so reversing direction has zero lag
+                                    val pull = dist - dragStickRadiusPx
+                                    anchorPos = Offset(
+                                        anchorPos.x + (adx / dist) * pull,
+                                        anchorPos.y + (ady / dist) * pull
+                                    )
+                                    adx = tracked.position.x - anchorPos.x
+                                    ady = tracked.position.y - anchorPos.y
+                                    dist = hypot(adx, ady)
+                                }
                                 val clamped = dist.coerceAtMost(dragStickRadiusPx)
                                 val angle = kotlin.math.atan2(ady, adx)
                                 val nx = if (dragStickRadiusPx > 0f) (clamped * cos(angle)) / dragStickRadiusPx else 0f
@@ -314,6 +329,15 @@ private fun ActionButtonSurface(
                     isLocallyPressed = false
                     if (dragEnabled && didAimMove) {
                         if (dragMode == TouchpadMode.MOUSE) {
+                            if (!InputBridge.hasWebInputSink()) {
+                                InputBridge.commitTouchpadFlickSwipe(
+                                    sourceLabel = "${latestControl.label} Aim",
+                                    totalDeltaXPx = netDx,
+                                    totalDeltaYPx = netDy,
+                                    sensitivity = latestControl.dragAimSensitivity,
+                                    invertY = latestControl.dragAimInvertY
+                                )
+                            }
                             InputBridge.endTouchpadMouseMove()
                         } else {
                             InputBridge.updateAnalogStick(
@@ -933,6 +957,7 @@ private fun TouchpadSurface(
     var normY by remember(control.id) { mutableFloatStateOf(0f) }
     var flickJob by remember(control.id) { mutableStateOf<Job?>(null) }
 
+    val latestControl by rememberUpdatedState(control)
     val stickRadiusPx = with(density) { 46.dp.toPx() }.coerceAtLeast(24f)
 
     Box(
@@ -945,7 +970,9 @@ private fun TouchpadSurface(
                         control.touchpadMode,
                         control.deadzone,
                         control.sensitivity,
-                        control.invertY
+                        control.invertY,
+                        control.touchpadTapToClickEnabled,
+                        control.touchpadTwoFingerRightClickEnabled
                     ) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
@@ -1013,37 +1040,42 @@ private fun TouchpadSurface(
                                 isSwiping = false
                                 val elapsed = android.os.SystemClock.uptimeMillis() - downTime
                                 val vel = velocityTracker.calculateVelocity()
-                                var vx = vel.x.coerceIn(-4500f, 4500f)
-                                var vy = vel.y.coerceIn(-4500f, 4500f)
+                                var vx = vel.x.coerceIn(-9000f, 9000f)
+                                var vy = vel.y.coerceIn(-9000f, 9000f)
                                 val speed = hypot(vx, vy)
                                 val inWebPlayer = InputBridge.hasWebInputSink()
+                                val activeCtrl = latestControl
 
                                 val tapSlop = maxOf(touchSlop * 1.45f, 20f)
                                 if (totalTravel < tapSlop && elapsed < 320L) {
                                     normX = 0f
                                     normY = 0f
                                     if (sawSecondFinger) {
-                                        InputBridge.dispatchMouseRightTapClick(control.label)
+                                        if (activeCtrl.touchpadTwoFingerRightClickEnabled) {
+                                            InputBridge.dispatchMouseRightTapClick(activeCtrl.label)
+                                        }
                                     } else {
-                                        InputBridge.dispatchMouseTapClick(control.label)
+                                        if (activeCtrl.touchpadTapToClickEnabled) {
+                                            InputBridge.dispatchMouseTapClick(activeCtrl.label)
+                                        }
                                     }
                                     InputBridge.endTouchpadMouseMove()
                                     InputBridge.endOverlayTouch()
-                                } else if (speed > if (inWebPlayer) 950f else 180f) {
+                                } else if (speed > if (inWebPlayer) 700f else 180f) {
                                     if (!inWebPlayer) {
-                                        val flickBoostX = netDx + vx * 0.14f
-                                        val flickBoostY = netDy + vy * 0.14f
+                                        val flickBoostX = netDx + vx * 0.18f
+                                        val flickBoostY = netDy + vy * 0.18f
                                         InputBridge.commitTouchpadFlickSwipe(
-                                            sourceLabel = control.label,
+                                            sourceLabel = activeCtrl.label,
                                             totalDeltaXPx = flickBoostX,
                                             totalDeltaYPx = flickBoostY,
-                                            sensitivity = control.sensitivity,
-                                            invertY = control.invertY
+                                            sensitivity = activeCtrl.sensitivity,
+                                            invertY = activeCtrl.invertY
                                         )
                                     }
                                     InputBridge.endOverlayTouch()
                                     isCoasting = true
-                                    val decay = if (inWebPlayer) 0.84f else 0.91f
+                                    val decay = if (inWebPlayer) 0.86f else 0.91f
                                     flickJob = scope.launch {
                                         try {
                                             while (hypot(vx, vy) > 36f) {
@@ -1052,13 +1084,13 @@ private fun TouchpadSurface(
                                                 normX = (stepX / 16f).coerceIn(-1f, 1f)
                                                 normY = (stepY / 16f).coerceIn(-1f, 1f)
                                                 InputBridge.updateTouchpadMouseMove(
-                                                    controlId = control.id,
-                                                    sourceLabel = control.label,
-                                                    axisPair = control.binding.axisPair,
+                                                    controlId = activeCtrl.id,
+                                                    sourceLabel = activeCtrl.label,
+                                                    axisPair = activeCtrl.binding.axisPair,
                                                     deltaXPx = stepX,
                                                     deltaYPx = stepY,
-                                                    sensitivity = control.sensitivity,
-                                                    invertY = control.invertY,
+                                                    sensitivity = activeCtrl.sensitivity,
+                                                    invertY = activeCtrl.invertY,
                                                     isFlickInertia = true,
                                                     active = true
                                                 )
@@ -1076,11 +1108,11 @@ private fun TouchpadSurface(
                                 } else {
                                     if (!inWebPlayer) {
                                         InputBridge.commitTouchpadFlickSwipe(
-                                            sourceLabel = control.label,
+                                            sourceLabel = activeCtrl.label,
                                             totalDeltaXPx = netDx,
                                             totalDeltaYPx = netDy,
-                                            sensitivity = control.sensitivity,
-                                            invertY = control.invertY
+                                            sensitivity = activeCtrl.sensitivity,
+                                            invertY = activeCtrl.invertY
                                         )
                                     }
                                     normX = 0f
@@ -1092,7 +1124,7 @@ private fun TouchpadSurface(
                         }
                     }
                 } else if (!isEditMode && !isPassThrough) {
-                    // Analog mode: acts as a true smooth floating Right Analog Stick (AxisPair.RIGHT_STICK)
+                    // Analog mode: acts as a smooth floating Right Analog Stick with dynamic follow-anchor
                     Modifier.pointerInput(
                         control.id,
                         control.touchpadMode,
@@ -1114,9 +1146,21 @@ private fun TouchpadSurface(
                             InputBridge.beginOverlayTouch()
 
                             fun updateRightStick(pos: Offset) {
-                                val dx = pos.x - anchorPos.x
-                                val dy = pos.y - anchorPos.y
-                                val dist = hypot(dx, dy)
+                                var dx = pos.x - anchorPos.x
+                                var dy = pos.y - anchorPos.y
+                                var dist = hypot(dx, dy)
+                                if (dist > stickRadiusPx) {
+                                    // Follow-anchor: slide the virtual origin behind the thumb so
+                                    // sweeping wide across the pad never hits a sticky dead-zone wall
+                                    val pull = dist - stickRadiusPx
+                                    anchorPos = Offset(
+                                        (anchorPos.x + (dx / dist) * pull).coerceIn(0f, size.width.toFloat()),
+                                        (anchorPos.y + (dy / dist) * pull).coerceIn(0f, size.height.toFloat())
+                                    )
+                                    dx = pos.x - anchorPos.x
+                                    dy = pos.y - anchorPos.y
+                                    dist = hypot(dx, dy)
+                                }
                                 val clamped = dist.coerceAtMost(stickRadiusPx)
                                 val angle = kotlin.math.atan2(dy, dx)
                                 val nx = if (stickRadiusPx > 0f) (clamped * cos(angle)) / stickRadiusPx else 0f

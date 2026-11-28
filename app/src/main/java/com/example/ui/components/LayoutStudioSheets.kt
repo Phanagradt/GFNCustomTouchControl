@@ -783,12 +783,12 @@ fun ControlInspectorSheetContent(
                             }
 
                             var dragSensDraft by remember(control.id) {
-                                mutableFloatStateOf(control.dragAimSensitivity.coerceIn(0.4f, 3.0f))
+                                mutableFloatStateOf(control.dragAimSensitivity.coerceIn(0.4f, 6.0f))
                             }
                             var dragSensDragging by remember(control.id) { mutableStateOf(false) }
                             LaunchedEffect(control.dragAimSensitivity, dragSensDragging) {
                                 if (!dragSensDragging) {
-                                    dragSensDraft = control.dragAimSensitivity.coerceIn(0.4f, 3.0f)
+                                    dragSensDraft = control.dragAimSensitivity.coerceIn(0.4f, 6.0f)
                                 }
                             }
                             Row(
@@ -803,7 +803,7 @@ fun ControlInspectorSheetContent(
                                 )
                             }
                             SmoothSlider(
-                                value = control.dragAimSensitivity.coerceIn(0.4f, 3.0f),
+                                value = control.dragAimSensitivity.coerceIn(0.4f, 6.0f),
                                 onValueChange = { v ->
                                     dragSensDragging = true
                                     dragSensDraft = v
@@ -813,7 +813,7 @@ fun ControlInspectorSheetContent(
                                     dragSensDraft = v
                                     onChange(control.copy(dragAimSensitivity = v))
                                 },
-                                valueRange = 0.4f..3.0f,
+                                valueRange = 0.4f..6.0f,
                                 accentColor = TacticalCyan
                             )
 
@@ -857,28 +857,95 @@ fun ControlInspectorSheetContent(
                         }
                         Text(
                             text = if (control.touchpadMode == TouchpadMode.MOUSE) {
-                                "Full Mouse: moves the GeForce NOW cursor & camera 1:1. Tap = Left Click, 2-finger tap = Right Click."
+                                "Full Mouse: unbounded 360° camera look & cursor movement. Higher sensitivity turns the camera further around without hitting a screen-edge wall."
                             } else {
-                                "Right Analog Stick: turns the trackpad into a smooth floating right thumbstick."
+                                "Right Analog Stick: smooth floating right thumbstick with follow-anchor (max turn speed follows the game's controller sensitivity)."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+
+                        if (control.touchpadMode == TouchpadMode.MOUSE) {
+                            Spacer(Modifier.height(4.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceContainer,
+                                shape = MaterialTheme.shapes.medium,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.outlineVariant,
+                                        MaterialTheme.shapes.medium
+                                    )
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text("Trackpad Tap Gestures", style = MaterialTheme.typography.titleSmall)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("1-Finger Tap Click (LMB)", style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                text = "Disable to prevent accidental clicks while swiping camera",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Switch(
+                                            checked = control.touchpadTapToClickEnabled,
+                                            onCheckedChange = {
+                                                onChange(control.copy(touchpadTapToClickEnabled = it))
+                                            },
+                                            modifier = Modifier.testTag("inspector_touchpad_tap_click_switch")
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("2-Finger Tap Click (RMB)", style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                text = "Disable to ignore two-finger right-click taps on the pad",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Switch(
+                                            checked = control.touchpadTwoFingerRightClickEnabled,
+                                            onCheckedChange = {
+                                                onChange(control.copy(touchpadTwoFingerRightClickEnabled = it))
+                                            },
+                                            modifier = Modifier.testTag("inspector_touchpad_two_finger_click_switch")
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
 
             item {
+                val maxSens = if (control.controlType == ControlType.TOUCHPAD) 6.0f else 2.5f
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     var deadzoneDraft by remember(control.id) { mutableFloatStateOf(control.deadzone.coerceIn(0.02f, 0.40f)) }
                     var deadzoneDragging by remember(control.id) { mutableStateOf(false) }
                     LaunchedEffect(control.deadzone, deadzoneDragging) {
                         if (!deadzoneDragging) deadzoneDraft = control.deadzone.coerceIn(0.02f, 0.40f)
                     }
-                    var sensDraft by remember(control.id) { mutableFloatStateOf(control.sensitivity.coerceIn(0.5f, 2.2f)) }
+                    var sensDraft by remember(control.id, maxSens) {
+                        mutableFloatStateOf(control.sensitivity.coerceIn(0.5f, maxSens))
+                    }
                     var sensDragging by remember(control.id) { mutableStateOf(false) }
-                    LaunchedEffect(control.sensitivity, sensDragging) {
-                        if (!sensDragging) sensDraft = control.sensitivity.coerceIn(0.5f, 2.2f)
+                    LaunchedEffect(control.sensitivity, sensDragging, maxSens) {
+                        if (!sensDragging) sensDraft = control.sensitivity.coerceIn(0.5f, maxSens)
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -909,13 +976,13 @@ fun ControlInspectorSheetContent(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            if (control.controlType == ControlType.TOUCHPAD) "Touchpad Sensitivity" else "Sensitivity Curve",
+                            if (control.controlType == ControlType.TOUCHPAD) "Touchpad Turn Sensitivity" else "Sensitivity Curve",
                             style = MaterialTheme.typography.titleSmall
                         )
                         Text("%.2fx".format(sensDraft), style = MaterialTheme.typography.labelMedium)
                     }
                     SmoothSlider(
-                        value = control.sensitivity.coerceIn(0.5f, 2.2f),
+                        value = control.sensitivity.coerceIn(0.5f, maxSens),
                         onValueChange = { v ->
                             sensDragging = true
                             sensDraft = v
@@ -925,7 +992,7 @@ fun ControlInspectorSheetContent(
                             sensDraft = v
                             onChange(control.copy(sensitivity = v))
                         },
-                        valueRange = 0.5f..2.2f,
+                        valueRange = 0.5f..maxSens,
                         accentColor = GeForceLime
                     )
                     if (control.controlType == ControlType.TOUCHPAD) {

@@ -1124,23 +1124,10 @@ object BetterGfnScriptEngine {
                 return ev;
               }
 
-              function dispatchLockedRelativeMove(mx, my) {
-                var t = ensureGamePointerLock() || streamTarget();
-                moveRemX += mx;
-                moveRemY += my;
-                var intDx = moveRemX > 0 ? Math.floor(moveRemX) : Math.ceil(moveRemX);
-                var intDy = moveRemY > 0 ? Math.floor(moveRemY) : Math.ceil(moveRemY);
-                if (intDx === 0 && intDy === 0) return;
-                moveRemX -= intDx;
-                moveRemY -= intDy;
-
-                var c = centerCoordsFor(t);
-                pointerX = c.x;
-                pointerY = c.y;
-
+              function emitLockedMoveStep(t, c, stepX, stepY) {
                 var opts = {
-                  movementX: intDx,
-                  movementY: intDy,
+                  movementX: stepX,
+                  movementY: stepY,
                   clientX: c.x,
                   clientY: c.y,
                   pageX: c.x + (window.scrollX || 0),
@@ -1163,36 +1150,88 @@ object BetterGfnScriptEngine {
                     pressure: mouseButtonsMask ? 0.5 : 0
                   }, opts);
                   try {
-                    t.dispatchEvent(forceMovementProps(new PointerEvent('pointerrawupdate', pOpts), intDx, intDy));
+                    t.dispatchEvent(forceMovementProps(new PointerEvent('pointerrawupdate', pOpts), stepX, stepY));
                   } catch (e) {}
-                  t.dispatchEvent(forceMovementProps(new PointerEvent('pointermove', pOpts), intDx, intDy));
+                  t.dispatchEvent(forceMovementProps(new PointerEvent('pointermove', pOpts), stepX, stepY));
                 }
-                t.dispatchEvent(forceMovementProps(new MouseEvent('mousemove', opts), intDx, intDy));
+                t.dispatchEvent(forceMovementProps(new MouseEvent('mousemove', opts), stepX, stepY));
+              }
+
+              function dispatchLockedRelativeMove(mx, my) {
+                var t = ensureGamePointerLock() || streamTarget();
+                moveRemX += mx;
+                moveRemY += my;
+                var intDx = moveRemX > 0 ? Math.floor(moveRemX) : Math.ceil(moveRemX);
+                var intDy = moveRemY > 0 ? Math.floor(moveRemY) : Math.ceil(moveRemY);
+                if (intDx === 0 && intDy === 0) return;
+                moveRemX -= intDx;
+                moveRemY -= intDy;
+
+                var c = centerCoordsFor(t);
+                pointerX = c.x;
+                pointerY = c.y;
+
+                // Sub-step large high-sensitivity deltas (max 42px per event) so WebRTC/GFN
+                // glitch filters never clamp or drop fast 180°-360° camera turns.
+                var maxStep = 42;
+                var steps = Math.max(1, Math.min(16, Math.ceil(Math.max(Math.abs(intDx), Math.abs(intDy)) / maxStep)));
+                var sentX = 0;
+                var sentY = 0;
+                for (var s = 1; s <= steps; s++) {
+                  var targetX = Math.round((intDx * s) / steps);
+                  var targetY = Math.round((intDy * s) / steps);
+                  var stepX = targetX - sentX;
+                  var stepY = targetY - sentY;
+                  if (stepX !== 0 || stepY !== 0) {
+                    emitLockedMoveStep(t, c, stepX, stepY);
+                    sentX += stepX;
+                    sentY += stepY;
+                  }
+                }
               }
 
               function dispatchRelativeMove(mx, my) {
                 var t = pointTarget(pointerX, pointerY);
-                var intDx = Math.round(mx);
-                var intDy = Math.round(my);
-                var opts = {
-                  movementX: intDx,
-                  movementY: intDy,
-                  clientX: pointerX,
-                  clientY: pointerY,
-                  pageX: pointerX + (window.scrollX || 0),
-                  pageY: pointerY + (window.scrollY || 0),
-                  screenX: pointerX,
-                  screenY: pointerY,
-                  buttons: mouseButtonsMask,
-                  view: window,
-                  bubbles: true,
-                  cancelable: true,
-                  composed: true
-                };
-                if (typeof PointerEvent !== 'undefined') {
-                  t.dispatchEvent(forceMovementProps(new PointerEvent('pointermove', Object.assign({ pointerType: 'mouse', isPrimary: true, pointerId: 1, width: 1, height: 1, pressure: mouseButtonsMask ? 0.5 : 0 }, opts)), intDx, intDy));
+                moveRemX += mx;
+                moveRemY += my;
+                var intDx = moveRemX > 0 ? Math.floor(moveRemX) : Math.ceil(moveRemX);
+                var intDy = moveRemY > 0 ? Math.floor(moveRemY) : Math.ceil(moveRemY);
+                if (intDx === 0 && intDy === 0) return;
+                moveRemX -= intDx;
+                moveRemY -= intDy;
+
+                var maxStep = 42;
+                var steps = Math.max(1, Math.min(16, Math.ceil(Math.max(Math.abs(intDx), Math.abs(intDy)) / maxStep)));
+                var sentX = 0;
+                var sentY = 0;
+                for (var s = 1; s <= steps; s++) {
+                  var targetX = Math.round((intDx * s) / steps);
+                  var targetY = Math.round((intDy * s) / steps);
+                  var stepX = targetX - sentX;
+                  var stepY = targetY - sentY;
+                  if (stepX === 0 && stepY === 0) continue;
+                  var opts = {
+                    movementX: stepX,
+                    movementY: stepY,
+                    clientX: pointerX,
+                    clientY: pointerY,
+                    pageX: pointerX + (window.scrollX || 0),
+                    pageY: pointerY + (window.scrollY || 0),
+                    screenX: pointerX,
+                    screenY: pointerY,
+                    buttons: mouseButtonsMask,
+                    view: window,
+                    bubbles: true,
+                    cancelable: true,
+                    composed: true
+                  };
+                  if (typeof PointerEvent !== 'undefined') {
+                    t.dispatchEvent(forceMovementProps(new PointerEvent('pointermove', Object.assign({ pointerType: 'mouse', isPrimary: true, pointerId: 1, width: 1, height: 1, pressure: mouseButtonsMask ? 0.5 : 0 }, opts)), stepX, stepY));
+                  }
+                  t.dispatchEvent(forceMovementProps(new MouseEvent('mousemove', opts), stepX, stepY));
+                  sentX += stepX;
+                  sentY += stepY;
                 }
-                t.dispatchEvent(forceMovementProps(new MouseEvent('mousemove', opts), intDx, intDy));
               }
 
               function dispatchLockedMouseButton(button, isDown) {

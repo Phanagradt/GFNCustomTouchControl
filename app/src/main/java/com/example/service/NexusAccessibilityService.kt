@@ -10,6 +10,7 @@ import android.util.DisplayMetrics
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import com.example.input.InputBridge
+import com.example.input.TouchpadSwipePlanner
 import com.example.model.TargetPlatformMode
 import kotlin.math.hypot
 
@@ -34,6 +35,11 @@ class NexusAccessibilityService : AccessibilityService() {
     private var panCursorY = 0f
     private var pendingPanDx = 0f
     private var pendingPanDy = 0f
+
+    // Multi-segment flick queue so high-sensitivity swipes deliver full 180°–360°+ turns
+    private val pendingFlickSegments = ArrayDeque<TouchpadSwipePlanner.SwipeSegment>()
+    private var flickChainInFlight = false
+    private var flickGeneration = 0
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -94,6 +100,9 @@ class NexusAccessibilityService : AccessibilityService() {
         activePanStroke = null
         pendingPanDx = 0f
         pendingPanDy = 0f
+        pendingFlickSegments.clear()
+        flickChainInFlight = false
+        flickGeneration++
     }
 
     private fun runOnMain(block: () -> Unit) {
@@ -121,39 +130,37 @@ class NexusAccessibilityService : AccessibilityService() {
         return Triple(w, h, density)
     }
 
-    private data class PanZone(
-        val anchorX: Float,
-        val anchorY: Float,
-        val minX: Float,
-        val maxX: Float,
-        val minY: Float,
-        val maxY: Float
-    )
-
-    private fun currentPanZone(): PanZone {
+    private fun currentPanZone(): TouchpadSwipePlanner.PanZone {
         val (w, h, _) = screenBoundsAndDensity()
         return when (InputBridge.targetMode.value) {
-            TargetPlatformMode.GEFORCE_NOW -> PanZone(
+            TargetPlatformMode.GEFORCE_NOW -> TouchpadSwipePlanner.PanZone(
                 anchorX = w * 0.50f,
                 anchorY = h * 0.48f,
-                minX = w * 0.14f,
-                maxX = w * 0.86f,
-                minY = h * 0.14f,
-                maxY = h * 0.84f
+                minX = w * 0.08f,
+                maxX = w * 0.92f,
+                minY = h * 0.10f,
+                maxY = h * 0.88f
             )
-            // Roblox, Minecraft, and mobile shooters pan the camera from the right half of the screen
-            TargetPlatformMode.ANDROID_NATIVE -> PanZone(
-                anchorX = w * 0.72f,
-                anchorY = h * 0.46f,
-                minX = w * 0.52f,
-                maxX = w * 0.94f,
-                minY = h * 0.14f,
-                maxY = h * 0.84f
+            // Roblox, Minecraft, and mobile shooters pan the camera from the right side of the screen
+            TargetPlatformMode.ANDROID_NATIVE -> TouchpadSwipePlanner.PanZone(
+                anchorX = w * 0.68f,
+                anchorY = h * 0.48f,
+                minX = w * 0.36f,
+                maxX = w * 0.96f,
+                minY = h * 0.10f,
+                maxY = h * 0.88f
             )
         }
     }
 
+    private fun cancelFlickChain() {
+        pendingFlickSegments.clear()
+        flickChainInFlight = false
+        flickGeneration++
+    }
+
     private fun startMousePan() {
+        cancelFlickChain()
         val zone = currentPanZone()
         isMousePanRequested = true
         pendingPanDx = 0f
@@ -204,47 +211,55 @@ class NexusAccessibilityService : AccessibilityService() {
         }
 
         if (current == null) {
-            panCursorX = zone.anchorX
-            panCursorY = zone.anchorY
-            val targetX = (panCursorX + dx).coerceIn(zone.minX, zone.maxX)
-            val targetY = (panCursorY + dy).coerceIn(zone.minY, zone.maxY)
+            val (startX, startY) = TouchpadSwipePlanner.optimalStartAnchor(zone, dx, dy)
+            val step = TouchpadSwipePlanner.planContinuousPanStep(zone, startX, startY, dx, dy)
             val path = Path().apply {
-                moveTo(panCursorX, panCursorY)
-                lineTo(targetX, targetY)
+                moveTo(startX, startY)
+                lineTo(step.endX, step.endY)
             }
-            val stroke = GestureDescription.StrokeDescription(path, 0, 16L, true)
-            activePanStroke = stroke
-            panStrokeInFlight = true
-            panCursorX = targetX
-            panCursorY = targetY
-            dispatchPanGesture(stroke)
+            if (step.hitEdge) {
+                // Reached boundary on first stroke: finish cleanly, preserve overflow, re-anchor opposite edge
+                pendingPanDx += step.overflowDx
+                pendingPanDy += step.overflowDy
+                panCursorX = step.nextAnchorX
+                panCursorY = step.nextAnchorY
+                val stroke = GestureDescription.StrokeDescription(path, 0, 14L, false)
+                activePanStroke = null
+                panStrokeInFlight = true
+                dispatchPanGesture(stroke)
+            } else {
+                val stroke = GestureDescription.StrokeDescription(path, 0, 16L, true)
+                activePanStroke = stroke
+                panStrokeInFlight = true
+                panCursorX = step.endX
+                panCursorY = step.endY
+                dispatchPanGesture(stroke)
+            }
         } else {
-            val rawNextX = panCursorX + dx
-            val rawNextY = panCursorY + dy
-            val hitEdge = rawNextX <= zone.minX || rawNextX >= zone.maxX ||
-                rawNextY <= zone.minY || rawNextY >= zone.maxY
-
-            if (hitEdge) {
-                // Reached pan zone edge: lift finger cleanly and reset to anchor so 360° rotation never stops
+            val step = TouchpadSwipePlanner.planContinuousPanStep(zone, panCursorX, panCursorY, dx, dy)
+            if (step.hitEdge) {
+                // Reached pan zone edge: finish cleanly, preserve remaining overflow, and reset to opposite edge
                 val path = Path().apply {
                     moveTo(panCursorX, panCursorY)
-                    lineTo(rawNextX.coerceIn(zone.minX, zone.maxX), rawNextY.coerceIn(zone.minY, zone.maxY))
+                    lineTo(step.endX, step.endY)
                 }
                 val endStroke = current.continueStroke(path, 0, 12L, false)
                 activePanStroke = null
-                panCursorX = zone.anchorX
-                panCursorY = zone.anchorY
+                pendingPanDx += step.overflowDx
+                pendingPanDy += step.overflowDy
+                panCursorX = step.nextAnchorX
+                panCursorY = step.nextAnchorY
                 panStrokeInFlight = true
                 dispatchPanGesture(endStroke)
             } else {
                 val path = Path().apply {
                     moveTo(panCursorX, panCursorY)
-                    lineTo(rawNextX, rawNextY)
+                    lineTo(step.endX, step.endY)
                 }
                 val nextStroke = current.continueStroke(path, 0, 16L, true)
                 activePanStroke = nextStroke
-                panCursorX = rawNextX
-                panCursorY = rawNextY
+                panCursorX = step.endX
+                panCursorY = step.endY
                 panStrokeInFlight = true
                 dispatchPanGesture(nextStroke)
             }
@@ -292,19 +307,55 @@ class NexusAccessibilityService : AccessibilityService() {
 
     private fun dispatchMouseFlick(dxPx: Float, dyPx: Float) {
         val zone = currentPanZone()
-        val dist = hypot(dxPx, dyPx)
-        if (dist < 1f) return
-        val endX = (zone.anchorX + dxPx).coerceIn(zone.minX, zone.maxX)
-        val endY = (zone.anchorY + dyPx).coerceIn(zone.minY, zone.maxY)
-        val durationMs = (dist * 0.45f).toLong().coerceIn(55L, 165L)
+        val segments = TouchpadSwipePlanner.planFlickSegments(zone, dxPx, dyPx, maxSegments = 6)
+        if (segments.isEmpty()) return
+
+        cancelFlickChain()
+        pendingFlickSegments.addAll(segments)
+        val gen = flickGeneration
+        dispatchNextFlickSegment(gen)
+    }
+
+    private fun dispatchNextFlickSegment(gen: Int) {
+        if (gen != flickGeneration || isMousePanRequested) {
+            flickChainInFlight = false
+            return
+        }
+        val segment = pendingFlickSegments.removeFirstOrNull()
+        if (segment == null) {
+            flickChainInFlight = false
+            return
+        }
+        flickChainInFlight = true
         val path = Path().apply {
-            moveTo(zone.anchorX, zone.anchorY)
-            lineTo(endX, endY)
+            moveTo(segment.startX, segment.startY)
+            lineTo(segment.endX, segment.endY)
         }
         val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
+            .addStroke(GestureDescription.StrokeDescription(path, 0, segment.durationMs))
             .build()
-        runCatching { dispatchGesture(gesture, null, null) }
+        val dispatched = runCatching {
+            dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    if (gen != flickGeneration) return
+                    if (pendingFlickSegments.isNotEmpty()) {
+                        mainHandler.postDelayed({ dispatchNextFlickSegment(gen) }, 8L)
+                    } else {
+                        flickChainInFlight = false
+                    }
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    if (gen != flickGeneration) return
+                    pendingFlickSegments.clear()
+                    flickChainInFlight = false
+                }
+            }, mainHandler)
+        }.getOrDefault(false)
+        if (!dispatched) {
+            pendingFlickSegments.clear()
+            flickChainInFlight = false
+        }
     }
 
     private fun dispatchLeftButton(isDown: Boolean) {

@@ -1,8 +1,10 @@
 ### Bug Fixes
+- **Unbounded Trackpad Camera Turning**: Fixed high trackpad sensitivity hitting a screen-edge wall or early dead-zone ceiling instead of turning the camera further around—Accessibility overlay swipes now anchor opposite the turn direction, preserve pan overflow, and chain multi-segment strokes; Web Play mode sub-steps large mouse deltas with DPI-aware scaling; and Touchpad sensitivity now scales up to `6.0x` (with follow-anchor smoothing in Right Analog Stick mode).
 - **GeForce NOW In-Game Mouse & Camera Control**: Fixed duplicate mouse cursors inside active games. The app's virtual cursor now appears only outside games (in the GeForce NOW lobby) and hides automatically once a game stream starts, routing trackpad movement, left/right clicks, and scrolling directly into GeForce NOW's locked pointer engine for both in-game menu cursors and 360° 3D camera turning.
 - **Reliable Left & Right Mouse Clicking**: Fixed left/right click input not registering in GeForce NOW for both 1-finger/2-finger trackpad taps and dedicated LMB/RMB buttons.
 
 ### New Features & Enhancements
+- **Trackpad Tap-Click Toggles**: Added independent switches in Layout Studio & Live Edit on Camera Touchpads to disable 1-finger tap (Left Click) and/or 2-finger tap (Right Click) to prevent accidental clicks while aiming.
 - **Anti-AFK / Queue Keeper Toggle**: Toggleable keep-alive in Web Play Mode and Setup that periodically sends harmless zero-net-movement ticks to prevent GeForce NOW idle disconnects during queues or short breaks, with a live `AFK` HUD indicator.
 - **Physical Controller Support & Auto-Hide Touch Controls**: Automatic Bluetooth and USB gamepad detection that auto-hides on-screen touch buttons (with manual override), prioritizes your physical controller as Player 1, adds a stick deadzone slider, and includes a Nintendo A/B & X/Y layout swap toggle.
 - **Pinned Games Hub**: Pin favorite GeForce NOW games on the Cockpit screen linked to a saved Layout Profile, Freestyle Filter Slot, and Built-in Region Bypass server—tapping Play auto-applies all three and launches Web Play Mode immediately.

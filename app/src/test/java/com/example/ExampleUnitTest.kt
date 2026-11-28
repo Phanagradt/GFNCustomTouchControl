@@ -1930,4 +1930,75 @@ class ExampleUnitTest {
         assertTrue("Expected non-zero bloomStrength in config", script.contains("bloomStrength: 0.600"))
         assertTrue("Expected non-zero letterboxH in config", script.contains("letterboxH: 12.00"))
     }
+
+    @Test
+    fun `trackpad tap-to-click toggles default to enabled and round-trip through Moshi`() {
+        val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        val adapter = moshi.adapter(com.example.model.VirtualControl::class.java)
+
+        val touchpad = LayoutStudioHelper.createControlFromBinding(CommandCatalog.findById("touchpad_mouse"))
+        assertTrue(touchpad.touchpadTapToClickEnabled)
+        assertTrue(touchpad.touchpadTwoFingerRightClickEnabled)
+
+        val disabledBoth = touchpad.copy(
+            touchpadTapToClickEnabled = false,
+            touchpadTwoFingerRightClickEnabled = false,
+            sensitivity = 5.5f
+        )
+        val restored = adapter.fromJson(adapter.toJson(disabledBoth))
+        assertNotNull(restored)
+        assertFalse(restored!!.touchpadTapToClickEnabled)
+        assertFalse(restored.touchpadTwoFingerRightClickEnabled)
+        assertEquals(5.5f, restored.sensitivity, 0.001f)
+    }
+
+    @Test
+    fun `touchpad swipe planner scales high sensitivity and chains multi-segment turns without edge truncation`() {
+        val low = com.example.input.TouchpadSwipePlanner.scaleTouchpadDelta(100f, 1.5f)
+        val high = com.example.input.TouchpadSwipePlanner.scaleTouchpadDelta(100f, 5.5f)
+        assertEquals(150f, low, 0.01f)
+        assertEquals(550f, high, 0.01f)
+
+        val zone = com.example.input.TouchpadSwipePlanner.PanZone(
+            anchorX = 500f,
+            anchorY = 400f,
+            minX = 100f,
+            maxX = 900f,
+            minY = 100f,
+            maxY = 700f
+        )
+
+        // Large 1800px high-sensitivity turn exceeds one 800px zone span: must split into chained in-bounds segments
+        val segments = com.example.input.TouchpadSwipePlanner.planFlickSegments(zone, dxPx = 1800f, dyPx = -180f)
+        assertTrue("Expected multiple chained segments for high-sensitivity 360° turn", segments.size >= 3)
+        segments.forEach { seg ->
+            assertTrue("Segment startX in bounds", seg.startX in zone.minX..zone.maxX)
+            assertTrue("Segment endX in bounds", seg.endX in zone.minX..zone.maxX)
+            assertTrue("Segment startY in bounds", seg.startY in zone.minY..zone.maxY)
+            assertTrue("Segment endY in bounds", seg.endY in zone.minY..zone.maxY)
+        }
+        val totalDx = segments.sumOf { it.dx.toDouble() }.toFloat()
+        val totalDy = segments.sumOf { it.dy.toDouble() }.toFloat()
+        assertEquals("Full requested horizontal turn must be delivered", 1800f, totalDx, 2f)
+        assertEquals("Full requested vertical turn must be delivered", -180f, totalDy, 2f)
+
+        // Continuous panning hitting zone edge preserves overflow instead of dropping it
+        val panStep = com.example.input.TouchpadSwipePlanner.planContinuousPanStep(
+            zone = zone,
+            cursorX = 820f,
+            cursorY = 400f,
+            dxPx = 260f,
+            dyPx = 0f
+        )
+        assertTrue(panStep.hitEdge)
+        assertEquals(900f, panStep.endX, 0.01f)
+        assertEquals(180f, panStep.overflowDx, 0.01f)
+        assertTrue("Re-anchor must jump toward opposite edge for maximum runway", panStep.nextAnchorX < zone.anchorX)
+
+        // Web Play script chunks large mouse deltas so WebRTC never clamps high-sensitivity turns
+        val bootstrap = BetterGfnScriptEngine.buildBootstrapScript(WebStreamQualityConfig())
+        assertTrue(bootstrap.contains("emitLockedMoveStep"))
+        assertTrue(bootstrap.contains("var maxStep = 42;"))
+    }
 }
+

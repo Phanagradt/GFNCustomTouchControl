@@ -122,6 +122,8 @@ data class VirtualControl(
     val hapticOnPress: Boolean = true,
     val invertY: Boolean = false,
     val touchpadMode: TouchpadMode = TouchpadMode.MOUSE,
+    val touchpadTapToClickEnabled: Boolean = true,
+    val touchpadTwoFingerRightClickEnabled: Boolean = true,
     val dragToAimEnabled: Boolean = false,
     val dragAimMode: TouchpadMode = TouchpadMode.MOUSE,
     val dragAimSensitivity: Float = 1.4f,

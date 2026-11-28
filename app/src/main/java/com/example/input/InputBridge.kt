@@ -611,7 +611,7 @@ object InputBridge {
     }
 
     private fun deltaXScaled(rawPx: Float, sensitivity: Float): Float =
-        rawPx * sensitivity.coerceIn(0.4f, 3.5f)
+        TouchpadSwipePlanner.scaleTouchpadDelta(rawPx, sensitivity)
 
     fun recordPhysicalInput(keyCode: Int, actionName: String, detail: String, domain: BindingDomain) {
         recordTelemetry("Hardware", safeKeyCodeName(keyCode), actionName, detail, domain)

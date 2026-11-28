@@ -642,10 +642,11 @@ class XenosWebPlayerActivity : ComponentActivity() {
                 if (_mouseCursorState.value.visible) {
                     _mouseCursorState.value = _mouseCursorState.value.copy(visible = false)
                 }
+                val streamScaleDivisor = density.coerceAtMost(1.85f)
                 web.evaluateJavascript(
                     BetterGfnScriptEngine.buildGameMouseMoveJs(
-                        dxCss = dxPx / density,
-                        dyCss = dyPx / density
+                        dxCss = dxPx / streamScaleDivisor,
+                        dyCss = dyPx / streamScaleDivisor
                     ),
                     null
                 )
