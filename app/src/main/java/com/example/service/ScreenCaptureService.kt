@@ -510,8 +510,10 @@ class ScreenCaptureService : Service() {
                 val activeProj = mediaProjection ?: return@collect
                 if (surface == null || !surface.isValid) return@collect
                 val (w, h) = GameFilterBridge.gpuContentSize.value
-                val targetW = w.coerceAtLeast(320)
-                val targetH = h.coerceAtLeast(320)
+                val (targetW, targetH) = com.example.filter.FreestyleGlTextureView.computeGpuFilterCaptureSize(
+                    displayWidth = w.coerceAtLeast(320),
+                    displayHeight = h.coerceAtLeast(320)
+                )
                 captureWidth = targetW
                 captureHeight = targetH
                 val attached = attachOrCreateVirtualDisplay(activeProj, "NexusGpuFilterVD", surface)

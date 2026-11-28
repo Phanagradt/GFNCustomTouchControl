@@ -2000,5 +2000,105 @@ class ExampleUnitTest {
         assertTrue(bootstrap.contains("emitLockedMoveStep"))
         assertTrue(bootstrap.contains("var maxStep = 42;"))
     }
+
+    @Test
+    fun `web play color filters use hardware CSS fast path without SVG readback while convolution filters enable SVG`() {
+        val colorOnlyStyle = GameFilterStyle(
+            slot = 1,
+            name = "Competitive Vibrance",
+            brightnessContrastEnabled = true,
+            exposure = 0.25f,
+            contrast = 0.30f,
+            shadows = 0.20f,
+            colorEnabled = true,
+            colorVibrance = 0.55f,
+            temperature = 0.15f,
+            tintIntensity = 0.12f,
+            nightModeEnabled = true,
+            nightModeIntensity = 0.25f,
+            moodEnabled = true,
+            moodPreset = com.example.model.MoodFilterPreset.CYBER_NEON,
+            moodIntensity = 0.35f,
+            vignetteEnabled = true,
+            vignetteIntensity = 0.30f
+        )
+
+        assertFalse(
+            "Pure color/tone/mood/night/vignette filters must bypass heavy SVG filter FBOs",
+            BetterGfnScriptEngine.requiresSvgFilterPipeline(colorOnlyStyle)
+        )
+
+        val fastScript = BetterGfnScriptEngine.buildVideoStyleScript(
+            style = colorOnlyStyle,
+            stretchToFill = false,
+            enableCssFilters = true
+        )
+        assertTrue("Expected useSvg: false on hardware CSS fast path", fastScript.contains("useSvg: false"))
+        assertFalse("Hardware CSS fast path must not apply SVG url(#xenos-gfn-video-filter)", fastScript.contains("url(#xenos-gfn-video-filter)"))
+        assertTrue("Expected O(1) getElementsByTagName('video') lookup", fastScript.contains("getElementsByTagName('video')"))
+        assertTrue("Expected per-video style signature cache to prevent DOM thrashing", fastScript.contains("__xenosStyleSig"))
+        assertTrue("Expected debounced MutationObserver scheduling", fastScript.contains("scheduleApply()"))
+
+        val sharpenStyle = colorOnlyStyle.copy(sharpenEnabled = true, sharpenAmount = 0.5f)
+        assertTrue(
+            "Sharpen convolution must enable SVG pipeline",
+            BetterGfnScriptEngine.requiresSvgFilterPipeline(sharpenStyle)
+        )
+        val svgScript = BetterGfnScriptEngine.buildVideoStyleScript(
+            style = sharpenStyle,
+            stretchToFill = false,
+            enableCssFilters = true
+        )
+        assertTrue("Expected useSvg: true when sharpen convolution is active", svgScript.contains("useSvg: true"))
+        assertTrue("Expected tight objectBoundingBox filter bounds", svgScript.contains("x=\"0%\" y=\"0%\" width=\"100%\" height=\"100%\""))
+    }
+
+    @Test
+    fun `overlay GPU shader gates neighbor OES taps and scales capture resolution to crisp 720p class`() {
+        val colorOnlyStyle = GameFilterStyle(
+            slot = 1,
+            name = "Color Boost",
+            colorEnabled = true,
+            colorVibrance = 0.6f,
+            brightnessContrastEnabled = true,
+            contrast = 0.25f,
+            nightModeEnabled = true,
+            nightModeIntensity = 0.3f,
+            moodEnabled = true,
+            moodPreset = com.example.model.MoodFilterPreset.WARM_SUNSET,
+            moodIntensity = 0.4f
+        )
+        assertFalse(
+            "Pure color/tone filters must not sample 4 neighbor OES texels",
+            com.example.filter.FreestyleGlTextureView.styleRequiresNeighborTaps(colorOnlyStyle)
+        )
+        assertTrue(
+            "Sharpen requires 4-way neighbor texels",
+            com.example.filter.FreestyleGlTextureView.styleRequiresNeighborTaps(
+                colorOnlyStyle.copy(sharpenEnabled = true, sharpenAmount = 0.4f)
+            )
+        )
+        assertTrue(
+            "Painterly requires neighbor texels",
+            com.example.filter.FreestyleGlTextureView.styleRequiresNeighborTaps(
+                colorOnlyStyle.copy(painterlyEnabled = true)
+            )
+        )
+        assertTrue(
+            "GLSL fragment shader must declare uNeedsNeighbors fast-path gate",
+            com.example.filter.FreestyleGlTextureView.FREESTYLE_FRAGMENT_BODY.contains("uniform float uNeedsNeighbors;")
+        )
+
+        val (capW, capH) = com.example.filter.FreestyleGlTextureView.computeGpuFilterCaptureSize(2400, 1080)
+        assertEquals(1280, capW)
+        assertEquals(576, capH)
+        assertEquals(0, capW % 2)
+        assertEquals(0, capH % 2)
+
+        val (smallW, smallH) = com.example.filter.FreestyleGlTextureView.computeGpuFilterCaptureSize(1280, 720)
+        assertEquals(1280, smallW)
+        assertEquals(720, smallH)
+    }
 }
+
 

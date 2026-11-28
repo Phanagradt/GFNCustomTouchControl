@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Message
 import android.os.SystemClock
@@ -128,6 +129,7 @@ import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
 import com.example.model.GfnRegionPreset
 import com.example.model.LocalNexusStrings
+import com.example.model.PhysicalControllerConfig
 import com.example.model.StickerPreset
 import com.example.model.WebRtcStreamStats
 import com.example.model.WebStreamQualityConfig
@@ -1018,6 +1020,9 @@ class XenosWebPlayerActivity : ComponentActivity() {
         }
     }
 
+    private var lastAppliedBootstrapKey: Pair<WebStreamQualityConfig, PhysicalControllerConfig>? = null
+    private var lastAppliedVideoStyleKey: Triple<GameFilterStyle?, Boolean, Boolean>? = null
+
     private fun applyLiveStyleAndBootstrap(settings: OverlaySettings) {
         val web = mainWebView ?: return
         runOnUiThread {
@@ -1026,21 +1031,33 @@ class XenosWebPlayerActivity : ComponentActivity() {
             if (web.settings.userAgentString != desiredUa) {
                 web.settings.userAgentString = desiredUa
             }
-            web.evaluateJavascript(
-                BetterGfnScriptEngine.buildBootstrapScript(
-                    config = settings.webPlayerConfig,
-                    physicalConfig = settings.physicalController
-                ),
-                null
+            val bootstrapKey = settings.webPlayerConfig to settings.physicalController
+            if (bootstrapKey != lastAppliedBootstrapKey) {
+                lastAppliedBootstrapKey = bootstrapKey
+                web.evaluateJavascript(
+                    BetterGfnScriptEngine.buildBootstrapScript(
+                        config = settings.webPlayerConfig,
+                        physicalConfig = settings.physicalController
+                    ),
+                    null
+                )
+            }
+            val styleKey = Triple(
+                settings.gameFilter.activeStyle,
+                settings.webPlayerConfig.stretchVideoToFill,
+                settings.webPlayerConfig.enableCssFilters
             )
-            web.evaluateJavascript(
-                BetterGfnScriptEngine.buildVideoStyleScript(
-                    style = settings.gameFilter.activeStyle,
-                    stretchToFill = settings.webPlayerConfig.stretchVideoToFill,
-                    enableCssFilters = settings.webPlayerConfig.enableCssFilters
-                ),
-                null
-            )
+            if (styleKey != lastAppliedVideoStyleKey) {
+                lastAppliedVideoStyleKey = styleKey
+                web.evaluateJavascript(
+                    BetterGfnScriptEngine.buildVideoStyleScript(
+                        style = settings.gameFilter.activeStyle,
+                        stretchToFill = settings.webPlayerConfig.stretchVideoToFill,
+                        enableCssFilters = settings.webPlayerConfig.enableCssFilters
+                    ),
+                    null
+                )
+            }
         }
     }
 
@@ -1069,6 +1086,10 @@ class XenosWebPlayerActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             setBackgroundColor(android.graphics.Color.BLACK)
+            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
+            }
             isLongClickable = false
             setOnLongClickListener { true }
             settings.apply {

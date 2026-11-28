@@ -412,31 +412,47 @@ fun ScreenFilterOverlayCanvas(
                 }
             }
 
-            // 9. Special FX optical scanline / halftone texture
+            // 9. Special FX optical scanline / halftone texture (batched draw calls for 60fps UI)
             if (style.specialFxEnabled && style.specialFxIntensity > 0.02f) {
                 val fx = style.specialFxIntensity.coerceIn(0f, 1f)
                 when (style.specialFxMode) {
                     SpecialFxMode.RETRO -> {
-                        var y = 0f
-                        val step = 6f
+                        val step = 10f
                         val lineCol = Color.Black.copy(alpha = fx * 0.24f)
+                        val linePoints = ArrayList<Offset>(((size.height / step).toInt() + 1) * 2)
+                        var y = 0f
                         while (y < size.height) {
-                            drawLine(lineCol, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.8f)
+                            linePoints.add(Offset(0f, y))
+                            linePoints.add(Offset(size.width, y))
                             y += step
                         }
+                        drawPoints(
+                            points = linePoints,
+                            pointMode = androidx.compose.ui.graphics.PointMode.Lines,
+                            color = lineCol,
+                            strokeWidth = 2.0f
+                        )
                     }
                     SpecialFxMode.HALFTONE -> {
                         val dotCol = Color.Black.copy(alpha = fx * 0.16f)
-                        val step = 18f
+                        val step = 28f
+                        val dotPoints = ArrayList<Offset>(((size.width / step).toInt() + 1) * ((size.height / step).toInt() + 1))
                         var y = step / 2f
                         while (y < size.height) {
                             var x = step / 2f
                             while (x < size.width) {
-                                drawCircle(dotCol, radius = 2.1f, center = Offset(x, y))
+                                dotPoints.add(Offset(x, y))
                                 x += step
                             }
                             y += step
                         }
+                        drawPoints(
+                            points = dotPoints,
+                            pointMode = androidx.compose.ui.graphics.PointMode.Points,
+                            color = dotCol,
+                            strokeWidth = 4.2f,
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round
+                        )
                     }
                     SpecialFxMode.SKETCH -> {
                         drawRect(color = Color(0xFFF5EFE0).copy(alpha = fx * 0.18f))

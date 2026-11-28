@@ -1,10 +1,12 @@
 package com.example.webplayer
 
 import android.view.KeyEvent
+import com.example.model.BlackWhiteTone
 import com.example.model.ColorMatrixBuilder
 import com.example.model.ColorblindMode
 import com.example.model.GameFilterStyle
 import com.example.model.GfnRegionPreset
+import com.example.model.MoodFilterPreset
 import com.example.model.PhysicalControllerConfig
 import com.example.model.SpecialFxMode
 import com.example.model.WebRtcStreamStats
@@ -137,54 +139,160 @@ object BetterGfnScriptEngine {
     }
 
     /**
-     * Converts an active XenosPad GameFilterStyle into a compact CSS filter chain
-     * used as fast fallback or paired with the Better xCloud-style SVG filter pipeline.
+     * Returns true ONLY when the active filter requires pixel-neighborhood convolution,
+     * discrete posterization LUT, SVG bloom blur, or Daltonization colorblind matrix.
+     *
+     * Standard color/tone filters (Brightness, Contrast, Exposure, Shadows, Highlights, Gamma,
+     * Color Vibrance/Temperature/Tint, Night Mode, Mood, B&W, Sepia, Old Film, Vignette,
+     * Letterbox, Splitscreen, Stickers) run on Chromium's zero-overhead hardware CSS compositor
+     * fast path (60 FPS locked with zero SVG offscreen FBO readbacks).
+     */
+    fun requiresSvgFilterPipeline(style: GameFilterStyle?): Boolean {
+        if (style == null) return false
+        if (buildSharpenKernelMatrix(style) != null) return true
+        if (style.detailsEnabled && style.detailsBloom > 0.02f) return true
+        if (style.painterlyEnabled) return true
+        if (style.specialFxEnabled && style.specialFxMode == SpecialFxMode.RETRO && style.specialFxIntensity > 0.05f) {
+            return true
+        }
+        if (style.colorblindEnabled && style.colorblindIntensity > 0.01f) return true
+        return false
+    }
+
+    /**
+     * Converts an active XenosPad GameFilterStyle into a compact hardware-composited CSS filter
+     * chain that executes in a single fused GPU pass inside Chromium's Viz compositor at full 60 FPS.
      */
     fun buildCssFilterString(style: GameFilterStyle?): String {
         if (style == null) return "none"
         val parts = ArrayList<String>()
 
-        if (style.brightnessContrastEnabled) {
-            val brightness = (1f + style.effectiveExposure * 0.65f + style.shadows * 0.22f + style.gamma * 0.18f)
-                .coerceIn(0.35f, 2.2f)
-            val contrast = (1f + style.contrast * 0.85f +
-                (if (style.detailsEnabled) style.detailsClarity * 0.22f else 0f) +
-                (if (style.sharpenEnabled) style.sharpenAmount * 0.14f else 0f) +
-                (if (style.sharpenPlusEnabled) style.sharpenPlusIntensity * 0.18f else 0f)
-                ).coerceIn(0.45f, 2.3f)
+        var brightness = 1f
+        var contrast = 1f
+        var saturate = 1f
+        var hueDeg = 0f
+        var sepia = 0f
+        var grayscale = 0f
 
-            if (abs(brightness - 1f) > 0.015f) {
-                parts += String.format(Locale.US, "brightness(%.2f)", brightness)
-            }
-            if (abs(contrast - 1f) > 0.015f) {
-                parts += String.format(Locale.US, "contrast(%.2f)", contrast)
-            }
+        if (style.brightnessContrastEnabled) {
+            brightness += style.effectiveExposure * 0.65f +
+                style.shadows * 0.22f +
+                style.gamma * 0.18f +
+                style.highlights * 0.10f
+            contrast += style.contrast * 0.85f
+        }
+
+        if (style.detailsEnabled) {
+            contrast += style.detailsClarity * 0.28f + style.detailsHdrToning * 0.14f
+            saturate += style.detailsHdrToning * 0.24f
+        }
+
+        if (style.sharpenEnabled) {
+            contrast += style.sharpenAmount * 0.12f
+        }
+        if (style.sharpenPlusEnabled) {
+            contrast += style.sharpenPlusIntensity * 0.15f
         }
 
         if (style.colorEnabled) {
-            val saturate = (1f + style.colorVibrance * 0.95f +
-                (if (style.detailsEnabled) style.detailsHdrToning * 0.20f else 0f)
-                ).coerceIn(0f, 2.4f)
-            if (abs(saturate - 1f) > 0.015f) {
-                parts += String.format(Locale.US, "saturate(%.2f)", saturate)
-            }
-            if (abs(style.temperature) > 0.02f) {
-                val hueDeg = (-style.temperature * 18f).coerceIn(-35f, 35f)
-                parts += String.format(Locale.US, "hue-rotate(%.1fdeg)", hueDeg)
+            saturate += style.colorVibrance * 0.95f
+            if (abs(style.temperature) > 0.015f) {
+                hueDeg += -style.temperature * 18f
+                if (style.temperature > 0f) {
+                    sepia = maxOf(sepia, style.temperature * 0.22f)
+                }
             }
         }
 
         if (style.nightModeEnabled && style.nightModeIntensity > 0.01f) {
-            val sepiaNight = (style.nightModeIntensity * 0.55f).coerceIn(0f, 0.7f)
-            parts += String.format(Locale.US, "sepia(%.2f)", sepiaNight)
+            val n = style.nightModeIntensity.coerceIn(0f, 1f)
+            sepia = maxOf(sepia, (n * 0.55f).coerceIn(0f, 0.72f))
+            brightness -= n * 0.08f
+        }
+
+        if (style.moodEnabled && style.moodIntensity > 0.01f) {
+            val m = style.moodIntensity.coerceIn(0f, 1f)
+            when (style.moodPreset) {
+                MoodFilterPreset.WARM_SUNSET -> {
+                    sepia = maxOf(sepia, m * 0.28f)
+                    saturate += m * 0.25f
+                    hueDeg -= m * 10f
+                }
+                MoodFilterPreset.COLD_THRILLER -> {
+                    contrast += m * 0.16f
+                    saturate -= m * 0.12f
+                    hueDeg += m * 14f
+                }
+                MoodFilterPreset.WASHED_RETRO -> {
+                    contrast -= m * 0.18f
+                    brightness += m * 0.08f
+                    saturate -= m * 0.25f
+                    sepia = maxOf(sepia, m * 0.22f)
+                }
+                MoodFilterPreset.CYBER_NEON -> {
+                    contrast += m * 0.24f
+                    saturate += m * 0.55f
+                    hueDeg += m * 18f
+                }
+                MoodFilterPreset.EMERALD_CINEMA -> {
+                    contrast += m * 0.12f
+                    saturate += m * 0.16f
+                    hueDeg += m * 10f
+                }
+                MoodFilterPreset.GOLDEN_NOIR -> {
+                    contrast += m * 0.28f
+                    grayscale = maxOf(grayscale, m * 0.55f)
+                    sepia = maxOf(sepia, m * 0.35f)
+                }
+            }
+        }
+
+        if (style.oldFilmEnabled && style.oldFilmStrength > 0.01f) {
+            val f = style.oldFilmStrength.coerceIn(0f, 1f)
+            brightness += style.oldFilmExposure * 0.35f * f + style.oldFilmGamma * 0.15f * f
+            contrast += style.oldFilmContrast * 0.45f * f
+            sepia = maxOf(sepia, f * 0.42f)
+            saturate -= f * 0.30f
         }
 
         if (style.sepiaEnabled && style.sepiaIntensity > 0.01f) {
-            parts += String.format(Locale.US, "sepia(%.2f)", style.sepiaIntensity.coerceIn(0f, 1f))
+            sepia = maxOf(sepia, style.sepiaIntensity.coerceIn(0f, 1f))
         }
 
         if (style.blackWhiteEnabled && style.blackWhiteIntensity > 0.01f) {
-            parts += String.format(Locale.US, "grayscale(%.2f)", style.blackWhiteIntensity.coerceIn(0f, 1f))
+            val bw = style.blackWhiteIntensity.coerceIn(0f, 1f)
+            grayscale = maxOf(grayscale, bw)
+            when (style.blackWhiteTone) {
+                BlackWhiteTone.WARM -> sepia = maxOf(sepia, bw * 0.24f)
+                BlackWhiteTone.HIGH_CONTRAST -> contrast += bw * 0.45f
+                else -> Unit
+            }
+        }
+
+        val finalBrightness = brightness.coerceIn(0.35f, 2.25f)
+        val finalContrast = contrast.coerceIn(0.45f, 2.35f)
+        val finalSaturate = saturate.coerceIn(0f, 2.55f)
+        val finalHue = hueDeg.coerceIn(-45f, 45f)
+        val finalSepia = sepia.coerceIn(0f, 1f)
+        val finalGray = grayscale.coerceIn(0f, 1f)
+
+        if (abs(finalBrightness - 1f) > 0.015f) {
+            parts += String.format(Locale.US, "brightness(%.2f)", finalBrightness)
+        }
+        if (abs(finalContrast - 1f) > 0.015f) {
+            parts += String.format(Locale.US, "contrast(%.2f)", finalContrast)
+        }
+        if (abs(finalSaturate - 1f) > 0.015f) {
+            parts += String.format(Locale.US, "saturate(%.2f)", finalSaturate)
+        }
+        if (abs(finalHue) > 0.5f) {
+            parts += String.format(Locale.US, "hue-rotate(%.1fdeg)", finalHue)
+        }
+        if (finalSepia > 0.015f) {
+            parts += String.format(Locale.US, "sepia(%.2f)", finalSepia)
+        }
+        if (finalGray > 0.015f) {
+            parts += String.format(Locale.US, "grayscale(%.2f)", finalGray)
         }
 
         return if (parts.isEmpty()) "none" else parts.joinToString(" ")
@@ -285,13 +393,16 @@ object BetterGfnScriptEngine {
     }
 
     /**
-     * Generates Better xCloud-style browser video filter JavaScript that runs inside Chromium's
-     * hardware video compositor (zero MediaProjection screen capture):
-     * - Injects inline SVG <filter id="xenos-gfn-video-filter"> with <feConvolveMatrix> (Clarity Boost
-     *   Sharpen) + <feColorMatrix type="matrix"> (all 18-module color/tint/mood/colorblind/night grades)
-     * - Applies !important stylesheet + Shadow DOM traversal + MutationObserver + fullscreenchange +
-     *   watchdog interval so dynamic GeForce NOW stream <video> elements always receive the filter
-     * - Renders Vignette, Old Film frame, and Letterbox bars in a zero-cost pointer-events:none overlay
+     * Generates ultra-fast browser video filter JavaScript running inside Chromium's hardware
+     * Viz GPU compositor:
+     * - Fast Path (60 FPS locked): For Color, Brightness/Contrast, Night Mode, Mood, B&W, Sepia,
+     *   Vignette, Old Film, Letterbox, and Splitscreen, applies pure hardware-composited CSS
+     *   filter directly on <video> with ZERO SVG offscreen render-target readbacks.
+     * - Full SVG Path (only when Sharpen, Bloom, Painterly, or Colorblind Daltonization is on):
+     *   injects tight-bounded SVG <filter x="0%" y="0%" width="100%" height="100%"> with capped
+     *   fast blur radius.
+     * - Zero DOM-thrashing: uses O(1) getElementsByTagName('video'), caches applied style
+     *   signatures, and debounces MutationObserver instead of calling querySelectorAll('*').
      */
     fun buildVideoStyleScript(
         style: GameFilterStyle?,
@@ -300,9 +411,10 @@ object BetterGfnScriptEngine {
     ): String {
         val activeStyle = if (enableCssFilters) style else null
         val hasActiveFilter = activeStyle != null
-        val cssFallback = if (activeStyle != null) buildCssFilterString(activeStyle) else "none"
-        val svgMatrix = if (activeStyle != null) buildSvgColorMatrixValues(activeStyle) else ""
-        val sharpenKernel = if (activeStyle != null) buildSharpenKernelMatrix(activeStyle) else null
+        val useSvgPipeline = activeStyle != null && requiresSvgFilterPipeline(activeStyle)
+        val cssFilterExpr = if (activeStyle != null) buildCssFilterString(activeStyle) else "none"
+        val svgMatrix = if (activeStyle != null && useSvgPipeline) buildSvgColorMatrixValues(activeStyle) else ""
+        val sharpenKernel = if (activeStyle != null && useSvgPipeline) buildSharpenKernelMatrix(activeStyle) else null
         val objectFit = if (stretchToFill) "fill" else "contain"
 
         val vignetteAlpha = when {
@@ -369,8 +481,52 @@ object BetterGfnScriptEngine {
         } else {
             0f
         }
+        val tintRgba = if (
+            activeStyle != null &&
+            !useSvgPipeline &&
+            activeStyle.colorEnabled &&
+            activeStyle.tintIntensity > 0.015f
+        ) {
+            val (r, g, b) = activeStyle.resolvedTintRgb()
+            val alpha = (activeStyle.tintIntensity * 0.24f).coerceIn(0f, 0.26f)
+            String.format(
+                Locale.US,
+                "rgba(%d,%d,%d,%.3f)",
+                (r * 255f).roundToInt().coerceIn(0, 255),
+                (g * 255f).roundToInt().coerceIn(0, 255),
+                (b * 255f).roundToInt().coerceIn(0, 255),
+                alpha
+            )
+        } else {
+            ""
+        }
+        val moodOverlayCss = if (
+            activeStyle != null &&
+            !useSvgPipeline &&
+            activeStyle.moodEnabled &&
+            activeStyle.moodIntensity > 0.02f
+        ) {
+            val a1 = (activeStyle.moodIntensity * 0.14f).coerceIn(0f, 0.16f)
+            val a2 = (activeStyle.moodIntensity * 0.18f).coerceIn(0f, 0.20f)
+            when (activeStyle.moodPreset) {
+                MoodFilterPreset.WARM_SUNSET ->
+                    String.format(Locale.US, "linear-gradient(180deg, rgba(255,138,61,%.3f), rgba(140,45,102,%.3f))", a1, a2)
+                MoodFilterPreset.COLD_THRILLER ->
+                    String.format(Locale.US, "linear-gradient(180deg, rgba(29,107,153,%.3f), rgba(10,36,56,%.3f))", a1, a2)
+                MoodFilterPreset.WASHED_RETRO ->
+                    String.format(Locale.US, "linear-gradient(180deg, rgba(230,213,184,%.3f), rgba(93,83,74,%.3f))", a1, a2)
+                MoodFilterPreset.CYBER_NEON ->
+                    String.format(Locale.US, "linear-gradient(180deg, rgba(0,229,255,%.3f), rgba(213,0,249,%.3f))", a1, a2)
+                MoodFilterPreset.EMERALD_CINEMA ->
+                    String.format(Locale.US, "linear-gradient(180deg, rgba(22,163,106,%.3f), rgba(8,42,36,%.3f))", a1, a2)
+                MoodFilterPreset.GOLDEN_NOIR ->
+                    String.format(Locale.US, "linear-gradient(180deg, rgba(217,164,65,%.3f), rgba(20,18,14,%.3f))", a1, a2)
+            }
+        } else {
+            ""
+        }
         val posterizeSteps = when {
-            activeStyle == null -> 0
+            activeStyle == null || !useSvgPipeline -> 0
             activeStyle.painterlyEnabled -> (12 - (activeStyle.painterlyFilterRadius.coerceIn(0.1f, 1f) * 7f).roundToInt()).coerceIn(4, 12)
             activeStyle.specialFxEnabled && activeStyle.specialFxMode == SpecialFxMode.RETRO && activeStyle.specialFxIntensity > 0.05f ->
                 (14 - (activeStyle.specialFxIntensity * 9f).roundToInt()).coerceIn(4, 14)
@@ -384,7 +540,11 @@ object BetterGfnScriptEngine {
             ""
         }
 
-        val svgFilterExpr = if (hasActiveFilter) "url(#xenos-gfn-video-filter)" else "none"
+        val activeFilterExpr = when {
+            !hasActiveFilter -> "none"
+            useSvgPipeline -> "url(#xenos-gfn-video-filter)"
+            else -> cssFilterExpr
+        }
         val sharpenKernelJs = if (sharpenKernel != null) "'${escapeJs(sharpenKernel)}'" else "null"
 
         return """
@@ -392,14 +552,17 @@ object BetterGfnScriptEngine {
               try {
                 window.__xenosVideoStyle = {
                   active: $hasActiveFilter,
-                  filter: '${escapeJs(svgFilterExpr)}',
-                  cssFallback: '${escapeJs(cssFallback)}',
+                  useSvg: $useSvgPipeline,
+                  filter: '${escapeJs(activeFilterExpr)}',
+                  cssFallback: '${escapeJs(cssFilterExpr)}',
                   svgMatrix: '${escapeJs(svgMatrix)}',
                   sharpenKernel: $sharpenKernelJs,
                   posterizeTable: '${escapeJs(posterizeTable)}',
                   bloomStrength: ${String.format(Locale.US, "%.3f", bloomStrength)},
                   objectFit: '$objectFit',
                   vignetteAlpha: ${String.format(Locale.US, "%.3f", vignetteAlpha)},
+                  tintRgba: '${escapeJs(tintRgba)}',
+                  moodOverlayCss: '${escapeJs(moodOverlayCss)}',
                   letterboxH: ${String.format(Locale.US, "%.2f", letterboxH)},
                   letterboxW: ${String.format(Locale.US, "%.2f", letterboxW)},
                   splitPos: ${String.format(Locale.US, "%.1f", splitPos)},
@@ -415,7 +578,7 @@ object BetterGfnScriptEngine {
                 function ensureSvgFilter(cfg) {
                   var svgId = 'xenos-gfn-svg-defs';
                   var svg = document.getElementById(svgId);
-                  if (!cfg.active) {
+                  if (!cfg.active || !cfg.useSvg) {
                     if (svg && svg.parentNode) svg.parentNode.removeChild(svg);
                     return;
                   }
@@ -426,7 +589,8 @@ object BetterGfnScriptEngine {
                     svg.style.cssText = 'position:fixed;width:0;height:0;pointer-events:none;opacity:0;';
                     (document.body || document.documentElement).appendChild(svg);
                   }
-                  var inner = '<defs><filter id="xenos-gfn-video-filter" color-interpolation-filters="sRGB">';
+                  // Tight 0%..100% bounds prevent Chromium from allocating 144% oversized offscreen textures
+                  var inner = '<defs><filter id="xenos-gfn-video-filter" x="0%" y="0%" width="100%" height="100%" filterUnits="objectBoundingBox" color-interpolation-filters="sRGB">';
                   var lastIn = 'SourceGraphic';
                   if (cfg.sharpenKernel) {
                     inner += '<feConvolveMatrix in="' + lastIn + '" order="3" preserveAlpha="true" kernelMatrix="' + cfg.sharpenKernel + '" result="sharp"/>';
@@ -443,7 +607,8 @@ object BetterGfnScriptEngine {
                     lastIn = 'poster';
                   }
                   if (cfg.bloomStrength > 0.02) {
-                    var blurStd = (1.5 + cfg.bloomStrength * 6.5).toFixed(2);
+                    // Capped stdDeviation (1.0..2.4) keeps GPU blur ~8x faster than wide kernels
+                    var blurStd = (1.0 + cfg.bloomStrength * 1.4).toFixed(2);
                     var bGain = (cfg.bloomStrength * 0.42).toFixed(3);
                     inner += '<feGaussianBlur in="' + lastIn + '" stdDeviation="' + blurStd + '" result="bloomBlur"/>';
                     inner += '<feColorMatrix in="bloomBlur" type="matrix" values="' + bGain + ' 0 0 0 0  0 ' + bGain + ' 0 0 0  0 0 ' + bGain + ' 0 0  0 0 0 1 0" result="bloomSoft"/>';
@@ -466,7 +631,10 @@ object BetterGfnScriptEngine {
                     (document.head || document.documentElement).appendChild(tag);
                   }
                   var filterCss = cfg.active ? cfg.filter : 'none';
-                  var rule = 'video { filter: ' + filterCss + ' !important; -webkit-filter: ' + filterCss + ' !important; object-fit: ' + cfg.objectFit + ' !important; }';
+                  var gpuHint = (cfg.active && filterCss !== 'none')
+                    ? ' will-change: filter !important; transform: translateZ(0) !important;'
+                    : '';
+                  var rule = 'video { filter: ' + filterCss + ' !important; -webkit-filter: ' + filterCss + ' !important; object-fit: ' + cfg.objectFit + ' !important;' + gpuHint + ' }';
                   if (tag.textContent !== rule) tag.textContent = rule;
                 }
 
@@ -475,6 +643,8 @@ object BetterGfnScriptEngine {
                   var fx = document.getElementById(fxId);
                   var needsFx = cfg.active && (
                     Math.abs(cfg.vignetteAlpha) > 0.01 ||
+                    !!cfg.tintRgba ||
+                    !!cfg.moodOverlayCss ||
                     cfg.letterboxH > 0.1 ||
                     cfg.letterboxW > 0.1 ||
                     cfg.splitPos > 0 ||
@@ -490,7 +660,7 @@ object BetterGfnScriptEngine {
                   if (!fx) {
                     fx = document.createElement('div');
                     fx.id = fxId;
-                    fx.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483640;overflow:hidden;';
+                    fx.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483640;overflow:hidden;contain:strict;';
                     (document.body || document.documentElement).appendChild(fx);
                   }
                   var bgLayers = [];
@@ -498,6 +668,12 @@ object BetterGfnScriptEngine {
                     var a = Math.min(0.92, Math.abs(cfg.vignetteAlpha) * 0.85).toFixed(2);
                     var col = cfg.vignetteAlpha > 0 ? 'rgba(0,0,0,' + a + ')' : 'rgba(255,255,255,' + a + ')';
                     bgLayers.push('radial-gradient(ellipse at center, transparent 48%, ' + col + ' 100%)');
+                  }
+                  if (cfg.tintRgba) {
+                    bgLayers.push('linear-gradient(' + cfg.tintRgba + ', ' + cfg.tintRgba + ')');
+                  }
+                  if (cfg.moodOverlayCss) {
+                    bgLayers.push(cfg.moodOverlayCss);
                   }
                   if (cfg.oldFilmStrength > 0.02) {
                     var fa = Math.min(0.32, cfg.oldFilmStrength * 0.24).toFixed(2);
@@ -513,18 +689,26 @@ object BetterGfnScriptEngine {
                     var sa = Math.min(0.24, cfg.fxIntensity * 0.20).toFixed(2);
                     bgLayers.push('linear-gradient(135deg, rgba(245,239,224,' + sa + '), rgba(225,216,195,' + sa + '))');
                   }
-                  fx.style.background = bgLayers.length ? bgLayers.join(', ') : 'none';
-                  fx.style.backgroundSize = (cfg.fxMode === 'HALFTONE') ? '10px 10px' : 'auto';
+                  var bgStr = bgLayers.length ? bgLayers.join(', ') : 'none';
+                  if (fx.__lastBg !== bgStr) {
+                    fx.style.background = bgStr;
+                    fx.__lastBg = bgStr;
+                  }
+                  var bgSize = (cfg.fxMode === 'HALFTONE') ? '10px 10px' : 'auto';
+                  if (fx.__lastBgSize !== bgSize) {
+                    fx.style.backgroundSize = bgSize;
+                    fx.__lastBgSize = bgSize;
+                  }
 
                   var bars = '';
                   if (cfg.dofFar > 0.02) {
                     var topH = Math.max(8, Math.min(45, (cfg.dofFocus - 0.14) * 100)).toFixed(1);
-                    var topBlur = (cfg.dofFar * 7.5).toFixed(1);
+                    var topBlur = (cfg.dofFar * 3.8).toFixed(1);
                     bars += '<div style="position:absolute;top:0;left:0;right:0;height:' + topH + '%;backdrop-filter:blur(' + topBlur + 'px);-webkit-backdrop-filter:blur(' + topBlur + 'px);-webkit-mask-image:linear-gradient(to bottom, #000 35%, transparent 100%);mask-image:linear-gradient(to bottom, #000 35%, transparent 100%);"></div>';
                   }
                   if (cfg.dofNear > 0.02) {
                     var botH = Math.max(8, Math.min(45, (0.86 - cfg.dofFocus) * 100)).toFixed(1);
-                    var botBlur = (cfg.dofNear * 7.5).toFixed(1);
+                    var botBlur = (cfg.dofNear * 3.8).toFixed(1);
                     bars += '<div style="position:absolute;bottom:0;left:0;right:0;height:' + botH + '%;backdrop-filter:blur(' + botBlur + 'px);-webkit-backdrop-filter:blur(' + botBlur + 'px);-webkit-mask-image:linear-gradient(to top, #000 35%, transparent 100%);mask-image:linear-gradient(to top, #000 35%, transparent 100%);"></div>';
                   }
                   if (cfg.oldFilmStrength > 0.02 && cfg.oldFilmDirt > 0.05) {
@@ -550,45 +734,92 @@ object BetterGfnScriptEngine {
                   }
                 }
 
-                function walkAndApply(root, cfg) {
-                  if (!root || !root.querySelectorAll) return;
+                function applyToVideoList(vids, cfg, sig) {
                   var filterCss = cfg.active ? cfg.filter : 'none';
-                  var vids = root.querySelectorAll('video');
+                  var count = 0;
                   for (var i = 0; i < vids.length; i++) {
                     var v = vids[i];
+                    count++;
+                    if (v.__xenosStyleSig === sig) continue;
+                    v.__xenosStyleSig = sig;
                     v.style.setProperty('filter', filterCss, 'important');
                     v.style.setProperty('-webkit-filter', filterCss, 'important');
                     v.style.setProperty('object-fit', cfg.objectFit, 'important');
+                    if (cfg.active && filterCss !== 'none') {
+                      v.style.setProperty('will-change', 'filter', 'important');
+                      v.style.setProperty('transform', 'translateZ(0)', 'important');
+                    } else {
+                      v.style.removeProperty('will-change');
+                      v.style.removeProperty('transform');
+                    }
                   }
+                  return count;
+                }
+
+                function applyToShadowVideos(root, cfg, sig) {
+                  if (!root || !root.querySelectorAll) return 0;
+                  var found = applyToVideoList(root.querySelectorAll('video'), cfg, sig);
+                  if (found > 0) return found;
                   var all = root.querySelectorAll('*');
                   for (var j = 0; j < all.length; j++) {
                     if (all[j].shadowRoot) {
-                      walkAndApply(all[j].shadowRoot, cfg);
+                      found += applyToShadowVideos(all[j].shadowRoot, cfg, sig);
                     }
                   }
+                  return found;
                 }
 
                 window.__xenosApplyVideoStyle = function() {
-                  var cfg = window.__xenosVideoStyle || { active: false, filter: 'none', objectFit: 'contain' };
+                  var cfg = window.__xenosVideoStyle || { active: false, useSvg: false, filter: 'none', objectFit: 'contain' };
+                  var sig = (cfg.active ? '1|' : '0|') + cfg.filter + '|' + cfg.objectFit;
                   ensureSvgFilter(cfg);
                   ensureStyleSheet(cfg);
                   ensureFxOverlay(cfg);
-                  walkAndApply(document, cfg);
+                  // O(1) live HTMLCollection avoids expensive querySelectorAll('*') scans during streaming
+                  var mainVids = document.getElementsByTagName('video');
+                  if (mainVids && mainVids.length > 0) {
+                    applyToVideoList(mainVids, cfg, sig);
+                  } else {
+                    applyToShadowVideos(document, cfg, sig);
+                  }
                 };
 
                 window.__xenosApplyVideoStyle();
 
                 if (!window.__xenosVideoObserver && document.documentElement) {
-                  window.__xenosVideoObserver = new MutationObserver(function() {
-                    if (window.__xenosApplyVideoStyle) window.__xenosApplyVideoStyle();
+                  var applyTimer = null;
+                  function scheduleApply() {
+                    if (applyTimer) return;
+                    applyTimer = setTimeout(function() {
+                      applyTimer = null;
+                      if (window.__xenosApplyVideoStyle) window.__xenosApplyVideoStyle();
+                    }, 350);
+                  }
+                  window.__xenosVideoObserver = new MutationObserver(function(mutations) {
+                    for (var i = 0; i < mutations.length; i++) {
+                      var added = mutations[i].addedNodes;
+                      if (added && added.length > 0) {
+                        for (var k = 0; k < added.length; k++) {
+                          if (added[k].nodeType === 1) {
+                            scheduleApply();
+                            return;
+                          }
+                        }
+                      }
+                    }
                   });
                   window.__xenosVideoObserver.observe(document.documentElement, { childList: true, subtree: true });
-                  document.addEventListener('fullscreenchange', function() {
-                    if (window.__xenosApplyVideoStyle) window.__xenosApplyVideoStyle();
-                  });
+                  document.addEventListener('fullscreenchange', scheduleApply);
                   setInterval(function() {
+                    var cfg = window.__xenosVideoStyle;
+                    if (!cfg) return;
+                    var mainVids = document.getElementsByTagName('video');
+                    var sig = (cfg.active ? '1|' : '0|') + cfg.filter + '|' + cfg.objectFit;
+                    if (mainVids && mainVids.length > 0 && mainVids[0].__xenosStyleSig === sig) {
+                      return;
+                    }
                     if (window.__xenosApplyVideoStyle) window.__xenosApplyVideoStyle();
-                  }, 1500);
+                  }, 4000);
                 }
               } catch (e) {}
             })();

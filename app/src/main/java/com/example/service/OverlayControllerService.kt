@@ -880,7 +880,7 @@ class OverlayControllerService : Service() {
                     overlayWindowType(),
                     WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                    PixelFormat.TRANSLUCENT
+                    PixelFormat.OPAQUE
                 ).apply {
                     gravity = Gravity.TOP or Gravity.START
                     applyFullScreenOverlayFlags(this)
@@ -900,6 +900,13 @@ class OverlayControllerService : Service() {
             }
         } else {
             removeGpuFilterOverlay()
+        }
+
+        // Skip adding an empty full-screen translucent Compose window when GPU shader handles
+        // all active effects and Stickers are disabled (saves a full-screen SurfaceFlinger pass).
+        if (gpuActive && !activeStyle.stickersEnabled) {
+            removeScreenFilterOverlay()
+            return
         }
 
         // 2. Compose Sticker / Quick Optical Overlay Layer

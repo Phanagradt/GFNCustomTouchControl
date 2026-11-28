@@ -91,6 +91,7 @@ class FreestyleGlTextureView(
     private var uTexelSize = -1
     private var uTime = -1
     private var uFilterEnabled = -1
+    private var uNeedsNeighbors = -1
 
     private var uSharpenParams = -1      // (enabled, amount, ignoreGrain, 0)
     private var uSharpenPlusParams = -1  // (enabled, intensity, textureDetails, 0)
@@ -115,13 +116,18 @@ class FreestyleGlTextureView(
     private var uPainterlyParams = -1    // (enabled, edgeSharpening, filterRadius, edgeThreshold)
     private var uLetterboxParams = -1    // (enabled, height, width, 0)
 
+    @Volatile
+    private var styleDirty = true
+    private var needsAnimatedTime = false
+
     init {
-        isOpaque = false
+        isOpaque = (mode == Mode.LIVE_PROJECTION)
         surfaceTextureListener = this
     }
 
     fun setFilterStyle(style: GameFilterStyle?) {
         currentStyle = style
+        styleDirty = true
         requestGlRender()
     }
 
@@ -178,10 +184,11 @@ class FreestyleGlTextureView(
         viewportH = height.coerceAtLeast(1)
         glHandler?.post {
             if (mode == Mode.LIVE_PROJECTION) {
-                contentW = viewportW
-                contentH = viewportH
-                runCatching { inputSurfaceTexture?.setDefaultBufferSize(viewportW, viewportH) }
-                onProjectionSurfaceReady?.invoke(inputSurface, viewportW, viewportH)
+                val (capW, capH) = computeGpuFilterCaptureSize(viewportW, viewportH)
+                contentW = capW
+                contentH = capH
+                runCatching { inputSurfaceTexture?.setDefaultBufferSize(capW, capH) }
+                onProjectionSurfaceReady?.invoke(inputSurface, capW, capH)
             }
             drawFrameOnGlThread()
         }
@@ -279,6 +286,14 @@ class FreestyleGlTextureView(
         uTexelSize = GLES20.glGetUniformLocation(programId, "uTexelSize")
         uTime = GLES20.glGetUniformLocation(programId, "uTime")
         uFilterEnabled = GLES20.glGetUniformLocation(programId, "uFilterEnabled")
+        uNeedsNeighbors = GLES20.glGetUniformLocation(programId, "uNeedsNeighbors")
+
+        // Disable unused GL pipeline stages once so mobile TBDR GPUs skip depth/blend/dither work
+        GLES20.glDisable(GLES20.GL_DEPTH_TEST)
+        GLES20.glDisable(GLES20.GL_BLEND)
+        GLES20.glDisable(GLES20.GL_CULL_FACE)
+        GLES20.glDisable(GLES20.GL_DITHER)
+        styleDirty = true
 
         uSharpenParams = GLES20.glGetUniformLocation(programId, "uSharpenParams")
         uSharpenPlusParams = GLES20.glGetUniformLocation(programId, "uSharpenPlusParams")
@@ -318,10 +333,11 @@ class FreestyleGlTextureView(
         GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
 
         if (mode == Mode.LIVE_PROJECTION) {
-            contentW = width
-            contentH = height
+            val (capW, capH) = computeGpuFilterCaptureSize(width, height)
+            contentW = capW
+            contentH = capH
             val st = SurfaceTexture(textureId).apply {
-                setDefaultBufferSize(width, height)
+                setDefaultBufferSize(capW, capH)
                 setOnFrameAvailableListener({
                     requestGlRenderInternal()
                 }, glHandler)
@@ -329,7 +345,7 @@ class FreestyleGlTextureView(
             inputSurfaceTexture = st
             val surf = Surface(st)
             inputSurface = surf
-            onProjectionSurfaceReady?.invoke(surf, width, height)
+            onProjectionSurfaceReady?.invoke(surf, capW, capH)
         } else {
             bitmapDirty = true
         }
@@ -360,8 +376,6 @@ class FreestyleGlTextureView(
         }
 
         GLES20.glViewport(0, 0, viewportW, viewportH)
-        GLES20.glClearColor(0f, 0f, 0f, 0f)
-        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         GLES20.glUseProgram(programId)
 
         val target = if (mode == Mode.LIVE_PROJECTION) {
@@ -378,10 +392,14 @@ class FreestyleGlTextureView(
             1f / contentW.coerceAtLeast(64).toFloat(),
             1f / contentH.coerceAtLeast(64).toFloat()
         )
-        val elapsedSec = ((SystemClock.uptimeMillis() - startTimeMs) % 600_000L) / 1000f
-        GLES20.glUniform1f(uTime, elapsedSec)
-
-        uploadStyleUniforms(currentStyle)
+        if (styleDirty) {
+            styleDirty = false
+            uploadStyleUniforms(currentStyle)
+        }
+        if (needsAnimatedTime) {
+            val elapsedSec = ((SystemClock.uptimeMillis() - startTimeMs) % 600_000L) / 1000f
+            GLES20.glUniform1f(uTime, elapsedSec)
+        }
 
         vertexBuffer.position(0)
         GLES20.glEnableVertexAttribArray(aPosition)
@@ -413,9 +431,14 @@ class FreestyleGlTextureView(
     private fun uploadStyleUniforms(style: GameFilterStyle?) {
         if (style == null) {
             GLES20.glUniform1f(uFilterEnabled, 0f)
+            GLES20.glUniform1f(uNeedsNeighbors, 0f)
+            needsAnimatedTime = false
             return
         }
         GLES20.glUniform1f(uFilterEnabled, 1f)
+        val wantsNeighbors = styleRequiresNeighborTaps(style)
+        GLES20.glUniform1f(uNeedsNeighbors, if (wantsNeighbors) 1f else 0f)
+        needsAnimatedTime = style.oldFilmEnabled && style.oldFilmDirtStrength > 0.005f
 
         GLES20.glUniform4f(
             uSharpenParams,
@@ -612,6 +635,43 @@ class FreestyleGlTextureView(
     }
 
     companion object {
+        const val GPU_FILTER_MAX_LONG_EDGE = 1280
+
+        /**
+         * Scales the live MediaProjection GPU filter VirtualDisplay down to a crisp 720p-class
+         * capture buffer (preserving exact aspect ratio and even dimensions). Cuts pixel fillrate
+         * by 3x-5x on 1080p/1440p displays while GL_LINEAR hardware upscaling keeps gameplay sharp.
+         */
+        fun computeGpuFilterCaptureSize(
+            displayWidth: Int,
+            displayHeight: Int,
+            maxLongEdge: Int = GPU_FILTER_MAX_LONG_EDGE
+        ): Pair<Int, Int> {
+            val w = displayWidth.coerceAtLeast(320)
+            val h = displayHeight.coerceAtLeast(320)
+            val longEdge = maxOf(w, h)
+            if (longEdge <= maxLongEdge) {
+                return (w and 1.inv()).coerceAtLeast(320) to (h and 1.inv()).coerceAtLeast(320)
+            }
+            val scale = maxLongEdge.toFloat() / longEdge.toFloat()
+            val outW = ((w * scale).toInt() and 1.inv()).coerceAtLeast(320)
+            val outH = ((h * scale).toInt() and 1.inv()).coerceAtLeast(320)
+            return outW to outH
+        }
+
+        /**
+         * Returns true only when an active filter module actually reads 4-way neighbor texels.
+         * Keeping this false for pure color/tone grading cuts OES YUV texture fetches from 6 -> 1.
+         */
+        fun styleRequiresNeighborTaps(style: GameFilterStyle): Boolean {
+            if (style.sharpenEnabled && style.sharpenAmount > 0.005f) return true
+            if (style.sharpenPlusEnabled && (style.sharpenPlusIntensity > 0.005f || abs(style.sharpenPlusTextureDetails) > 0.005f)) return true
+            if (style.detailsEnabled && style.detailsSharpen > 0.005f) return true
+            if (style.painterlyEnabled) return true
+            if (style.specialFxEnabled && style.specialFxMode == com.example.model.SpecialFxMode.SKETCH && style.specialFxIntensity > 0.005f) return true
+            return false
+        }
+
         // Interleaved X, Y, U, V (top-left origin for Android Bitmap & SurfaceTexture)
         private val QUAD_VERTICES = floatArrayOf(
             -1f, -1f, 0f, 1f,
@@ -644,6 +704,7 @@ class FreestyleGlTextureView(
             uniform vec2 uTexelSize;
             uniform float uTime;
             uniform float uFilterEnabled;
+            uniform float uNeedsNeighbors;
 
             uniform vec4 uSharpenParams;      // (enabled, amount, ignoreGrain, 0)
             uniform vec4 uSharpenPlusParams;  // (enabled, intensity, textureDetails, 0)
@@ -765,22 +826,28 @@ class FreestyleGlTextureView(
                     }
                 }
 
-                // Special FX: Retro Pixelation UV snap
+                // Special FX: Retro Pixelation UV snap (reuse origColor when off to save a full-screen OES fetch!)
                 vec2 workUv = uv;
+                vec3 col = origColor;
                 if (uSpecialFxParams.x > 0.5 && uSpecialFxParams.x < 1.5 && uSpecialFxParams.y > 0.01) {
                     float pixSize = mix(1.0, 9.0, uSpecialFxParams.y);
                     vec2 stepUv = uTexelSize * pixSize;
                     workUv = (floor(uv / stepUv) + 0.5) * stepUv;
+                    col = sampleTex(workUv);
                 }
 
-                vec3 col = sampleTex(workUv);
-
-                // Neighbor taps (reused across Sharpen, Sharpen+, Details, Painterly, Sketch)
+                // Conditional 4-way neighbor taps: skipped completely for pure Color/Brightness/Mood/Night filters!
                 vec2 tx = uTexelSize;
-                vec3 nL = sampleTex(workUv + vec2(-tx.x, 0.0));
-                vec3 nR = sampleTex(workUv + vec2( tx.x, 0.0));
-                vec3 nU = sampleTex(workUv + vec2(0.0, -tx.y));
-                vec3 nD = sampleTex(workUv + vec2(0.0,  tx.y));
+                vec3 nL = col;
+                vec3 nR = col;
+                vec3 nU = col;
+                vec3 nD = col;
+                if (uNeedsNeighbors > 0.5) {
+                    nL = sampleTex(workUv + vec2(-tx.x, 0.0));
+                    nR = sampleTex(workUv + vec2( tx.x, 0.0));
+                    nU = sampleTex(workUv + vec2(0.0, -tx.y));
+                    nD = sampleTex(workUv + vec2(0.0,  tx.y));
+                }
 
                 // 3H. Painterly (Kuwahara-style smoothing + cel-shaded edge outline)
                 if (uPainterlyParams.x > 0.5) {
