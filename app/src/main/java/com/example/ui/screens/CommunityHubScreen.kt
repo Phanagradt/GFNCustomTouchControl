@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -109,10 +110,18 @@ import com.example.model.CommunityConstants
 import com.example.model.CommunityTopicPost
 import com.example.model.CommunityUserProfile
 import com.example.model.ControllerNotation
+import com.example.model.CosmeticItem
+import com.example.model.CosmeticItemType
 import com.example.model.PostComment
 import com.example.model.ProfileClipPost
 import com.example.model.ThemeComment
+import com.example.ui.components.AdminRoleBadge
+import com.example.ui.components.CosmeticShopAndWardrobeSheet
+import com.example.ui.components.FramedCommunityAvatar
 import com.example.ui.components.LayoutStudioHelper
+import com.example.ui.components.ProfileNameTagChip
+import com.example.ui.components.ProfileRoleCornerBadges
+import com.example.ui.components.ProfileVerificationIconBadge
 import com.example.ui.components.VirtualControlCanvasItem
 import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.JetBrainsMonoFontFamily
@@ -185,10 +194,15 @@ fun CommunityHubScreen(
     myProfileThemes: List<ButtonThemePreset>,
     myProfilePosts: List<CommunityTopicPost>,
     likedClipIds: Set<String>,
+    cosmeticItems: List<CosmeticItem>,
+    myOwnedCosmeticIds: Set<String>,
     isLoading: Boolean,
     notation: ControllerNotation,
     onSignIn: () -> Unit,
     onRefresh: () -> Unit,
+    onClaimFreeCosmetic: (CosmeticItem) -> Unit,
+    onEquipCosmetic: (CosmeticItemType, String?) -> Unit,
+    onOpenAdminPanel: () -> Unit,
     onCreateTheme: () -> Unit,
     onEditTheme: (String) -> Unit,
     onActivateTheme: (String?) -> Unit,
@@ -217,12 +231,14 @@ fun CommunityHubScreen(
 ) {
     BackHandler(onBack = onBack)
 
+    val isPrimaryAdmin = cloudUser?.isPrimaryAdmin() == true
     var selectedTab by remember(initialTab) { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
     var inspectingTheme by remember { mutableStateOf<ButtonThemePreset?>(null) }
     var inspectingPost by remember { mutableStateOf<CommunityTopicPost?>(null) }
     var viewingClip by remember { mutableStateOf<ProfileClipPost?>(null) }
     var showNewPostDialog by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
+    var showCosmeticShopSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(cloudUser?.uid) {
         onRefresh()
@@ -247,6 +263,26 @@ fun CommunityHubScreen(
                     }
                 },
                 actions = {
+                    if (isPrimaryAdmin) {
+                        IconButton(
+                            onClick = onOpenAdminPanel,
+                            modifier = Modifier.testTag("community_admin_panel_btn")
+                        ) {
+                            AdminRoleBadge(size = 28.dp)
+                        }
+                    }
+                    if (cloudUser != null) {
+                        IconButton(
+                            onClick = { showCosmeticShopSheet = true },
+                            modifier = Modifier.testTag("community_shop_btn")
+                        ) {
+                            Icon(
+                                Icons.Default.Storefront,
+                                contentDescription = "Cosmetic Shop & Wardrobe",
+                                tint = GeForceLime
+                            )
+                        }
+                    }
                     IconButton(onClick = onRefresh, modifier = Modifier.testTag("community_refresh_btn")) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
@@ -316,8 +352,10 @@ fun CommunityHubScreen(
 
                 2 -> ProfileContentBody(
                     isOwnProfile = true,
+                    isPrimaryAdmin = isPrimaryAdmin,
                     currentUserUid = cloudUser?.uid,
                     profile = myProfile,
+                    cosmeticItems = cosmeticItems,
                     localDraftThemes = localThemes.filter { it.ownerId != "builtin" },
                     publishedThemes = myProfileThemes,
                     clips = myProfileClips,
@@ -328,6 +366,8 @@ fun CommunityHubScreen(
                     notation = notation,
                     onSignIn = onSignIn,
                     onEditProfileClick = { showEditProfileDialog = true },
+                    onOpenShopClick = { showCosmeticShopSheet = true },
+                    onOpenAdminPanelClick = onOpenAdminPanel,
                     onCreateTheme = onCreateTheme,
                     onEditDraftTheme = onEditTheme,
                     onInspectTheme = { inspectingTheme = it },
@@ -427,6 +467,17 @@ fun CommunityHubScreen(
             onRemoveAvatar = onRemoveMyAvatar
         )
     }
+
+    if (showCosmeticShopSheet && cloudUser != null) {
+        CosmeticShopAndWardrobeSheet(
+            profile = myProfile,
+            cosmeticItems = cosmeticItems,
+            ownedItemIds = myOwnedCosmeticIds,
+            onClaimFreeItem = onClaimFreeCosmetic,
+            onEquipItem = onEquipCosmetic,
+            onDismiss = { showCosmeticShopSheet = false }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -442,6 +493,7 @@ fun UserProfileScreen(
     favoriteThemeIds: Set<String>,
     likedClipIds: Set<String>,
     likedPostIds: Set<String>,
+    cosmeticItems: List<CosmeticItem>,
     isLoading: Boolean,
     notation: ControllerNotation,
     onLoadProfile: (String) -> Unit,
@@ -496,8 +548,10 @@ fun UserProfileScreen(
         ) {
             ProfileContentBody(
                 isOwnProfile = currentUserUid != null && currentUserUid == userId,
+                isPrimaryAdmin = false,
                 currentUserUid = currentUserUid,
                 profile = profile,
+                cosmeticItems = cosmeticItems,
                 localDraftThemes = emptyList(),
                 publishedThemes = themes,
                 clips = clips,
@@ -508,6 +562,8 @@ fun UserProfileScreen(
                 notation = notation,
                 onSignIn = {},
                 onEditProfileClick = {},
+                onOpenShopClick = {},
+                onOpenAdminPanelClick = {},
                 onCreateTheme = {},
                 onEditDraftTheme = {},
                 onInspectTheme = { inspectingTheme = it },
@@ -1241,8 +1297,10 @@ private fun DiscussionPostCard(
 @Composable
 private fun ProfileContentBody(
     isOwnProfile: Boolean,
+    isPrimaryAdmin: Boolean,
     currentUserUid: String?,
     profile: CommunityUserProfile?,
+    cosmeticItems: List<CosmeticItem>,
     localDraftThemes: List<ButtonThemePreset>,
     publishedThemes: List<ButtonThemePreset>,
     clips: List<ProfileClipPost>,
@@ -1253,6 +1311,8 @@ private fun ProfileContentBody(
     notation: ControllerNotation,
     onSignIn: () -> Unit,
     onEditProfileClick: () -> Unit,
+    onOpenShopClick: () -> Unit,
+    onOpenAdminPanelClick: () -> Unit,
     onCreateTheme: () -> Unit,
     onEditDraftTheme: (String) -> Unit,
     onInspectTheme: (ButtonThemePreset) -> Unit,
@@ -1276,6 +1336,11 @@ private fun ProfileContentBody(
         return
     }
 
+    val itemById = remember(cosmeticItems) { cosmeticItems.associateBy { it.id } }
+    val equippedFrame = profile?.equippedFrameId?.let { itemById[it] }
+    val equippedNameTag = profile?.equippedNameTagId?.let { itemById[it] }
+    val equippedVerificationIcon = profile?.equippedVerificationIconId?.let { itemById[it] }
+
     var profileSubTab by remember { mutableIntStateOf(0) } // 0=Clips, 1=Themes, 2=Posts
 
     LazyColumn(
@@ -1283,7 +1348,7 @@ private fun ProfileContentBody(
         contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Profile Header
+        // Profile Header with Top-Right Corner Admin/Verified Role Indicators
         item(key = "profile_header") {
             Card(
                 shape = RoundedCornerShape(18.dp),
@@ -1292,54 +1357,125 @@ private fun ProfileContentBody(
                     .fillMaxWidth()
                     .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), RoundedCornerShape(18.dp))
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        CommunityAvatar(
-                            avatarBase64 = profile?.avatarBase64,
-                            username = profile?.username ?: "Player",
-                            size = 64.dp
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = profile?.username ?: "XenosPad Player",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.padding(
+                                end = if (profile?.adminRole == true || profile?.verifiedRole == true) 68.dp else 0.dp
                             )
-                            Text(
-                                text = profile?.bio?.ifBlank { "No bio set yet." } ?: "Loading profile...",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                        ) {
+                            FramedCommunityAvatar(
+                                avatarBase64 = profile?.avatarBase64,
+                                username = profile?.username ?: "Player",
+                                frameItem = equippedFrame,
+                                size = 64.dp
                             )
-                        }
-                        if (isOwnProfile) {
-                            OutlinedButton(
-                                onClick = onEditProfileClick,
-                                contentPadding = PaddingValues(horizontal = 10.dp),
-                                modifier = Modifier
-                                    .height(40.dp)
-                                    .testTag("profile_edit_btn")
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Edit", fontSize = 12.sp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = profile?.username ?: "XenosPad Player",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    if (equippedVerificationIcon != null) {
+                                        ProfileVerificationIconBadge(
+                                            item = equippedVerificationIcon,
+                                            size = 20.dp
+                                        )
+                                    }
+                                }
+                                if (equippedNameTag != null) {
+                                    ProfileNameTagChip(item = equippedNameTag)
+                                }
+                                Text(
+                                    text = profile?.bio?.ifBlank { "No bio set yet." } ?: "Loading profile...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
+                        }
+
+                        if (isOwnProfile) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = onEditProfileClick,
+                                    contentPadding = PaddingValues(horizontal = 10.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(40.dp)
+                                        .testTag("profile_edit_btn")
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Edit Profile", fontSize = 12.sp, maxLines = 1)
+                                }
+                                Button(
+                                    onClick = onOpenShopClick,
+                                    colors = ButtonDefaults.buttonColors(containerColor = GeForceLime),
+                                    contentPadding = PaddingValues(horizontal = 10.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(40.dp)
+                                        .testTag("profile_cosmetic_shop_btn")
+                                ) {
+                                    Icon(Icons.Default.Storefront, contentDescription = null, tint = Color.Black, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Shop & Gear", fontSize = 12.sp, color = Color.Black, fontWeight = FontWeight.Bold, maxLines = 1)
+                                }
+                            }
+                            if (isPrimaryAdmin) {
+                                OutlinedButton(
+                                    onClick = onOpenAdminPanelClick,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(42.dp)
+                                        .testTag("profile_open_admin_panel_btn")
+                                ) {
+                                    AdminRoleBadge(size = 20.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Open Admin Management Panel", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            ProfileStatBadge(count = clips.size, label = "Clips")
+                            ProfileStatBadge(count = publishedThemes.size, label = "Themes")
+                            ProfileStatBadge(count = posts.size, label = "Posts")
                         }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        ProfileStatBadge(count = clips.size, label = "Clips")
-                        ProfileStatBadge(count = publishedThemes.size, label = "Themes")
-                        ProfileStatBadge(count = posts.size, label = "Posts")
-                    }
+                    // Role Badges pinned strictly to the right corner of the profile:
+                    // Admin Role = white wrench icon on gold background
+                    // Verified Role = white checkmark icon on blue background
+                    ProfileRoleCornerBadges(
+                        adminRole = profile?.adminRole == true,
+                        verifiedRole = profile?.verifiedRole == true,
+                        badgeSize = 30.dp,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp)
+                    )
                 }
             }
         }

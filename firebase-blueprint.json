@@ -37,18 +37,62 @@
     },
     "PublicProfile": {
       "title": "PublicProfile",
-      "description": "Public community profile containing custom username, bio, and uploaded avatar (zero PII).",
+      "description": "Public community profile containing custom username, bio, uploaded avatar, assigned roles, and equipped cosmetics (zero PII).",
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
         "username": { "type": "string" },
+        "usernameLower": { "type": "string" },
         "bio": { "type": "string" },
         "avatarBase64": { "type": "string" },
         "avatarUrl": { "type": "string" },
+        "adminRole": { "type": "boolean" },
+        "verifiedRole": { "type": "boolean" },
+        "equippedFrameId": { "type": "string" },
+        "equippedNameTagId": { "type": "string" },
+        "equippedVerificationIconId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "username", "bio", "createdAt", "updatedAt"]
+    },
+    "CosmeticItem": {
+      "title": "CosmeticItem",
+      "description": "Admin-created custom profile frame, name tag, or verification icon.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string", "enum": ["FRAME", "NAME_TAG", "VERIFICATION_ICON"] },
+        "availability": { "type": "string", "enum": ["FREE_SHOP", "EXCLUSIVE"] },
+        "primaryColorHex": { "type": "integer" },
+        "secondaryColorHex": { "type": "integer" },
+        "textColorHex": { "type": "integer" },
+        "borderWidthDp": { "type": "number" },
+        "tagText": { "type": "string" },
+        "iconPreset": { "type": "string" },
+        "imageBase64": { "type": "string" },
+        "createdByUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "name", "description", "type", "availability",
+        "primaryColorHex", "secondaryColorHex", "textColorHex",
+        "borderWidthDp", "tagText", "iconPreset", "createdByUid",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "OwnedCosmeticItem": {
+      "title": "OwnedCosmeticItem",
+      "description": "Cosmetic item unlocked by a user either via Free Shop claim or Admin exclusive grant.",
+      "type": "object",
+      "properties": {
+        "itemId": { "type": "string" },
+        "grantedByAdmin": { "type": "boolean" },
+        "grantedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["itemId", "grantedByAdmin", "grantedAt"]
     },
     "UserLayout": {
       "title": "UserLayout",
@@ -240,7 +284,15 @@
     },
     "/public_profiles/{userId}": {
       "schema": { "$ref": "#/entities/PublicProfile" },
-      "description": "Public community profiles with custom username, bio, and uploaded avatar."
+      "description": "Public community profiles with custom username, bio, uploaded avatar, roles, and equipped cosmetics."
+    },
+    "/public_profiles/{userId}/owned_items/{itemId}": {
+      "schema": { "$ref": "#/entities/OwnedCosmeticItem" },
+      "description": "Cosmetic items claimed from the Free Shop or granted exclusively by the primary admin."
+    },
+    "/cosmetic_items/{itemId}": {
+      "schema": { "$ref": "#/entities/CosmeticItem" },
+      "description": "Admin-created profile frames, name tags, and verification icons."
     },
     "/shared_layouts/{shareCode}": {
       "schema": { "$ref": "#/entities/SharedLayout" },

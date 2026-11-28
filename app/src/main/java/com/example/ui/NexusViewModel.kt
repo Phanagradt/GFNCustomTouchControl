@@ -24,6 +24,7 @@ import com.example.input.GyroAimEngine
 import com.example.input.InputBridge
 import com.example.input.PhysicalControllerInfo
 import com.example.input.PhysicalControllerMonitor
+import com.example.model.AdminConfig
 import com.example.model.AppColorSchemeConfig
 import com.example.model.AppFontConfig
 import com.example.model.AppFontPreset
@@ -38,6 +39,8 @@ import com.example.model.ControlShape
 import com.example.model.ControlType
 import com.example.model.ControllerNotation
 import com.example.model.ControllerProfile
+import com.example.model.CosmeticItem
+import com.example.model.CosmeticItemType
 import com.example.model.CrosshairPreset
 import com.example.model.CrosshairSettings
 import com.example.model.CrosshairStyle
@@ -49,6 +52,7 @@ import com.example.model.GameFilterStyle
 import com.example.model.GameGenre
 import com.example.model.GyroAimConfig
 import com.example.model.InputBinding
+import com.example.model.ItemAvailability
 import com.example.model.PerfHudConfig
 import com.example.model.PhysicalControllerConfig
 import com.example.model.PinnedGame
@@ -244,6 +248,25 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     private val _isPublishingTheme = MutableStateFlow(false)
     val isPublishingTheme: StateFlow<Boolean> = _isPublishingTheme.asStateFlow()
 
+    // Cosmetic Shop, Wardrobe & Restricted Admin Management state
+    private val _cosmeticItems = MutableStateFlow<List<CosmeticItem>>(emptyList())
+    val cosmeticItems: StateFlow<List<CosmeticItem>> = _cosmeticItems.asStateFlow()
+
+    private val _myOwnedCosmeticIds = MutableStateFlow<Set<String>>(emptySet())
+    val myOwnedCosmeticIds: StateFlow<Set<String>> = _myOwnedCosmeticIds.asStateFlow()
+
+    private val _adminSearchResults = MutableStateFlow<List<CommunityUserProfile>>(emptyList())
+    val adminSearchResults: StateFlow<List<CommunityUserProfile>> = _adminSearchResults.asStateFlow()
+
+    private val _adminSelectedUser = MutableStateFlow<CommunityUserProfile?>(null)
+    val adminSelectedUser: StateFlow<CommunityUserProfile?> = _adminSelectedUser.asStateFlow()
+
+    private val _adminSelectedUserOwnedIds = MutableStateFlow<Set<String>>(emptySet())
+    val adminSelectedUserOwnedIds: StateFlow<Set<String>> = _adminSelectedUserOwnedIds.asStateFlow()
+
+    private val _isAdminBusy = MutableStateFlow(false)
+    val isAdminBusy: StateFlow<Boolean> = _isAdminBusy.asStateFlow()
+
     private var updateJob: Job? = null
     private var cloudSyncJob: Job? = null
     private var appearancePushJob: Job? = null
@@ -275,6 +298,11 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
             _likedThemeIds.value = emptySet()
             _likedPostIds.value = emptySet()
             _likedClipIds.value = emptySet()
+            _cosmeticItems.value = emptyList()
+            _myOwnedCosmeticIds.value = emptySet()
+            _adminSearchResults.value = emptyList()
+            _adminSelectedUser.value = null
+            _adminSelectedUserOwnedIds.value = emptySet()
             if (_cloudSyncState.value !is CloudSaveUiState.SigningIn &&
                 _cloudSyncState.value !is CloudSaveUiState.Error
             ) {
@@ -1395,6 +1423,8 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                     avatarUrl = user.photoUrl
                 )
             }
+            communityRepo.fetchAllCosmeticItems().onSuccess { _cosmeticItems.value = it }
+            communityRepo.fetchOwnedItemIds(user.uid).onSuccess { _myOwnedCosmeticIds.value = it }
         }
     }
 
@@ -1520,7 +1550,11 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         val user = _cloudUser.value ?: return
         viewModelScope.launch {
             _isCommunityLoading.value = true
-            requireAuthorProfile()
+            communityRepo.getPublicProfile(user.uid).onSuccess { loaded ->
+                if (loaded != null) _myPublicProfile.value = loaded else requireAuthorProfile()
+            }
+            communityRepo.fetchAllCosmeticItems().onSuccess { _cosmeticItems.value = it }
+            communityRepo.fetchOwnedItemIds(user.uid).onSuccess { _myOwnedCosmeticIds.value = it }
             communityRepo.fetchWorkshopThemes().onSuccess { _workshopThemes.value = it }
             communityRepo.fetchFavoriteThemeIds().onSuccess { _favoriteThemeIds.value = it }
             communityRepo.fetchCommunityPosts().onSuccess { _communityPosts.value = it }
@@ -1681,6 +1715,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     fun loadPublicProfileBundle(userId: String) {
         viewModelScope.launch {
             _isCommunityLoading.value = true
+            communityRepo.fetchAllCosmeticItems().onSuccess { _cosmeticItems.value = it }
             _viewedPublicProfile.value = communityRepo.getPublicProfile(userId).getOrNull()
             _viewedProfileThemes.value = communityRepo.fetchUserPublishedThemes(userId).getOrDefault(emptyList())
             _viewedProfileClips.value = communityRepo.fetchUserClips(userId).getOrDefault(emptyList())
@@ -1883,6 +1918,280 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 onDeleted()
             }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Cosmetic Shop, Wardrobe & Restricted Admin Management System
+    // -------------------------------------------------------------------------
+
+    fun isCurrentUserPrimaryAdmin(): Boolean =
+        AdminConfig.isPrimaryAdminEmail(_cloudUser.value?.email)
+
+    fun refreshCosmeticsAndInventory() {
+        val user = _cloudUser.value ?: return
+        viewModelScope.launch {
+            communityRepo.fetchAllCosmeticItems().onSuccess { _cosmeticItems.value = it }
+            communityRepo.fetchOwnedItemIds(user.uid).onSuccess { _myOwnedCosmeticIds.value = it }
+            communityRepo.getPublicProfile(user.uid).onSuccess { loaded ->
+                if (loaded != null) _myPublicProfile.value = loaded
+            }
+        }
+    }
+
+    fun claimFreeShopItem(item: CosmeticItem) {
+        if (_cloudUser.value == null) {
+            _snackbarMessage.value = "Sign in with Google first to claim free shop items"
+            return
+        }
+        if (item.availability != ItemAvailability.FREE_SHOP) {
+            _snackbarMessage.value = "\"${item.name}\" is Exclusive and can only be granted by Admin"
+            return
+        }
+        viewModelScope.launch {
+            requireAuthorProfile()
+            communityRepo.claimFreeShopItem(item.id)
+                .onSuccess {
+                    _myOwnedCosmeticIds.update { it + item.id }
+                    _snackbarMessage.value = "Claimed \"${item.name}\" for free! You can equip it now."
+                }
+                .onFailure { err ->
+                    _snackbarMessage.value = err.localizedMessage ?: "Could not claim item"
+                }
+        }
+    }
+
+    fun equipCosmeticItem(type: CosmeticItemType, itemId: String?) {
+        if (_cloudUser.value == null) {
+            _snackbarMessage.value = "Sign in with Google first to equip items"
+            return
+        }
+        viewModelScope.launch {
+            requireAuthorProfile()
+            communityRepo.equipCosmeticItem(type, itemId)
+                .onSuccess {
+                    _myPublicProfile.update { current ->
+                        current?.let { p ->
+                            when (type) {
+                                CosmeticItemType.FRAME -> p.copy(equippedFrameId = itemId)
+                                CosmeticItemType.NAME_TAG -> p.copy(equippedNameTagId = itemId)
+                                CosmeticItemType.VERIFICATION_ICON -> p.copy(equippedVerificationIconId = itemId)
+                            }
+                        }
+                    }
+                    _snackbarMessage.value = if (itemId == null) {
+                        "Unequipped ${type.label}"
+                    } else {
+                        "Equipped ${type.label} on your profile"
+                    }
+                }
+                .onFailure { err ->
+                    _snackbarMessage.value = err.localizedMessage ?: "Could not equip item"
+                }
+        }
+    }
+
+    fun adminCreateCosmeticItem(
+        name: String,
+        description: String,
+        type: CosmeticItemType,
+        availability: ItemAvailability,
+        primaryColorHex: Long,
+        secondaryColorHex: Long,
+        textColorHex: Long,
+        borderWidthDp: Float,
+        tagText: String,
+        iconPreset: String,
+        imageUri: Uri?,
+        onCreated: () -> Unit = {}
+    ) {
+        if (!isCurrentUserPrimaryAdmin()) {
+            _snackbarMessage.value = "Restricted: Admin access only"
+            return
+        }
+        viewModelScope.launch {
+            _isAdminBusy.value = true
+            val encodedImage = imageUri?.let { uri ->
+                com.example.util.ButtonImageCodec.encodeUriToBase64(
+                    context = getApplication(),
+                    uri = uri,
+                    cropSquare = true,
+                    maxDimPx = 144,
+                    maxEncodedBytes = 42 * 1024
+                ).getOrNull()
+            }
+            communityRepo.createCosmeticItem(
+                name = name,
+                description = description,
+                type = type,
+                availability = availability,
+                primaryColorHex = primaryColorHex,
+                secondaryColorHex = secondaryColorHex,
+                textColorHex = textColorHex,
+                borderWidthDp = borderWidthDp,
+                tagText = tagText,
+                iconPreset = iconPreset,
+                imageBase64 = encodedImage
+            ).onSuccess { created ->
+                _cosmeticItems.update { listOf(created) + it }
+                _snackbarMessage.value = "Created ${created.type.label} \"${created.name}\" (${created.availability.shortBadge})"
+                onCreated()
+            }.onFailure { err ->
+                _snackbarMessage.value = err.localizedMessage ?: "Failed to create item"
+            }
+            _isAdminBusy.value = false
+        }
+    }
+
+    fun adminToggleCosmeticAvailability(item: CosmeticItem) {
+        if (!isCurrentUserPrimaryAdmin()) return
+        val next = if (item.availability == ItemAvailability.FREE_SHOP) {
+            ItemAvailability.EXCLUSIVE
+        } else {
+            ItemAvailability.FREE_SHOP
+        }
+        viewModelScope.launch {
+            _isAdminBusy.value = true
+            communityRepo.updateCosmeticItemAvailability(item.id, next)
+                .onSuccess {
+                    _cosmeticItems.update { list ->
+                        list.map { if (it.id == item.id) it.copy(availability = next) else it }
+                    }
+                    _snackbarMessage.value = "\"${item.name}\" is now ${next.label}"
+                }
+                .onFailure { err ->
+                    _snackbarMessage.value = err.localizedMessage ?: "Failed to update availability"
+                }
+            _isAdminBusy.value = false
+        }
+    }
+
+    fun adminDeleteCosmeticItem(item: CosmeticItem) {
+        if (!isCurrentUserPrimaryAdmin()) return
+        viewModelScope.launch {
+            _isAdminBusy.value = true
+            communityRepo.deleteCosmeticItem(item.id)
+                .onSuccess {
+                    _cosmeticItems.update { list -> list.filterNot { it.id == item.id } }
+                    _snackbarMessage.value = "Deleted \"${item.name}\""
+                }
+                .onFailure { err ->
+                    _snackbarMessage.value = err.localizedMessage ?: "Failed to delete item"
+                }
+            _isAdminBusy.value = false
+        }
+    }
+
+    fun adminSearchUsers(query: String) {
+        if (!isCurrentUserPrimaryAdmin()) return
+        viewModelScope.launch {
+            _isAdminBusy.value = true
+            communityRepo.adminSearchUsersByUsername(query)
+                .onSuccess { users ->
+                    _adminSearchResults.value = users
+                    val selectedUid = _adminSelectedUser.value?.uid
+                    if (selectedUid != null) {
+                        users.firstOrNull { it.uid == selectedUid }?.let { _adminSelectedUser.value = it }
+                    }
+                }
+                .onFailure { err ->
+                    _snackbarMessage.value = err.localizedMessage ?: "Could not search users"
+                }
+            _isAdminBusy.value = false
+        }
+    }
+
+    fun adminSelectUser(user: CommunityUserProfile?) {
+        _adminSelectedUser.value = user
+        if (user == null || !isCurrentUserPrimaryAdmin()) {
+            _adminSelectedUserOwnedIds.value = emptySet()
+            return
+        }
+        viewModelScope.launch {
+            _isAdminBusy.value = true
+            communityRepo.fetchOwnedItemIds(user.uid)
+                .onSuccess { _adminSelectedUserOwnedIds.value = it }
+                .onFailure { _adminSelectedUserOwnedIds.value = emptySet() }
+            _isAdminBusy.value = false
+        }
+    }
+
+    fun adminGrantItemToSelectedUser(item: CosmeticItem) {
+        if (!isCurrentUserPrimaryAdmin()) return
+        val target = _adminSelectedUser.value ?: return
+        viewModelScope.launch {
+            _isAdminBusy.value = true
+            communityRepo.adminGrantItemToUser(target.uid, item.id)
+                .onSuccess {
+                    _adminSelectedUserOwnedIds.update { it + item.id }
+                    if (target.uid == _cloudUser.value?.uid) {
+                        _myOwnedCosmeticIds.update { it + item.id }
+                    }
+                    _snackbarMessage.value = "Granted \"${item.name}\" to ${target.username}"
+                }
+                .onFailure { err ->
+                    _snackbarMessage.value = err.localizedMessage ?: "Failed to grant item"
+                }
+            _isAdminBusy.value = false
+        }
+    }
+
+    fun adminRevokeItemFromSelectedUser(item: CosmeticItem) {
+        if (!isCurrentUserPrimaryAdmin()) return
+        val target = _adminSelectedUser.value ?: return
+        viewModelScope.launch {
+            _isAdminBusy.value = true
+            communityRepo.adminRevokeItemFromUser(target.uid, item.id, target)
+                .onSuccess {
+                    _adminSelectedUserOwnedIds.update { it - item.id }
+                    if (target.uid == _cloudUser.value?.uid) {
+                        _myOwnedCosmeticIds.update { it - item.id }
+                        _myPublicProfile.update { p ->
+                            p?.copy(
+                                equippedFrameId = if (p.equippedFrameId == item.id) null else p.equippedFrameId,
+                                equippedNameTagId = if (p.equippedNameTagId == item.id) null else p.equippedNameTagId,
+                                equippedVerificationIconId = if (p.equippedVerificationIconId == item.id) null else p.equippedVerificationIconId
+                            )
+                        }
+                    }
+                    _snackbarMessage.value = "Revoked \"${item.name}\" from ${target.username}"
+                }
+                .onFailure { err ->
+                    _snackbarMessage.value = err.localizedMessage ?: "Failed to revoke item"
+                }
+            _isAdminBusy.value = false
+        }
+    }
+
+    fun adminUpdateUserRoles(target: CommunityUserProfile, adminRole: Boolean, verifiedRole: Boolean) {
+        if (!isCurrentUserPrimaryAdmin()) return
+        viewModelScope.launch {
+            _isAdminBusy.value = true
+            communityRepo.adminSetUserRoles(target.uid, adminRole, verifiedRole)
+                .onSuccess {
+                    val updated = target.copy(adminRole = adminRole, verifiedRole = verifiedRole)
+                    _adminSearchResults.update { list -> list.map { if (it.uid == target.uid) updated else it } }
+                    if (_adminSelectedUser.value?.uid == target.uid) {
+                        _adminSelectedUser.value = updated
+                    }
+                    if (_myPublicProfile.value?.uid == target.uid) {
+                        _myPublicProfile.value = _myPublicProfile.value?.copy(
+                            adminRole = adminRole,
+                            verifiedRole = verifiedRole
+                        )
+                    }
+                    if (_viewedPublicProfile.value?.uid == target.uid) {
+                        _viewedPublicProfile.value = _viewedPublicProfile.value?.copy(
+                            adminRole = adminRole,
+                            verifiedRole = verifiedRole
+                        )
+                    }
+                    _snackbarMessage.value = "Updated roles for ${target.username}"
+                }
+                .onFailure { err ->
+                    _snackbarMessage.value = err.localizedMessage ?: "Failed to update roles"
+                }
+            _isAdminBusy.value = false
         }
     }
 }

@@ -2,13 +2,18 @@ package com.example.cloud
 
 import android.content.Context
 import com.example.R
+import com.example.model.AdminConfig
 import com.example.model.ButtonStyleOverride
 import com.example.model.ButtonThemePreset
 import com.example.model.CommunityTopicPost
 import com.example.model.CommunityUserProfile
+import com.example.model.CosmeticItem
+import com.example.model.CosmeticItemType
+import com.example.model.ItemAvailability
 import com.example.model.PostComment
 import com.example.model.ProfileClipPost
 import com.example.model.ThemeComment
+import com.example.model.VerificationIconPreset
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
@@ -51,6 +56,16 @@ class CommunityWorkshopRepository(
         return uid
     }
 
+    private fun requirePrimaryAdminUid(): String {
+        val user = auth.currentUser
+        val uid = user?.uid
+        check(!uid.isNullOrBlank()) { "Please sign in with Google." }
+        check(AdminConfig.isPrimaryAdminEmail(user.email)) {
+            "Restricted: Admin Panel is only accessible to ${AdminConfig.PRIMARY_ADMIN_EMAIL}."
+        }
+        return uid
+    }
+
     // -------------------------------------------------------------------------
     // Public Profiles (/public_profiles/{userId})
     // -------------------------------------------------------------------------
@@ -63,16 +78,7 @@ class CommunityWorkshopRepository(
             val doc = db.collection(COL_PUBLIC_PROFILES).document(safeUid).get().await()
             if (!doc.exists()) return Result.success(null)
             val data = doc.getData(DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) ?: return Result.success(null)
-            Result.success(
-                CommunityUserProfile(
-                    uid = safeUid,
-                    username = (data["username"] as? String)?.ifBlank { "Player" } ?: "Player",
-                    bio = (data["bio"] as? String).orEmpty(),
-                    avatarBase64 = (data["avatarBase64"] as? String)?.takeIf { it.isNotBlank() },
-                    avatarUrl = (data["avatarUrl"] as? String)?.takeIf { it.isNotBlank() },
-                    updatedAtMs = (data["updatedAt"] as? Timestamp)?.toDate()?.time ?: System.currentTimeMillis()
-                )
-            )
+            Result.success(decodePublicProfile(safeUid, data))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -91,15 +97,19 @@ class CommunityWorkshopRepository(
         val path = "$COL_PUBLIC_PROFILES/$uid"
         val docRef = db.collection(COL_PUBLIC_PROFILES).document(uid)
         val cleanName = username.trim().ifEmpty { "XenosPad Player" }.take(36)
+        val cleanNameLower = cleanName.lowercase()
         val cleanBio = bio.trim().take(220)
         val cleanAvatarB64 = avatarBase64?.takeIf { it.isNotBlank() && it.length <= MAX_AVATAR_B64 }
         val cleanAvatarUrl = avatarUrl?.trim()?.takeIf { it.isNotEmpty() }?.take(500)
 
         return try {
             val existing = docRef.get().await()
+            val existingProfile = existing.getData(DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                ?.let { decodePublicProfile(uid, it) }
             if (existing.exists()) {
                 val updates = mutableMapOf<String, Any?>(
                     "username" to cleanName,
+                    "usernameLower" to cleanNameLower,
                     "bio" to cleanBio,
                     "avatarBase64" to cleanAvatarB64,
                     "updatedAt" to FieldValue.serverTimestamp()
@@ -112,6 +122,7 @@ class CommunityWorkshopRepository(
                 val payload = mutableMapOf<String, Any>(
                     "userId" to uid,
                     "username" to cleanName,
+                    "usernameLower" to cleanNameLower,
                     "bio" to cleanBio,
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
@@ -126,7 +137,12 @@ class CommunityWorkshopRepository(
                     username = cleanName,
                     bio = cleanBio,
                     avatarBase64 = cleanAvatarB64,
-                    avatarUrl = cleanAvatarUrl,
+                    avatarUrl = cleanAvatarUrl ?: existingProfile?.avatarUrl,
+                    adminRole = existingProfile?.adminRole ?: false,
+                    verifiedRole = existingProfile?.verifiedRole ?: false,
+                    equippedFrameId = existingProfile?.equippedFrameId,
+                    equippedNameTagId = existingProfile?.equippedNameTagId,
+                    equippedVerificationIconId = existingProfile?.equippedVerificationIconId,
                     updatedAtMs = System.currentTimeMillis()
                 )
             )
@@ -134,6 +150,334 @@ class CommunityWorkshopRepository(
             throw e
         } catch (e: Exception) {
             FirestoreErrorHandler.handleFirestoreError(e, OperationType.WRITE, path)
+            Result.failure(e)
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Cosmetic Shop, Wardrobe & Admin Management System
+    // -------------------------------------------------------------------------
+
+    suspend fun fetchAllCosmeticItems(): Result<List<CosmeticItem>> {
+        runCatching { requireUid() }.getOrElse { return Result.failure(it) }
+        return try {
+            val snap = db.collection(COL_COSMETIC_ITEMS)
+                .limit(100)
+                .get()
+                .await()
+            val list = snap.documents.mapNotNull { doc ->
+                val d = doc.getData(DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) ?: return@mapNotNull null
+                decodeCosmeticItem(doc.id, d)
+            }.sortedByDescending { it.createdAtMs }
+            Result.success(list)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.LIST, COL_COSMETIC_ITEMS)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun createCosmeticItem(
+        name: String,
+        description: String,
+        type: CosmeticItemType,
+        availability: ItemAvailability,
+        primaryColorHex: Long,
+        secondaryColorHex: Long,
+        textColorHex: Long,
+        borderWidthDp: Float,
+        tagText: String,
+        iconPreset: String,
+        imageBase64: String?
+    ): Result<CosmeticItem> {
+        val adminUid = runCatching { requirePrimaryAdminUid() }.getOrElse { return Result.failure(it) }
+        val itemId = "item_${type.name.lowercase()}_${UUID.randomUUID().toString().take(8)}"
+        val cleanName = name.trim().ifEmpty { "Custom ${type.label}" }.take(50)
+        val cleanDesc = description.trim().take(220)
+        val cleanTag = tagText.trim().take(24)
+        val cleanPreset = iconPreset.trim().ifEmpty { VerificationIconPreset.VERIFIED.wireId }.take(32)
+        val cleanImg = imageBase64?.takeIf { it.isNotBlank() && it.length <= MAX_COSMETIC_IMG_B64 }
+        val cleanBorder = borderWidthDp.coerceIn(0.5f, 8.0f).toDouble()
+
+        return try {
+            val payload = mutableMapOf<String, Any>(
+                "name" to cleanName,
+                "description" to cleanDesc,
+                "type" to type.name,
+                "availability" to availability.name,
+                "primaryColorHex" to primaryColorHex,
+                "secondaryColorHex" to secondaryColorHex,
+                "textColorHex" to textColorHex,
+                "borderWidthDp" to cleanBorder,
+                "tagText" to cleanTag,
+                "iconPreset" to cleanPreset,
+                "createdByUid" to adminUid,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            if (cleanImg != null) payload["imageBase64"] = cleanImg
+
+            db.collection(COL_COSMETIC_ITEMS).document(itemId).set(payload).await()
+            val nowMs = System.currentTimeMillis()
+            Result.success(
+                CosmeticItem(
+                    id = itemId,
+                    name = cleanName,
+                    description = cleanDesc,
+                    type = type,
+                    availability = availability,
+                    primaryColorHex = primaryColorHex,
+                    secondaryColorHex = secondaryColorHex,
+                    textColorHex = textColorHex,
+                    borderWidthDp = cleanBorder.toFloat(),
+                    tagText = cleanTag,
+                    iconPreset = cleanPreset,
+                    imageBase64 = cleanImg,
+                    createdByUid = adminUid,
+                    createdAtMs = nowMs,
+                    updatedAtMs = nowMs
+                )
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.CREATE, "$COL_COSMETIC_ITEMS/$itemId")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateCosmeticItemAvailability(
+        itemId: String,
+        availability: ItemAvailability
+    ): Result<Unit> {
+        runCatching { requirePrimaryAdminUid() }.getOrElse { return Result.failure(it) }
+        val safeId = sanitizeId(itemId)
+        val path = "$COL_COSMETIC_ITEMS/$safeId"
+        return try {
+            db.collection(COL_COSMETIC_ITEMS).document(safeId).update(
+                mapOf(
+                    "availability" to availability.name,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.UPDATE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteCosmeticItem(itemId: String): Result<Unit> {
+        runCatching { requirePrimaryAdminUid() }.getOrElse { return Result.failure(it) }
+        val safeId = sanitizeId(itemId)
+        val path = "$COL_COSMETIC_ITEMS/$safeId"
+        return try {
+            db.collection(COL_COSMETIC_ITEMS).document(safeId).delete().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.DELETE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchOwnedItemIds(userId: String): Result<Set<String>> {
+        runCatching { requireUid() }.getOrElse { return Result.failure(it) }
+        val safeUid = sanitizeId(userId)
+        val path = "$COL_PUBLIC_PROFILES/$safeUid/owned_items"
+        return try {
+            val snap = db.collection(COL_PUBLIC_PROFILES)
+                .document(safeUid)
+                .collection("owned_items")
+                .limit(100)
+                .get()
+                .await()
+            Result.success(snap.documents.map { it.id }.toSet())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.LIST, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun claimFreeShopItem(itemId: String): Result<Unit> {
+        val uid = runCatching { requireUid() }.getOrElse { return Result.failure(it) }
+        val safeItemId = sanitizeId(itemId)
+        val path = "$COL_PUBLIC_PROFILES/$uid/owned_items/$safeItemId"
+        return try {
+            db.collection(COL_PUBLIC_PROFILES)
+                .document(uid)
+                .collection("owned_items")
+                .document(safeItemId)
+                .set(
+                    mapOf(
+                        "itemId" to safeItemId,
+                        "grantedByAdmin" to false,
+                        "grantedAt" to FieldValue.serverTimestamp()
+                    )
+                )
+                .await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.CREATE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun equipCosmeticItem(type: CosmeticItemType, itemId: String?): Result<Unit> {
+        val uid = runCatching { requireUid() }.getOrElse { return Result.failure(it) }
+        val fieldKey = when (type) {
+            CosmeticItemType.FRAME -> "equippedFrameId"
+            CosmeticItemType.NAME_TAG -> "equippedNameTagId"
+            CosmeticItemType.VERIFICATION_ICON -> "equippedVerificationIconId"
+        }
+        val cleanId = itemId?.let { sanitizeId(it) }
+        val path = "$COL_PUBLIC_PROFILES/$uid"
+        return try {
+            db.collection(COL_PUBLIC_PROFILES)
+                .document(uid)
+                .update(
+                    mapOf(
+                        fieldKey to cleanId,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                )
+                .await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.UPDATE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminSearchUsersByUsername(query: String): Result<List<CommunityUserProfile>> {
+        runCatching { requirePrimaryAdminUid() }.getOrElse { return Result.failure(it) }
+        val q = query.trim().lowercase()
+        return try {
+            val snap = db.collection(COL_PUBLIC_PROFILES)
+                .limit(50)
+                .get()
+                .await()
+            val all = snap.documents.mapNotNull { doc ->
+                val d = doc.getData(DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) ?: return@mapNotNull null
+                decodePublicProfile(doc.id, d)
+            }
+            val filtered = if (q.isEmpty()) {
+                all.sortedByDescending { it.updatedAtMs }
+            } else {
+                all.filter {
+                    it.username.lowercase().contains(q) || it.uid.lowercase().contains(q)
+                }.sortedWith(
+                    compareByDescending<CommunityUserProfile> { it.username.lowercase().startsWith(q) }
+                        .thenBy { it.username.lowercase() }
+                )
+            }
+            Result.success(filtered)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.LIST, COL_PUBLIC_PROFILES)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminGrantItemToUser(targetUserId: String, itemId: String): Result<Unit> {
+        runCatching { requirePrimaryAdminUid() }.getOrElse { return Result.failure(it) }
+        val safeUid = sanitizeId(targetUserId)
+        val safeItemId = sanitizeId(itemId)
+        val path = "$COL_PUBLIC_PROFILES/$safeUid/owned_items/$safeItemId"
+        return try {
+            db.collection(COL_PUBLIC_PROFILES)
+                .document(safeUid)
+                .collection("owned_items")
+                .document(safeItemId)
+                .set(
+                    mapOf(
+                        "itemId" to safeItemId,
+                        "grantedByAdmin" to true,
+                        "grantedAt" to FieldValue.serverTimestamp()
+                    )
+                )
+                .await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.CREATE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminRevokeItemFromUser(
+        targetUserId: String,
+        itemId: String,
+        currentProfile: CommunityUserProfile?
+    ): Result<Unit> {
+        runCatching { requirePrimaryAdminUid() }.getOrElse { return Result.failure(it) }
+        val safeUid = sanitizeId(targetUserId)
+        val safeItemId = sanitizeId(itemId)
+        val path = "$COL_PUBLIC_PROFILES/$safeUid/owned_items/$safeItemId"
+        return try {
+            db.collection(COL_PUBLIC_PROFILES)
+                .document(safeUid)
+                .collection("owned_items")
+                .document(safeItemId)
+                .delete()
+                .await()
+
+            // If user currently has this revoked item equipped, clear that slot
+            val clearUpdates = mutableMapOf<String, Any?>()
+            if (currentProfile?.equippedFrameId == safeItemId) clearUpdates["equippedFrameId"] = null
+            if (currentProfile?.equippedNameTagId == safeItemId) clearUpdates["equippedNameTagId"] = null
+            if (currentProfile?.equippedVerificationIconId == safeItemId) clearUpdates["equippedVerificationIconId"] = null
+            if (clearUpdates.isNotEmpty()) {
+                clearUpdates["updatedAt"] = FieldValue.serverTimestamp()
+                runCatching {
+                    db.collection(COL_PUBLIC_PROFILES).document(safeUid).update(clearUpdates).await()
+                }
+            }
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.DELETE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminSetUserRoles(
+        targetUserId: String,
+        adminRole: Boolean,
+        verifiedRole: Boolean
+    ): Result<Unit> {
+        runCatching { requirePrimaryAdminUid() }.getOrElse { return Result.failure(it) }
+        val safeUid = sanitizeId(targetUserId)
+        val path = "$COL_PUBLIC_PROFILES/$safeUid"
+        return try {
+            db.collection(COL_PUBLIC_PROFILES)
+                .document(safeUid)
+                .update(
+                    mapOf(
+                        "adminRole" to adminRole,
+                        "verifiedRole" to verifiedRole,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                )
+                .await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FirestoreErrorHandler.handleFirestoreError(e, OperationType.UPDATE, path)
             Result.failure(e)
         }
     }
@@ -927,12 +1271,52 @@ class CommunityWorkshopRepository(
         )
     }
 
+    private fun decodePublicProfile(uid: String, data: Map<String, Any?>): CommunityUserProfile {
+        return CommunityUserProfile(
+            uid = uid,
+            username = (data["username"] as? String)?.ifBlank { "Player" } ?: "Player",
+            bio = (data["bio"] as? String).orEmpty(),
+            avatarBase64 = (data["avatarBase64"] as? String)?.takeIf { it.isNotBlank() },
+            avatarUrl = (data["avatarUrl"] as? String)?.takeIf { it.isNotBlank() },
+            adminRole = (data["adminRole"] as? Boolean) ?: false,
+            verifiedRole = (data["verifiedRole"] as? Boolean) ?: false,
+            equippedFrameId = (data["equippedFrameId"] as? String)?.takeIf { it.isNotBlank() },
+            equippedNameTagId = (data["equippedNameTagId"] as? String)?.takeIf { it.isNotBlank() },
+            equippedVerificationIconId = (data["equippedVerificationIconId"] as? String)?.takeIf { it.isNotBlank() },
+            updatedAtMs = (data["updatedAt"] as? Timestamp)?.toDate()?.time ?: System.currentTimeMillis()
+        )
+    }
+
+    private fun decodeCosmeticItem(id: String, d: Map<String, Any?>): CosmeticItem? {
+        val name = (d["name"] as? String)?.takeIf { it.isNotBlank() } ?: return null
+        return CosmeticItem(
+            id = id,
+            name = name,
+            description = (d["description"] as? String).orEmpty(),
+            type = CosmeticItemType.fromWire(d["type"] as? String),
+            availability = ItemAvailability.fromWire(d["availability"] as? String),
+            primaryColorHex = (d["primaryColorHex"] as? Number)?.toLong() ?: 0xFF8CE000L,
+            secondaryColorHex = (d["secondaryColorHex"] as? Number)?.toLong() ?: 0xFF00E5FFL,
+            textColorHex = (d["textColorHex"] as? Number)?.toLong() ?: 0xFFFFFFFFL,
+            borderWidthDp = ((d["borderWidthDp"] as? Number)?.toFloat() ?: 3.0f).coerceIn(0.5f, 8.0f),
+            tagText = (d["tagText"] as? String).orEmpty(),
+            iconPreset = (d["iconPreset"] as? String)?.ifBlank { VerificationIconPreset.VERIFIED.wireId }
+                ?: VerificationIconPreset.VERIFIED.wireId,
+            imageBase64 = (d["imageBase64"] as? String)?.takeIf { it.isNotBlank() },
+            createdByUid = (d["createdByUid"] as? String).orEmpty(),
+            createdAtMs = (d["createdAt"] as? Timestamp)?.toDate()?.time ?: System.currentTimeMillis(),
+            updatedAtMs = (d["updatedAt"] as? Timestamp)?.toDate()?.time ?: System.currentTimeMillis()
+        )
+    }
+
     companion object {
         private const val COL_PUBLIC_PROFILES = "public_profiles"
+        private const val COL_COSMETIC_ITEMS = "cosmetic_items"
         private const val COL_BUTTON_THEMES = "button_themes"
         private const val COL_PROFILE_CLIPS = "profile_clips"
         private const val COL_COMMUNITY_POSTS = "community_posts"
         private const val MAX_AVATAR_B64 = 68_000
+        private const val MAX_COSMETIC_IMG_B64 = 62_000
         private const val MAX_THEME_JSON = 710_000
         private val VALID_ID = Regex("^[a-zA-Z0-9_\\-]+$")
 

@@ -97,7 +97,9 @@ import com.example.model.LocalNexusStrings
 import com.example.service.OverlayControllerService
 import com.example.service.ScreenCaptureService
 import com.example.ui.NexusViewModel
+import com.example.ui.components.AdminRoleBadge
 import com.example.ui.components.WhatsNewDialog
+import com.example.ui.screens.AdminPanelScreen
 import com.example.ui.screens.ButtonThemeCreatorScreen
 import com.example.ui.screens.CockpitScreen
 import com.example.ui.screens.CommunityAvatar
@@ -125,6 +127,7 @@ object NexusRoutes {
     const val WORKSHOP = "workshop/{tab}"
     const val THEME_CREATOR = "theme_creator?themeId={themeId}"
     const val USER_PROFILE = "user_profile/{userId}"
+    const val ADMIN_PANEL = "admin_panel"
 
     fun editor(profileId: String): String = "editor/$profileId"
     fun workshop(tab: Int = 0): String = "workshop/$tab"
@@ -287,6 +290,13 @@ private fun NexusPadAppShell(
     val viewedProfilePosts by viewModel.viewedProfilePosts.collectAsStateWithLifecycle()
     val isCommunityLoading by viewModel.isCommunityLoading.collectAsStateWithLifecycle()
     val isPublishingTheme by viewModel.isPublishingTheme.collectAsStateWithLifecycle()
+    val cosmeticItems by viewModel.cosmeticItems.collectAsStateWithLifecycle()
+    val myOwnedCosmeticIds by viewModel.myOwnedCosmeticIds.collectAsStateWithLifecycle()
+    val adminSearchResults by viewModel.adminSearchResults.collectAsStateWithLifecycle()
+    val adminSelectedUser by viewModel.adminSelectedUser.collectAsStateWithLifecycle()
+    val adminSelectedUserOwnedIds by viewModel.adminSelectedUserOwnedIds.collectAsStateWithLifecycle()
+    val isAdminBusy by viewModel.isAdminBusy.collectAsStateWithLifecycle()
+    val isPrimaryAdmin = cloudUser?.isPrimaryAdmin() == true
     val hasUpdateBadge = updateState is UpdateUiState.UpdateAvailable || updateState is UpdateUiState.ReadyToInstall
 
     var showOverlayPermissionDialog by remember { mutableStateOf(false) }
@@ -399,7 +409,8 @@ private fun NexusPadAppShell(
     val isInFullscreenSubscreen = currentRoute?.startsWith("editor/") == true ||
         currentRoute?.startsWith("workshop/") == true ||
         currentRoute?.startsWith("theme_creator") == true ||
-        currentRoute?.startsWith("user_profile/") == true
+        currentRoute?.startsWith("user_profile/") == true ||
+        currentRoute == NexusRoutes.ADMIN_PANEL
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val useRail = maxWidth >= 680.dp
@@ -431,6 +442,14 @@ private fun NexusPadAppShell(
                             }
                         },
                         actions = {
+                            if (isPrimaryAdmin) {
+                                IconButton(
+                                    onClick = { navController.navigate(NexusRoutes.ADMIN_PANEL) },
+                                    modifier = Modifier.testTag("topbar_admin_panel_button")
+                                ) {
+                                    AdminRoleBadge(size = 28.dp)
+                                }
+                            }
                             IconButton(
                                 onClick = { navController.navigate(NexusRoutes.workshop(0)) },
                                 modifier = Modifier.testTag("topbar_workshop_button")
@@ -885,10 +904,19 @@ private fun NexusPadAppShell(
                                 myProfileThemes = myProfileThemes,
                                 myProfilePosts = myProfilePosts,
                                 likedClipIds = likedClipIds,
+                                cosmeticItems = cosmeticItems,
+                                myOwnedCosmeticIds = myOwnedCosmeticIds,
                                 isLoading = isCommunityLoading,
                                 notation = settings.controllerNotation,
                                 onSignIn = { viewModel.signInForCloudSave(activity) },
                                 onRefresh = viewModel::refreshWorkshopAndCommunity,
+                                onClaimFreeCosmetic = viewModel::claimFreeShopItem,
+                                onEquipCosmetic = viewModel::equipCosmeticItem,
+                                onOpenAdminPanel = {
+                                    if (isPrimaryAdmin) {
+                                        navController.navigate(NexusRoutes.ADMIN_PANEL)
+                                    }
+                                },
                                 onCreateTheme = { navController.navigate(NexusRoutes.themeCreator()) },
                                 onEditTheme = { themeId -> navController.navigate(NexusRoutes.themeCreator(themeId)) },
                                 onActivateTheme = viewModel::setActiveButtonTheme,
@@ -984,6 +1012,7 @@ private fun NexusPadAppShell(
                                 favoriteThemeIds = favoriteThemeIds,
                                 likedClipIds = likedClipIds,
                                 likedPostIds = likedPostIds,
+                                cosmeticItems = cosmeticItems,
                                 isLoading = isCommunityLoading,
                                 notation = settings.controllerNotation,
                                 onLoadProfile = viewModel::loadPublicProfileBundle,
@@ -1001,6 +1030,27 @@ private fun NexusPadAppShell(
                                 onLoadPostComments = viewModel::loadPostComments,
                                 onAddPostComment = viewModel::addPostComment,
                                 onDeletePostComment = viewModel::deletePostComment,
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(NexusRoutes.ADMIN_PANEL) {
+                            AdminPanelScreen(
+                                cloudUser = cloudUser,
+                                cosmeticItems = cosmeticItems,
+                                searchedUsers = adminSearchResults,
+                                selectedUser = adminSelectedUser,
+                                selectedUserOwnedIds = adminSelectedUserOwnedIds,
+                                isBusy = isAdminBusy,
+                                onRefresh = viewModel::refreshCosmeticsAndInventory,
+                                onCreateCosmeticItem = viewModel::adminCreateCosmeticItem,
+                                onToggleAvailability = viewModel::adminToggleCosmeticAvailability,
+                                onDeleteItem = viewModel::adminDeleteCosmeticItem,
+                                onSearchUsers = viewModel::adminSearchUsers,
+                                onSelectUser = viewModel::adminSelectUser,
+                                onGrantItem = viewModel::adminGrantItemToSelectedUser,
+                                onRevokeItem = viewModel::adminRevokeItemFromSelectedUser,
+                                onUpdateUserRoles = viewModel::adminUpdateUserRoles,
                                 onBack = { navController.popBackStack() }
                             )
                         }

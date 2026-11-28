@@ -491,4 +491,185 @@ test("Profile clips & community topic posts: owner create/edit/delete, cross-use
   await assertSucceeds(aliceDb.collection("community_posts").doc("post_1").delete());
 });
 
+test("Admin Management System: primary email gate, custom cosmetics, free shop vs exclusive grants, user search, and role badges", async () => {
+  const ADMIN_UID = "primary_admin_uid";
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID, {
+    email: "november112561@gmail.com",
+    email_verified: true,
+  }).firestore();
+  const unverifiedAdminDb = testEnv.authenticatedContext("fake_admin_uid", {
+    email: "november112561@gmail.com",
+    email_verified: false,
+  }).firestore();
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID, {
+    email: "alice@example.com",
+    email_verified: true,
+  }).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID, {
+    email: "bob@example.com",
+    email_verified: true,
+  }).firestore();
+  const now = new Date(Date.now() - 1000);
+
+  // Alice creates her public profile (cannot self-assign adminRole or verifiedRole on create)
+  await assertFails(
+    aliceDb.collection("public_profiles").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      username: "AlicePro",
+      usernameLower: "alicepro",
+      bio: "Trying to hack admin role",
+      adminRole: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  await assertSucceeds(
+    aliceDb.collection("public_profiles").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      username: "AlicePro",
+      usernameLower: "alicepro",
+      bio: "DBD survivor",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  // Non-admins and unverified email cannot create cosmetic items
+  const freeFrame = {
+    name: "Neon Lime Ring",
+    description: "Glowing tactical lime frame for everyone",
+    type: "FRAME",
+    availability: "FREE_SHOP",
+    primaryColorHex: 0xff8ce000,
+    secondaryColorHex: 0xff00e5ff,
+    textColorHex: 0xffffffff,
+    borderWidthDp: 3.0,
+    tagText: "",
+    iconPreset: "NONE",
+    createdByUid: ADMIN_UID,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const exclusiveTag = {
+    name: "Founder Gold Tag",
+    description: "Admin-granted exclusive founder tag",
+    type: "NAME_TAG",
+    availability: "EXCLUSIVE",
+    primaryColorHex: 0xffd4af37,
+    secondaryColorHex: 0xff3b2900,
+    textColorHex: 0xffffffff,
+    borderWidthDp: 1.5,
+    tagText: "FOUNDER",
+    iconPreset: "CROWN",
+    createdByUid: ADMIN_UID,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await assertFails(
+    aliceDb.collection("cosmetic_items").doc("frame_lime").set({
+      ...freeFrame,
+      createdByUid: ALICE_UID,
+    })
+  );
+  await assertFails(
+    unverifiedAdminDb.collection("cosmetic_items").doc("frame_lime").set({
+      ...freeFrame,
+      createdByUid: "fake_admin_uid",
+    })
+  );
+
+  // Primary admin creates both a FREE_SHOP frame and an EXCLUSIVE name tag
+  await assertSucceeds(adminDb.collection("cosmetic_items").doc("frame_lime").set(freeFrame));
+  await assertSucceeds(adminDb.collection("cosmetic_items").doc("tag_founder").set(exclusiveTag));
+
+  // Signed-in users can list cosmetic items (limit <= 100)
+  await assertSucceeds(aliceDb.collection("cosmetic_items").limit(50).get());
+
+  // Only primary admin can search/list public profiles by username
+  await assertFails(aliceDb.collection("public_profiles").limit(20).get());
+  await assertFails(unverifiedAdminDb.collection("public_profiles").limit(20).get());
+  await assertSucceeds(adminDb.collection("public_profiles").limit(50).get());
+
+  // Alice CAN claim a FREE_SHOP item, and then equip it
+  await assertSucceeds(
+    aliceDb.collection("public_profiles").doc(ALICE_UID).collection("owned_items").doc("frame_lime").set({
+      itemId: "frame_lime",
+      grantedByAdmin: false,
+      grantedAt: now,
+    })
+  );
+  await assertSucceeds(
+    aliceDb.collection("public_profiles").doc(ALICE_UID).update({
+      equippedFrameId: "frame_lime",
+      updatedAt: new Date(Date.now() - 500),
+    })
+  );
+
+  // Alice CANNOT claim an EXCLUSIVE item from the shop, and CANNOT equip an unowned exclusive item
+  await assertFails(
+    aliceDb.collection("public_profiles").doc(ALICE_UID).collection("owned_items").doc("tag_founder").set({
+      itemId: "tag_founder",
+      grantedByAdmin: false,
+      grantedAt: now,
+    })
+  );
+  await assertFails(
+    aliceDb.collection("public_profiles").doc(ALICE_UID).update({
+      equippedNameTagId: "tag_founder",
+      updatedAt: new Date(Date.now() - 400),
+    })
+  );
+
+  // Alice CANNOT grant herself adminRole or verifiedRole
+  await assertFails(
+    aliceDb.collection("public_profiles").doc(ALICE_UID).update({
+      adminRole: true,
+      updatedAt: new Date(Date.now() - 400),
+    })
+  );
+  await assertFails(
+    aliceDb.collection("public_profiles").doc(ALICE_UID).update({
+      verifiedRole: true,
+      updatedAt: new Date(Date.now() - 400),
+    })
+  );
+
+  // Primary admin CAN grant the EXCLUSIVE tag to Alice, and Alice can then equip it!
+  await assertSucceeds(
+    adminDb.collection("public_profiles").doc(ALICE_UID).collection("owned_items").doc("tag_founder").set({
+      itemId: "tag_founder",
+      grantedByAdmin: true,
+      grantedAt: now,
+    })
+  );
+  await assertSucceeds(
+    aliceDb.collection("public_profiles").doc(ALICE_UID).update({
+      equippedNameTagId: "tag_founder",
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+
+  // Primary admin CAN assign Admin & Verified roles to Alice; Bob cannot!
+  await assertFails(
+    bobDb.collection("public_profiles").doc(ALICE_UID).update({
+      verifiedRole: true,
+      updatedAt: new Date(Date.now() - 250),
+    })
+  );
+  await assertSucceeds(
+    adminDb.collection("public_profiles").doc(ALICE_UID).update({
+      adminRole: true,
+      verifiedRole: true,
+      updatedAt: new Date(Date.now() - 200),
+    })
+  );
+
+  // Primary admin can delete cosmetic items
+  await assertFails(aliceDb.collection("cosmetic_items").doc("frame_lime").delete());
+  await assertSucceeds(adminDb.collection("cosmetic_items").doc("frame_lime").delete());
+});
+
+
 

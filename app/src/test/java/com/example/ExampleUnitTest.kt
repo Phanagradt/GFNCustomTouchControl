@@ -2247,7 +2247,55 @@ class ExampleUnitTest {
         assertEquals(1.10f, restored.heightScale, 0.01f)
         assertEquals("UklGRh==", restored.customStrokeBase64)
     }
+
+    @Test
+    fun `admin management system restricts primary admin strictly to november112561 gmail and models cosmetics and roles`() {
+        assertTrue(com.example.model.AdminConfig.isPrimaryAdminEmail("november112561@gmail.com"))
+        assertTrue(com.example.model.AdminConfig.isPrimaryAdminEmail("  NOVEMBER112561@GMAIL.COM "))
+        assertFalse(com.example.model.AdminConfig.isPrimaryAdminEmail("other@gmail.com"))
+        assertFalse(com.example.model.AdminConfig.isPrimaryAdminEmail("november112561@gmail.com.evil.com"))
+        assertFalse(com.example.model.AdminConfig.isPrimaryAdminEmail(null))
+        assertFalse(com.example.model.AdminConfig.isPrimaryAdminEmail(""))
+
+        val adminUser = com.example.cloud.CloudUserInfo(
+            uid = "u_admin",
+            displayName = "Admin",
+            email = "november112561@gmail.com",
+            photoUrl = null
+        )
+        val regularUser = com.example.cloud.CloudUserInfo(
+            uid = "u_player",
+            displayName = "Player",
+            email = "player@gmail.com",
+            photoUrl = null
+        )
+        assertTrue(adminUser.isPrimaryAdmin())
+        assertFalse(regularUser.isPrimaryAdmin())
+
+        assertEquals(com.example.model.CosmeticItemType.FRAME, com.example.model.CosmeticItemType.fromWire("FRAME"))
+        assertEquals(com.example.model.CosmeticItemType.NAME_TAG, com.example.model.CosmeticItemType.fromWire("NAME_TAG"))
+        assertEquals(com.example.model.CosmeticItemType.VERIFICATION_ICON, com.example.model.CosmeticItemType.fromWire("VERIFICATION_ICON"))
+        assertEquals(com.example.model.ItemAvailability.FREE_SHOP, com.example.model.ItemAvailability.fromWire("FREE_SHOP"))
+        assertEquals(com.example.model.ItemAvailability.EXCLUSIVE, com.example.model.ItemAvailability.fromWire("EXCLUSIVE"))
+        assertEquals(com.example.model.ItemAvailability.EXCLUSIVE, com.example.model.ItemAvailability.fromWire("UNKNOWN"))
+
+        val profileWithBadges = com.example.model.CommunityUserProfile(
+            uid = "u_1",
+            username = "LoopMaster",
+            adminRole = true,
+            verifiedRole = true,
+            equippedFrameId = "item_frame_1",
+            equippedNameTagId = "item_tag_1",
+            equippedVerificationIconId = "item_icon_1"
+        )
+        assertTrue(profileWithBadges.adminRole)
+        assertTrue(profileWithBadges.verifiedRole)
+        assertEquals("item_frame_1", profileWithBadges.equippedFrameId)
+        assertEquals("item_tag_1", profileWithBadges.equippedNameTagId)
+        assertEquals("item_icon_1", profileWithBadges.equippedVerificationIconId)
+    }
 }
+
 
 
 

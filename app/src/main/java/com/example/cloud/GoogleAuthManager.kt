@@ -29,6 +29,8 @@ data class CloudUserInfo(
     val email: String?,
     val photoUrl: String?
 ) {
+    fun isPrimaryAdmin(): Boolean = com.example.model.AdminConfig.isPrimaryAdminEmail(email)
+
     companion object {
         fun fromFirebaseUser(user: FirebaseUser): CloudUserInfo = CloudUserInfo(
             uid = user.uid,
