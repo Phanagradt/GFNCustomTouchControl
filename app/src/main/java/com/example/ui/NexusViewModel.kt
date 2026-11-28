@@ -63,6 +63,7 @@ import com.example.model.ProfileClipPost
 import com.example.model.ProfileTemplate
 import com.example.model.RecordingFps
 import com.example.model.RecordingResolution
+import com.example.model.SavedPcHost
 import com.example.model.StickState
 import com.example.model.StickerPreset
 import com.example.model.TargetPlatformMode
@@ -71,6 +72,7 @@ import com.example.model.ThemeComment
 import com.example.model.TriggerBehavior
 import com.example.model.VirtualControl
 import com.example.model.WebStreamQualityConfig
+import com.example.pclink.PcLinkDiscoveryEngine
 import com.example.ui.components.LayoutStudioHelper
 import com.example.update.ApkUpgradeCompatibility
 import com.example.update.GitHubUpdateManager
@@ -121,6 +123,9 @@ data class SystemReadiness(
     val isAccessibilityEnabled: Boolean = false,
     val hasNotificationPermission: Boolean = true,
     val isGeForceNowInstalled: Boolean = false,
+    val isSteamLinkInstalled: Boolean = false,
+    val isMoonlightInstalled: Boolean = false,
+    val isParsecInstalled: Boolean = false,
     val canInstallPackages: Boolean = true
 )
 
@@ -641,6 +646,9 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
             isAccessibilityEnabled = SystemIntegrations.isAccessibilityEnabled(ctx),
             hasNotificationPermission = SystemIntegrations.hasNotificationPermission(ctx),
             isGeForceNowInstalled = SystemIntegrations.isGeForceNowInstalled(ctx),
+            isSteamLinkInstalled = SystemIntegrations.isSteamLinkInstalled(ctx),
+            isMoonlightInstalled = SystemIntegrations.isMoonlightInstalled(ctx),
+            isParsecInstalled = SystemIntegrations.isParsecInstalled(ctx),
             canInstallPackages = GitHubUpdateManager.canInstallPackages(ctx)
         )
     }
@@ -887,6 +895,47 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
             prefsRepo.updateWebPlayerConfig(nextWebConfig)
             prefsRepo.markPinnedGamePlayed(game.id)
             onReady(game.normalizedLaunchUrl())
+        }
+    }
+
+    // Steam Link & Local PC / Laptop Remote Play hosts
+    fun savePcHost(host: SavedPcHost) {
+        viewModelScope.launch {
+            prefsRepo.upsertSavedPcHost(host)
+            _snackbarMessage.value = "Saved PC \"${host.name}\" for ${host.client.shortLabel}"
+        }
+    }
+
+    fun deletePcHost(hostId: String) {
+        viewModelScope.launch {
+            prefsRepo.deleteSavedPcHost(hostId)
+            _snackbarMessage.value = "Removed PC from Steam Link Hub"
+        }
+    }
+
+    fun wakePcHost(host: SavedPcHost) {
+        if (host.macAddress.isBlank()) {
+            _snackbarMessage.value = "Add your PC's MAC address first to use Wake-on-LAN"
+            return
+        }
+        viewModelScope.launch {
+            PcLinkDiscoveryEngine.sendWakeOnLan(
+                macAddress = host.macAddress,
+                hostIpHint = host.hostAddress
+            ).onSuccess { msg ->
+                _snackbarMessage.value = msg
+            }.onFailure { err ->
+                _snackbarMessage.value = err.localizedMessage ?: "Failed to send Wake-on-LAN packet"
+            }
+        }
+    }
+
+    fun prepareLaunchPcHost(host: SavedPcHost, onReady: (SavedPcHost) -> Unit) {
+        viewModelScope.launch {
+            if (host.linkedProfileId.isNotBlank()) {
+                profileRepo.setActiveProfile(host.linkedProfileId)
+            }
+            onReady(host)
         }
     }
 

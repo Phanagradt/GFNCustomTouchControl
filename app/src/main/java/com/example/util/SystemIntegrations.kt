@@ -17,6 +17,9 @@ import com.example.service.NexusGamepadImeService
 object SystemIntegrations {
 
     const val GEFORCE_NOW_PACKAGE = "com.nvidia.geforcenow"
+    const val STEAM_LINK_PACKAGE = "com.valvesoftware.steamlink"
+    const val MOONLIGHT_PACKAGE = "com.limelight"
+    const val PARSEC_PACKAGE = "tv.parsec.client"
 
     fun canDrawOverlays(context: Context): Boolean =
         Settings.canDrawOverlays(context)
@@ -86,23 +89,25 @@ object SystemIntegrations {
         }
     }
 
-    fun isGeForceNowInstalled(context: Context): Boolean {
+    fun isPackageInstalled(context: Context, packageName: String): Boolean {
+        if (packageName.isBlank()) return false
         return runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 context.packageManager.getPackageInfo(
-                    GEFORCE_NOW_PACKAGE,
+                    packageName,
                     PackageManager.PackageInfoFlags.of(0)
                 )
             } else {
                 @Suppress("DEPRECATION")
-                context.packageManager.getPackageInfo(GEFORCE_NOW_PACKAGE, 0)
+                context.packageManager.getPackageInfo(packageName, 0)
             }
             true
         }.getOrDefault(false)
     }
 
-    fun launchGeForceNowOrStore(context: Context): Boolean {
-        val launchIntent = context.packageManager.getLaunchIntentForPackage(GEFORCE_NOW_PACKAGE)
+    fun launchPackageOrPlayStore(context: Context, packageName: String): Boolean {
+        if (packageName.isBlank()) return false
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
         if (launchIntent != null) {
             launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(launchIntent)
@@ -110,11 +115,29 @@ object SystemIntegrations {
         }
         val marketIntent = Intent(
             Intent.ACTION_VIEW,
-            Uri.parse("https://play.google.com/store/apps/details?id=$GEFORCE_NOW_PACKAGE")
+            Uri.parse("https://play.google.com/store/apps/details?id=$packageName")
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { context.startActivity(marketIntent) }
         return false
     }
+
+    fun isGeForceNowInstalled(context: Context): Boolean =
+        isPackageInstalled(context, GEFORCE_NOW_PACKAGE)
+
+    fun isSteamLinkInstalled(context: Context): Boolean =
+        isPackageInstalled(context, STEAM_LINK_PACKAGE)
+
+    fun isMoonlightInstalled(context: Context): Boolean =
+        isPackageInstalled(context, MOONLIGHT_PACKAGE)
+
+    fun isParsecInstalled(context: Context): Boolean =
+        isPackageInstalled(context, PARSEC_PACKAGE)
+
+    fun launchGeForceNowOrStore(context: Context): Boolean =
+        launchPackageOrPlayStore(context, GEFORCE_NOW_PACKAGE)
+
+    fun launchSteamLinkOrStore(context: Context): Boolean =
+        launchPackageOrPlayStore(context, STEAM_LINK_PACKAGE)
 
     fun performKeyHaptic(
         view: View,

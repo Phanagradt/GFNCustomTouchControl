@@ -25,6 +25,7 @@ import com.example.model.PhysicalControllerConfig
 import com.example.model.PinnedGame
 import com.example.model.RecordingFps
 import com.example.model.RecordingResolution
+import com.example.model.SavedPcHost
 import com.example.model.TargetPlatformMode
 import com.example.model.WebStreamQualityConfig
 import com.squareup.moshi.Moshi
@@ -85,7 +86,8 @@ data class OverlaySettings(
     val platformTheme: AppPlatformTheme = AppPlatformTheme.XENOS_DEFAULT,
     val nintendoSwitchDarkMode: Boolean = false,
     val hasCompletedOnboarding: Boolean = false,
-    val localDisplayName: String = ""
+    val localDisplayName: String = "",
+    val savedPcHosts: List<SavedPcHost> = emptyList()
 ) {
     val hapticsEnabled: Boolean
         get() = vibrationMode != VibrationMode.NONE
@@ -108,6 +110,8 @@ class PreferencesRepository(private val context: Context) {
     private val physicalControllerAdapter = moshi.adapter(PhysicalControllerConfig::class.java)
     private val pinnedGamesListType = Types.newParameterizedType(List::class.java, PinnedGame::class.java)
     private val pinnedGamesAdapter = moshi.adapter<List<PinnedGame>>(pinnedGamesListType)
+    private val savedPcHostsListType = Types.newParameterizedType(List::class.java, SavedPcHost::class.java)
+    private val savedPcHostsAdapter = moshi.adapter<List<SavedPcHost>>(savedPcHostsListType)
 
     private object Keys {
         val HAPTICS = booleanPreferencesKey("haptics_enabled")
@@ -144,6 +148,7 @@ class PreferencesRepository(private val context: Context) {
         val NINTENDO_SWITCH_DARK_MODE = booleanPreferencesKey("nintendo_switch_dark_mode")
         val ONBOARDING_COMPLETED = booleanPreferencesKey("has_completed_onboarding")
         val LOCAL_DISPLAY_NAME = stringPreferencesKey("local_display_name")
+        val SAVED_PC_HOSTS_JSON = stringPreferencesKey("saved_pc_hosts_json")
     }
 
     val settingsFlow: Flow<OverlaySettings> = context.nexusDataStore.data.map { prefs ->
@@ -186,6 +191,7 @@ class PreferencesRepository(private val context: Context) {
         val webPlayerConfig = decodeWebPlayerConfig(prefs[Keys.WEB_PLAYER_CONFIG_JSON])
         val physicalController = decodePhysicalController(prefs[Keys.PHYSICAL_CONTROLLER_JSON])
         val pinnedGames = decodePinnedGames(prefs[Keys.PINNED_GAMES_JSON])
+        val savedPcHosts = decodeSavedPcHosts(prefs[Keys.SAVED_PC_HOSTS_JSON])
 
         val platformThemeName = prefs[Keys.PLATFORM_THEME] ?: AppPlatformTheme.XENOS_DEFAULT.name
         val platformTheme = runCatching { AppPlatformTheme.valueOf(platformThemeName) }
@@ -224,7 +230,8 @@ class PreferencesRepository(private val context: Context) {
             platformTheme = platformTheme,
             nintendoSwitchDarkMode = prefs[Keys.NINTENDO_SWITCH_DARK_MODE] ?: false,
             hasCompletedOnboarding = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
-            localDisplayName = prefs[Keys.LOCAL_DISPLAY_NAME] ?: ""
+            localDisplayName = prefs[Keys.LOCAL_DISPLAY_NAME] ?: "",
+            savedPcHosts = savedPcHosts
         )
     }
 
@@ -282,6 +289,11 @@ class PreferencesRepository(private val context: Context) {
     private fun decodePinnedGames(raw: String?): List<PinnedGame> {
         if (raw.isNullOrBlank()) return emptyList()
         return runCatching { pinnedGamesAdapter.fromJson(raw) }.getOrNull() ?: emptyList()
+    }
+
+    private fun decodeSavedPcHosts(raw: String?): List<SavedPcHost> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching { savedPcHostsAdapter.fromJson(raw) }.getOrNull() ?: emptyList()
     }
 
     suspend fun setVibrationMode(mode: VibrationMode) {
@@ -459,6 +471,26 @@ class PreferencesRepository(private val context: Context) {
                 if (it.id == gameId) it.copy(lastPlayedAtMs = playedAtMs) else it
             }
             prefs[Keys.PINNED_GAMES_JSON] = pinnedGamesAdapter.toJson(current)
+        }
+    }
+
+    suspend fun upsertSavedPcHost(host: SavedPcHost) {
+        context.nexusDataStore.edit { prefs ->
+            val current = decodeSavedPcHosts(prefs[Keys.SAVED_PC_HOSTS_JSON]).toMutableList()
+            val idx = current.indexOfFirst { it.id == host.id }
+            if (idx >= 0) {
+                current[idx] = host
+            } else {
+                current.add(0, host)
+            }
+            prefs[Keys.SAVED_PC_HOSTS_JSON] = savedPcHostsAdapter.toJson(current.take(24))
+        }
+    }
+
+    suspend fun deleteSavedPcHost(hostId: String) {
+        context.nexusDataStore.edit { prefs ->
+            val current = decodeSavedPcHosts(prefs[Keys.SAVED_PC_HOSTS_JSON]).filterNot { it.id == hostId }
+            prefs[Keys.SAVED_PC_HOSTS_JSON] = savedPcHostsAdapter.toJson(current)
         }
     }
 

@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.FolderCopy
@@ -94,7 +95,8 @@ fun SteamBigPictureLeftMenuOverlay(
     onOpenProfile: () -> Unit,
     onOpenAdminPanel: () -> Unit,
     onExitBigPicture: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onOpenSteamLink: () -> Unit = {}
 ) {
     BackHandler(onBack = onDismiss)
 
@@ -199,6 +201,18 @@ fun SteamBigPictureLeftMenuOverlay(
                         onDismiss()
                     },
                     testTag = "steam_menu_store"
+                )
+                SteamMenuRow(
+                    icon = Icons.Default.CastConnected,
+                    label = "Steam Link · My PC",
+                    badgeText = "PC",
+                    badgeColor = SteamSky,
+                    selected = currentRoute == NexusRoutes.STEAM_LINK,
+                    onClick = {
+                        onDismiss()
+                        onOpenSteamLink()
+                    },
+                    testTag = "steam_menu_steam_link"
                 )
                 SteamMenuRow(
                     icon = Icons.Default.FolderCopy,

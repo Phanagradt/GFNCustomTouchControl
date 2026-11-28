@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
@@ -170,6 +171,7 @@ fun EpicGamesHomeScreen(
     onOpenGallery: () -> Unit,
     onOpenSandbox: () -> Unit,
     onRequestOverlayPermission: () -> Unit,
+    onOpenSteamLink: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showPinGameDialog by remember { mutableStateOf(false) }
@@ -193,6 +195,18 @@ fun EpicGamesHomeScreen(
                     icon = Icons.Default.CloudQueue,
                     useHeroArtwork = true,
                     onClick = onLaunchWebPlayer
+                )
+            )
+            add(
+                EpicQuickTileData(
+                    id = "epic_ql_steam_link",
+                    title = "STEAM LINK · PC",
+                    subtitle = "Play your PC with touch HUD",
+                    badge = "MY PC",
+                    gradient = listOf(Color(0xFF154E73), Color(0xFF0A1D2E)),
+                    accent = Color(0xFF66C0F4),
+                    icon = Icons.Default.CastConnected,
+                    onClick = onOpenSteamLink
                 )
             )
             add(

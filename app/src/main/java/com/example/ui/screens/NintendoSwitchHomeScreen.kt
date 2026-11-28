@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
@@ -161,6 +162,7 @@ fun NintendoSwitchHomeScreen(
     onOpenSettings: () -> Unit,
     onOpenQuickMenu: () -> Unit,
     onRequestOverlayPermission: () -> Unit,
+    onOpenSteamLink: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val palette = remember(isDarkMode) { switchPaletteFor(isDarkMode) }
@@ -200,6 +202,17 @@ fun NintendoSwitchHomeScreen(
                     gradient = listOf(Color(0xFF107C10), Color(0xFF0A4D0A)),
                     icon = Icons.Default.SportsEsports,
                     onLaunch = onLaunchXboxCloud
+                )
+            )
+            add(
+                SwitchSoftwareTile(
+                    id = "sw_steam_link",
+                    title = "Steam Link · My PC",
+                    subtitle = "Play your PC/laptop with touch HUD",
+                    badge = "MY PC",
+                    gradient = listOf(Color(0xFF1A9FFF), Color(0xFF0E3A5D)),
+                    icon = Icons.Default.CastConnected,
+                    onLaunch = onOpenSteamLink
                 )
             )
             add(

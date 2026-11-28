@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
@@ -157,6 +158,7 @@ fun XboxHomeScreen(
     onOpenSandbox: () -> Unit,
     onOpenSettings: () -> Unit,
     onRequestOverlayPermission: () -> Unit,
+    onOpenSteamLink: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedIndex by remember { mutableIntStateOf(0) }
@@ -198,6 +200,19 @@ fun XboxHomeScreen(
                     icon = Icons.Default.CloudQueue,
                     useHeroArtwork = true,
                     onLaunch = onLaunchWebPlayer
+                )
+            )
+            add(
+                XboxHomeTile(
+                    id = "xbox_steam_link",
+                    title = "Steam Link · My PC",
+                    subtitle = "Stream your own PC/laptop with XenosPad touch controls",
+                    badge = "MY PC",
+                    backdropTop = Color(0xFF0E2942),
+                    backdropGlow = Color(0xFF66C0F4),
+                    cardGradient = listOf(Color(0xFF184E77), Color(0xFF0B1C2E)),
+                    icon = Icons.Default.CastConnected,
+                    onLaunch = onOpenSteamLink
                 )
             )
             add(

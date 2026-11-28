@@ -84,6 +84,7 @@ import com.example.model.LocalNexusStrings
 import com.example.service.OverlayControllerService
 import com.example.service.ScreenCaptureService
 import com.example.model.AppPlatformTheme
+import com.example.model.PcStreamClient
 import com.example.ui.NexusViewModel
 import com.example.ui.components.EpicBorderColor
 import com.example.ui.components.EpicLauncherSidebarContent
@@ -109,6 +110,7 @@ import com.example.ui.screens.OnboardingSetupScreen
 import com.example.ui.screens.PlatformStoreScreen
 import com.example.ui.screens.ProfilesScreen
 import com.example.ui.screens.SetupScreen
+import com.example.ui.screens.SteamLinkScreen
 import com.example.ui.screens.TestArenaScreen
 import com.example.ui.screens.UserProfileScreen
 import com.example.ui.theme.NexusPadTheme
@@ -129,6 +131,7 @@ object NexusRoutes {
     const val THEME_CREATOR = "theme_creator?themeId={themeId}"
     const val USER_PROFILE = "user_profile/{userId}"
     const val ADMIN_PANEL = "admin_panel"
+    const val STEAM_LINK = "steam_link"
 
     fun editor(profileId: String): String = "editor/$profileId"
     fun workshop(tab: Int = 0): String = "workshop/$tab"
@@ -435,13 +438,32 @@ private fun NexusPadAppShell(
         }
     }
 
+    val launchPcClientWithOverlay: (PcStreamClient, String?, Boolean) -> Unit = { client, customUrl, startOverlay ->
+        if (startOverlay && !isOverlayRunning && !SystemIntegrations.canDrawOverlays(context)) {
+            showOverlayPermissionDialog = true
+        } else {
+            if (startOverlay && !isOverlayRunning) {
+                OverlayControllerService.start(context)
+            }
+            if (client == PcStreamClient.WEB_STREAM) {
+                XenosWebPlayerActivity.launch(context, customUrl?.takeIf { it.isNotBlank() })
+            } else {
+                val launched = SystemIntegrations.launchPackageOrPlayStore(context, client.packageName)
+                if (!launched) {
+                    viewModel.showMessage("${client.displayName} not installed — opening Play Store")
+                }
+            }
+        }
+    }
+
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val isInFullscreenSubscreen = currentRoute?.startsWith("editor/") == true ||
         currentRoute?.startsWith("workshop/") == true ||
         currentRoute?.startsWith("theme_creator") == true ||
         currentRoute?.startsWith("user_profile/") == true ||
-        currentRoute == NexusRoutes.ADMIN_PANEL
+        currentRoute == NexusRoutes.ADMIN_PANEL ||
+        currentRoute == NexusRoutes.STEAM_LINK
 
     val navigatePrimaryTab: (String) -> Unit = { route ->
         navController.navigate(route) {
@@ -782,7 +804,9 @@ private fun NexusPadAppShell(
                                 ps5SelectTrigger = ps5SelectTrigger,
                                 nintendoSwitchDarkMode = settings.nintendoSwitchDarkMode,
                                 onOpenSwitchQuickMenu = { showSwitchQuickMenu = true },
-                                switchSelectTrigger = switchSelectTrigger
+                                switchSelectTrigger = switchSelectTrigger,
+                                savedPcHostsCount = settings.savedPcHosts.size,
+                                onOpenSteamLink = { navController.navigate(NexusRoutes.STEAM_LINK) }
                             )
                         }
 
@@ -1218,6 +1242,57 @@ private fun NexusPadAppShell(
                                 onBack = { navController.popBackStack() }
                             )
                         }
+
+                        composable(NexusRoutes.STEAM_LINK) {
+                            SteamLinkScreen(
+                                activeProfile = activeProfile,
+                                allProfiles = profiles,
+                                savedHosts = settings.savedPcHosts,
+                                readiness = readiness,
+                                isOverlayRunning = isOverlayRunning,
+                                onSelectProfile = viewModel::setActiveProfile,
+                                onOpenEditor = { id ->
+                                    viewModel.openEditor(id)
+                                    navController.navigate(NexusRoutes.editor(id))
+                                },
+                                onToggleOverlay = toggleOverlayAction,
+                                onLaunchClientWithOverlay = { client, customUrl ->
+                                    launchPcClientWithOverlay(client, customUrl, true)
+                                },
+                                onLaunchSavedHost = { host ->
+                                    viewModel.prepareLaunchPcHost(host) { readyHost ->
+                                        val webUrl = readyHost.customWebUrl.ifBlank {
+                                            readyHost.hostAddress.takeIf { it.isNotBlank() }?.let { ip ->
+                                                if (ip.startsWith("http://") || ip.startsWith("https://")) ip else "http://$ip"
+                                            }.orEmpty()
+                                        }
+                                        launchPcClientWithOverlay(
+                                            readyHost.client,
+                                            webUrl,
+                                            readyHost.autoStartOverlay
+                                        )
+                                    }
+                                },
+                                onSaveHost = viewModel::savePcHost,
+                                onDeleteHost = viewModel::deletePcHost,
+                                onWakeHost = viewModel::wakePcHost,
+                                onRequestOverlayPermission = {
+                                    SystemIntegrations.openOverlayPermissionSettings(context)
+                                },
+                                onOpenImeSettings = {
+                                    if (readiness.isImeEnabled) {
+                                        SystemIntegrations.showInputMethodPicker(context)
+                                    } else {
+                                        SystemIntegrations.openInputMethodSettings(context)
+                                    }
+                                },
+                                onOpenAccessibilitySettings = {
+                                    SystemIntegrations.openAccessibilitySettings(context)
+                                },
+                                onRefreshStatus = viewModel::refreshSystemStatus,
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
                     }
                 }
             }
@@ -1233,7 +1308,8 @@ private fun NexusPadAppShell(
                 onOpenProfile = { navController.navigate(NexusRoutes.workshop(2)) },
                 onOpenAdminPanel = { navController.navigate(NexusRoutes.ADMIN_PANEL) },
                 onExitBigPicture = { viewModel.setPlatformTheme(AppPlatformTheme.XENOS_DEFAULT) },
-                onDismiss = { showSteamMenu = false }
+                onDismiss = { showSteamMenu = false },
+                onOpenSteamLink = { navController.navigate(NexusRoutes.STEAM_LINK) }
             )
         }
 

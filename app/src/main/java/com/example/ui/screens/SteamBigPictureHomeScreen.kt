@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
@@ -123,6 +124,25 @@ private sealed interface SteamShelfItem {
         override val accentColor = SteamPlayGreen
         override val icon = Icons.Default.CloudQueue
         override val primaryActionLabel = "PLAY NOW"
+    }
+
+    data class SteamLinkPcItem(
+        val savedPcCount: Int,
+        val isInstalled: Boolean
+    ) : SteamShelfItem {
+        override val key = "shelf_steam_link_pc"
+        override val title = "Steam Link · My PC"
+        override val statusLine = when {
+            savedPcCount > 0 -> "$savedPcCount SAVED PC${if (savedPcCount == 1) "" else "S"}  •  XENOSPAD TOUCH HUD"
+            isInstalled -> "STEAM LINK READY  •  STREAM YOUR PC WITH TOUCH"
+            else -> "PLAY YOUR OWN PC/LAPTOP WITH XENOSPAD TOUCH"
+        }
+        override val badgeTag = "MY PC"
+        override val ambientTopColor = Color(0xFF103B5C)
+        override val coverGradient = listOf(Color(0xFF184E77), Color(0xFF102A43), Color(0xFF0A141F))
+        override val accentColor = SteamFocusCyan
+        override val icon = Icons.Default.CastConnected
+        override val primaryActionLabel = "OPEN PC HUB"
     }
 
     data class PinnedGameItem(
@@ -247,6 +267,8 @@ fun SteamBigPictureHomeScreen(
     onOpenSettings: () -> Unit,
     onOpenQuickAccess: () -> Unit,
     onRequestOverlayPermission: () -> Unit,
+    savedPcCount: Int = 0,
+    onOpenSteamLink: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val shelfItems = remember(
@@ -255,7 +277,9 @@ fun SteamBigPictureHomeScreen(
         activeProfile?.id,
         activeProfile?.name,
         pinnedGames,
-        allProfiles
+        allProfiles,
+        savedPcCount,
+        readiness.isSteamLinkInstalled
     ) {
         buildList<SteamShelfItem> {
             add(
@@ -263,6 +287,12 @@ fun SteamBigPictureHomeScreen(
                     regionCode = webPlayerConfig.regionPreset.shortCode,
                     isOverlayLive = isOverlayRunning,
                     profileName = activeProfile?.name ?: "Default"
+                )
+            )
+            add(
+                SteamShelfItem.SteamLinkPcItem(
+                    savedPcCount = savedPcCount,
+                    isInstalled = readiness.isSteamLinkInstalled
                 )
             )
             pinnedGames.forEachIndexed { idx, pin ->
@@ -291,6 +321,7 @@ fun SteamBigPictureHomeScreen(
     val triggerFocusedItemAction: () -> Unit = {
         when (val item = focusedItem) {
             is SteamShelfItem.WebPlayHero -> onLaunchWebPlayer()
+            is SteamShelfItem.SteamLinkPcItem -> onOpenSteamLink()
             is SteamShelfItem.PinnedGameItem -> onLaunchPinnedGame(item.game)
             is SteamShelfItem.ProfileLayoutItem -> {
                 if (item.isActive) {
@@ -372,6 +403,20 @@ fun SteamBigPictureHomeScreen(
                         accent = if (isOverlayRunning) SteamPlayGreen else SteamActionBlue,
                         icon = if (isOverlayRunning) Icons.Default.Stop else Icons.Default.Gamepad,
                         onClick = onToggleOverlay
+                    )
+                )
+
+                add(
+                    SteamNewsCardData(
+                        id = "news_steam_link",
+                        headerTag = "STEAM LINK • MY PC",
+                        title = "Play Your Own PC / Laptop",
+                        subtitle = "Stream Steam Link or Moonlight with XenosPad touch controls",
+                        footerText = if (savedPcCount > 0) "$savedPcCount SAVED PC • OPEN HUB" else "LAN SCAN & WAKE-ON-LAN",
+                        gradient = listOf(Color(0xFF15456B), Color(0xFF0C1D30)),
+                        accent = SteamFocusCyan,
+                        icon = Icons.Default.CastConnected,
+                        onClick = onOpenSteamLink
                     )
                 )
 

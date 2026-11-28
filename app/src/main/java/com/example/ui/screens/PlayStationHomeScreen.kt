@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
@@ -167,6 +168,7 @@ fun PlayStationHomeScreen(
     onOpenSandbox: () -> Unit,
     onOpenControlCenter: () -> Unit,
     onRequestOverlayPermission: () -> Unit,
+    onOpenSteamLink: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedIndex by remember { mutableIntStateOf(1) } // Default focused on "Explore / GeForce NOW" just like screenshot!
@@ -227,6 +229,21 @@ fun PlayStationHomeScreen(
                     bgTop = Color(0xFF0A2419),
                     bgGlow = Color(0xFF34D399),
                     onLaunch = onLaunchXboxCloud
+                )
+            )
+            add(
+                Ps5AppTile(
+                    id = "ps5_steam_link",
+                    shortLabel = "Steam Link",
+                    kicker = "PC Remote Play · Local Wi-Fi | Touch HUD Ready",
+                    headline = "Steam Link · My PC",
+                    description = "Play games from your own PC or laptop using XenosPad's custom touch screen, gyro aim & filters.",
+                    ctaLabel = "Open PC Hub",
+                    icon = Icons.Default.CastConnected,
+                    tileGradient = listOf(Color(0xFF184E77), Color(0xFF0A1A2B)),
+                    bgTop = Color(0xFF0D2742),
+                    bgGlow = Color(0xFF66C0F4),
+                    onLaunch = onOpenSteamLink
                 )
             )
             add(

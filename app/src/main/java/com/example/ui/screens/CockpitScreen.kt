@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Edit
@@ -68,6 +69,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.VibrationMode
 import com.example.model.AppPlatformTheme
@@ -149,6 +151,8 @@ fun CockpitScreen(
     nintendoSwitchDarkMode: Boolean = false,
     onOpenSwitchQuickMenu: () -> Unit = {},
     switchSelectTrigger: Int = 0,
+    savedPcHostsCount: Int = 0,
+    onOpenSteamLink: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val strings = LocalNexusStrings.current
@@ -184,6 +188,8 @@ fun CockpitScreen(
             onOpenSettings = onOpenSettings,
             onOpenQuickAccess = onOpenSteamQuickAccess,
             onRequestOverlayPermission = onRequestOverlayPermission,
+            savedPcCount = savedPcHostsCount,
+            onOpenSteamLink = onOpenSteamLink,
             modifier = modifier
         )
         return
@@ -220,6 +226,7 @@ fun CockpitScreen(
             onOpenGallery = onOpenGallery,
             onOpenSandbox = onOpenSandbox,
             onRequestOverlayPermission = onRequestOverlayPermission,
+            onOpenSteamLink = onOpenSteamLink,
             modifier = modifier
         )
         return
@@ -256,6 +263,7 @@ fun CockpitScreen(
             onOpenSandbox = onOpenSandbox,
             onOpenSettings = onOpenSettings,
             onRequestOverlayPermission = onRequestOverlayPermission,
+            onOpenSteamLink = onOpenSteamLink,
             modifier = modifier
         )
         return
@@ -291,6 +299,7 @@ fun CockpitScreen(
             onOpenSandbox = onOpenSandbox,
             onOpenControlCenter = onOpenPs5ControlCenter,
             onRequestOverlayPermission = onRequestOverlayPermission,
+            onOpenSteamLink = onOpenSteamLink,
             modifier = modifier
         )
         return
@@ -328,6 +337,7 @@ fun CockpitScreen(
             onOpenSettings = onOpenSettings,
             onOpenQuickMenu = onOpenSwitchQuickMenu,
             onRequestOverlayPermission = onRequestOverlayPermission,
+            onOpenSteamLink = onOpenSteamLink,
             modifier = modifier
         )
         return
@@ -388,6 +398,15 @@ fun CockpitScreen(
                     onSelectRegion = onSelectWebRegion,
                     onLaunchWebPlayer = onLaunchWebPlayer,
                     onLaunchXboxCloud = onLaunchXboxCloud
+                )
+            }
+
+            item {
+                SteamLinkCockpitCard(
+                    savedPcCount = savedPcHostsCount,
+                    isSteamLinkInstalled = readiness.isSteamLinkInstalled,
+                    activeProfileName = activeProfile?.name,
+                    onOpenSteamLink = onOpenSteamLink
                 )
             }
 
@@ -725,6 +744,114 @@ private fun HeroCockpitCard(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SteamLinkCockpitCard(
+    savedPcCount: Int,
+    isSteamLinkInstalled: Boolean,
+    activeProfileName: String?,
+    onOpenSteamLink: () -> Unit
+) {
+    val steamCyan = Color(0xFF66C0F4)
+    val steamBlue = Color(0xFF1A9FFF)
+    val steamGreen = Color(0xFF59BF40)
+
+    Card(
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = steamCyan.copy(alpha = 0.45f),
+                shape = MaterialTheme.shapes.large
+            )
+            .clickable(onClick = onOpenSteamLink)
+            .testTag("cockpit_steam_link_card")
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(Color(0xFF12263A), Color(0xFF0E1824))
+                    )
+                )
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(steamBlue.copy(alpha = 0.2f))
+                        .border(1.dp, steamCyan.copy(alpha = 0.55f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CastConnected,
+                        contentDescription = "Steam Link My PC",
+                        tint = steamCyan,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Steam Link · Play Your PC",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Surface(
+                            color = if (isSteamLinkInstalled) steamGreen.copy(alpha = 0.2f) else steamBlue.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = when {
+                                    savedPcCount > 0 -> "$savedPcCount PC${if (savedPcCount == 1) "" else "S"}"
+                                    isSteamLinkInstalled -> "READY"
+                                    else -> "PC HUD"
+                                },
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (isSteamLinkInstalled) steamGreen else steamCyan,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Use XenosPad touch screen (${activeProfileName ?: "Custom Layout"}), LAN scanner & Wake-on-LAN with your PC or laptop",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFB3C7DC),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "Open Steam Link Hub",
+                    tint = steamCyan
+                )
             }
         }
     }
