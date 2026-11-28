@@ -957,23 +957,62 @@ object BetterGfnScriptEngine {
               } catch (e) {}
 
               // 2. Standard W3C Virtual Xbox 360 Gamepad (17 buttons + 4 analog axes)
-              var buttons = [];
+              // Matches Chromium's standard XInput Xbox 360 descriptor so GeForce NOW Web Play
+              // binds Player 1 cleanly, returns fresh snapshots per poll, and replays
+              // gamepadconnected whenever GFN attaches its session listener or starts a stream.
+              var padButtons = [];
               for (var b = 0; b < 17; b++) {
-                buttons.push({ pressed: false, touched: false, value: 0.0 });
+                padButtons.push({ pressed: false, touched: false, value: 0.0 });
               }
-              var virtualPad = {
-                id: 'Xbox 360 Controller (XenosPad Virtual Standard Gamepad)',
-                index: 0,
-                connected: true,
-                timestamp: performance.now(),
-                mapping: 'standard',
-                axes: [0.0, 0.0, 0.0, 0.0],
-                buttons: buttons,
-                vibrationActuator: null,
-                hapticActuators: []
+              var padAxes = [0.0, 0.0, 0.0, 0.0];
+              var padTimestamp = performance.now();
+              var padSlotIndex = 0;
+              var padStreamAnnounced = false;
+              var padVibStub = {
+                type: 'dual-rumble',
+                playEffect: function() { return Promise.resolve('complete'); },
+                reset: function() { return Promise.resolve('complete'); }
               };
-              var padDispatched = false;
-              var origGetGamepads = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : function() { return []; };
+
+              function snapshotVirtualPad(slotIndex) {
+                var idx = (typeof slotIndex === 'number') ? slotIndex : padSlotIndex;
+                var btnsCopy = new Array(padButtons.length);
+                for (var i = 0; i < padButtons.length; i++) {
+                  var src = padButtons[i];
+                  btnsCopy[i] = { pressed: !!src.pressed, touched: !!src.touched, value: src.value };
+                }
+                return {
+                  id: 'Xbox 360 Controller (XInput STANDARD GAMEPAD) (Vendor: 045e Product: 028e)',
+                  index: idx,
+                  connected: true,
+                  timestamp: padTimestamp,
+                  mapping: 'standard',
+                  axes: [padAxes[0], padAxes[1], padAxes[2], padAxes[3]],
+                  buttons: btnsCopy,
+                  vibrationActuator: padVibStub,
+                  hapticActuators: []
+                };
+              }
+
+              var nativeProtoGetGamepads = (typeof Navigator !== 'undefined' && Navigator.prototype && typeof Navigator.prototype.getGamepads === 'function')
+                ? Navigator.prototype.getGamepads
+                : (typeof navigator.getGamepads === 'function' ? navigator.getGamepads : null);
+
+              function readPhysicalGamepads(cfg) {
+                var real = [];
+                if (!nativeProtoGetGamepads) return real;
+                try {
+                  var raw = nativeProtoGetGamepads.call(navigator);
+                  if (raw) {
+                    for (var i = 0; i < raw.length; i++) {
+                      if (raw[i] && raw[i].connected) {
+                        real.push(wrapPhysicalGamepad(raw[i], cfg));
+                      }
+                    }
+                  }
+                } catch (e) {}
+                return real;
+              }
 
               function wrapPhysicalGamepad(gp, cfg) {
                 if (!gp) return null;
@@ -1010,19 +1049,9 @@ object BetterGfnScriptEngine {
                 }
               }
 
-              navigator.getGamepads = function() {
+              function patchedGetGamepads() {
                 var cfg = window.__xenosConfig || {};
-                var real = [];
-                try {
-                  var raw = origGetGamepads();
-                  if (raw) {
-                    for (var i = 0; i < raw.length; i++) {
-                      if (raw[i] && raw[i].connected) {
-                        real.push(wrapPhysicalGamepad(raw[i], cfg));
-                      }
-                    }
-                  }
-                } catch (e) {}
+                var real = readPhysicalGamepads(cfg);
 
                 // If a real physical Bluetooth/USB gamepad is connected and prioritized,
                 // keep it in slot 0 so GeForce NOW natively binds Player 1 to the hardware controller.
@@ -1032,70 +1061,166 @@ object BetterGfnScriptEngine {
                     out[k] = real[k];
                   }
                   if (cfg.virtualPadEnabled && real.length < 4) {
-                    virtualPad.connected = true;
-                    virtualPad.index = real.length;
-                    out[real.length] = virtualPad;
+                    padSlotIndex = real.length;
+                    out[real.length] = snapshotVirtualPad(padSlotIndex);
                   }
                   return out;
                 }
 
                 if (cfg.virtualPadEnabled) {
-                  virtualPad.connected = true;
-                  virtualPad.index = 0;
-                  var result = [virtualPad, null, null, null];
+                  padSlotIndex = 0;
+                  var result = [snapshotVirtualPad(0), null, null, null];
                   for (var j = 0; j < real.length && j < 3; j++) {
                     result[j + 1] = real[j];
                   }
                   return result;
                 }
                 return real;
-              };
+              }
 
-              function notifyGamepadConnected() {
-                if (padDispatched || !(window.__xenosConfig && window.__xenosConfig.virtualPadEnabled)) return;
+              try {
+                if (typeof Navigator !== 'undefined' && Navigator.prototype) {
+                  Object.defineProperty(Navigator.prototype, 'getGamepads', {
+                    value: patchedGetGamepads,
+                    writable: true,
+                    configurable: true
+                  });
+                  if ('webkitGetGamepads' in Navigator.prototype) {
+                    Object.defineProperty(Navigator.prototype, 'webkitGetGamepads', {
+                      value: patchedGetGamepads,
+                      writable: true,
+                      configurable: true
+                    });
+                  }
+                }
+              } catch (e) {}
+              try {
+                Object.defineProperty(navigator, 'getGamepads', {
+                  value: patchedGetGamepads,
+                  writable: true,
+                  configurable: true
+                });
+                if ('webkitGetGamepads' in navigator) {
+                  Object.defineProperty(navigator, 'webkitGetGamepads', {
+                    value: patchedGetGamepads,
+                    writable: true,
+                    configurable: true
+                  });
+                }
+              } catch (e) {
+                try { navigator.getGamepads = patchedGetGamepads; } catch (e2) {}
+              }
+
+              function buildGamepadConnectedEvent() {
+                var padSnap = snapshotVirtualPad(padSlotIndex);
+                try {
+                  if (typeof GamepadEvent === 'function') {
+                    return new GamepadEvent('gamepadconnected', { gamepad: padSnap });
+                  }
+                } catch (e) {}
+                var ev = new Event('gamepadconnected');
+                try {
+                  Object.defineProperty(ev, 'gamepad', { value: padSnap, enumerable: true, configurable: true });
+                } catch (e2) {
+                  ev.gamepad = padSnap;
+                }
+                return ev;
+              }
+
+              var padDispatched = false;
+              function notifyGamepadConnected(force) {
+                if (!(window.__xenosConfig && window.__xenosConfig.virtualPadEnabled)) return;
+                if (padDispatched && !force) return;
                 padDispatched = true;
                 try {
-                  var ev = new Event('gamepadconnected');
-                  Object.defineProperty(ev, 'gamepad', { value: virtualPad });
+                  var ev = buildGamepadConnectedEvent();
                   window.dispatchEvent(ev);
+                  if (typeof window.ongamepadconnected === 'function') {
+                    window.ongamepadconnected(ev);
+                  }
+                } catch (e) {}
+              }
+
+              // Intercept late window.addEventListener('gamepadconnected', ...) so when GeForce NOW
+              // boots its WebRTC game session well after page load, it immediately sees our virtual pad.
+              try {
+                var origWinAddEventListener = window.addEventListener;
+                if (typeof origWinAddEventListener === 'function') {
+                  window.addEventListener = function(type, listener, options) {
+                    var res = origWinAddEventListener.apply(this, arguments);
+                    if (type === 'gamepadconnected' && listener && window.__xenosConfig && window.__xenosConfig.virtualPadEnabled) {
+                      setTimeout(function() {
+                        try {
+                          var ev = buildGamepadConnectedEvent();
+                          if (typeof listener === 'function') {
+                            listener.call(window, ev);
+                          } else if (listener && typeof listener.handleEvent === 'function') {
+                            listener.handleEvent(ev);
+                          }
+                        } catch (e) {}
+                      }, 30);
+                    }
+                    return res;
+                  };
+                }
+              } catch (e) {}
+
+              function focusStreamForGamepad() {
+                try {
+                  var media = findStreamMediaElement(document);
+                  if (media && typeof media.focus === 'function' && document.activeElement !== media) {
+                    media.focus({ preventScroll: true });
+                  }
                 } catch (e) {}
               }
 
               window.__xenosPad = {
                 syncConnectedState: function() {
                   if (window.__xenosConfig && window.__xenosConfig.virtualPadEnabled) {
-                    notifyGamepadConnected();
+                    notifyGamepadConnected(true);
                   }
                 },
                 setButton: function(idx, isDown) {
-                  if (idx < 0 || idx >= virtualPad.buttons.length) return;
-                  notifyGamepadConnected();
-                  virtualPad.buttons[idx] = { pressed: !!isDown, touched: !!isDown, value: isDown ? 1.0 : 0.0 };
-                  virtualPad.timestamp = performance.now();
+                  if (idx < 0 || idx >= padButtons.length) return;
+                  if (!padStreamAnnounced && detectInGameStream()) {
+                    padStreamAnnounced = true;
+                    notifyGamepadConnected(true);
+                    focusStreamForGamepad();
+                  } else {
+                    notifyGamepadConnected(false);
+                  }
+                  padButtons[idx] = { pressed: !!isDown, touched: !!isDown, value: isDown ? 1.0 : 0.0 };
+                  padTimestamp = performance.now();
                 },
                 setAxes: function(isLeft, x, y) {
-                  notifyGamepadConnected();
+                  if (!padStreamAnnounced && detectInGameStream()) {
+                    padStreamAnnounced = true;
+                    notifyGamepadConnected(true);
+                    focusStreamForGamepad();
+                  } else {
+                    notifyGamepadConnected(false);
+                  }
                   var cx = Math.max(-1, Math.min(1, Number(x) || 0));
                   var cy = Math.max(-1, Math.min(1, Number(y) || 0));
                   if (isLeft) {
-                    virtualPad.axes[0] = cx;
-                    virtualPad.axes[1] = cy;
+                    padAxes[0] = cx;
+                    padAxes[1] = cy;
                   } else {
-                    virtualPad.axes[2] = cx;
-                    virtualPad.axes[3] = cy;
+                    padAxes[2] = cx;
+                    padAxes[3] = cy;
                   }
-                  virtualPad.timestamp = performance.now();
+                  padTimestamp = performance.now();
                 },
                 reset: function() {
-                  for (var i = 0; i < virtualPad.buttons.length; i++) {
-                    virtualPad.buttons[i] = { pressed: false, touched: false, value: 0.0 };
+                  for (var i = 0; i < padButtons.length; i++) {
+                    padButtons[i] = { pressed: false, touched: false, value: 0.0 };
                   }
-                  virtualPad.axes[0] = 0; virtualPad.axes[1] = 0;
-                  virtualPad.axes[2] = 0; virtualPad.axes[3] = 0;
-                  virtualPad.timestamp = performance.now();
+                  padAxes[0] = 0; padAxes[1] = 0;
+                  padAxes[2] = 0; padAxes[3] = 0;
+                  padTimestamp = performance.now();
                 }
               };
-              setTimeout(notifyGamepadConnected, 800);
+              setTimeout(function() { notifyGamepadConnected(false); }, 800);
 
               // 3. Direct Keyboard / Mouse / Wheel Dispatcher + Android WebView W3C Pointer Lock Polyfill
               var pointerX = Math.round(window.innerWidth / 2);
@@ -1203,10 +1328,17 @@ object BetterGfnScriptEngine {
                   var inGame = detectInGameStream();
                   if (!inGame) {
                     activationClickSent = false;
+                    padStreamAnnounced = false;
                     releaseVirtualPointerLock();
                   }
                   if (force || inGame !== lastReportedInGame) {
+                    var enteringGame = inGame && !lastReportedInGame;
                     lastReportedInGame = inGame;
+                    if (enteringGame && window.__xenosConfig && window.__xenosConfig.virtualPadEnabled) {
+                      padStreamAnnounced = true;
+                      notifyGamepadConnected(true);
+                      setTimeout(function() { notifyGamepadConnected(true); }, 650);
+                    }
                     if (window.XenosWebBridge && window.XenosWebBridge.onStreamStateChanged) {
                       window.XenosWebBridge.onStreamStateChanged(inGame);
                     }

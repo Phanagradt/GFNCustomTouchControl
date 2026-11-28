@@ -326,11 +326,10 @@ class NexusStrings internal constructor() {
     var whatsNewSubtitle: String = "Here's everything new in this release:"; internal set
     var whatsNewGotIt: String = "Awesome, Let's Play!"; internal set
     var whatsNewItems: List<Pair<String, String>> = listOf(
-        "Full Multi-Language Translation" to "Every screen—Freestyle Filters, Gallery, Recording Quality, Updates, Cockpit, Profiles & Setup—now translates completely.",
-        "Seamless In-Place APK Updates" to "Fixed GitHub Release signing & added pre-install APK signature verification so future updates install right over your old version.",
-        "App Color Mixer (2–3 Colors) & Custom Fonts" to "Pick curated color themes or mix 2–3 custom colors, plus choose gaming font presets or upload your own .ttf/.otf from DaFont.com.",
-        "Custom Floating Bubble & Test Background" to "Resize and restyle the floating bubble (5 shapes + custom icon) and upload your own custom background image in the Test Sandbox.",
-        "Animated Virtual Keyboard + Auto-Correct" to "Built-in keyboard now features crisp key-press pop-up animations and a Gboard-style EN/TH word suggestion & auto-correct bar."
+        "Layout Studio Pro Button Customization" to "Resize custom button icon size & opacity, hide blank labels cleanly with no dark bar, toggle/style button background & stroke (or upload custom BG/stroke images), and drag X/Y/corner dots for free-style resizing.",
+        "Fixed Controller Layouts (Web Play & Overlay)" to "Upgraded the Virtual Xbox 360 Gamepad bridge for GeForce NOW Web Play (XInput ID, prototype hook & late-listener replay) and fixed analog stick & D-pad routing in Overlay mode.",
+        "Custom Button Theme Studio & Workshop" to "Create per-button theme presets (e.g. DBD style) with Draft & Test mode before publishing to the community Button Theme Workshop—downloaded themes auto-style every new button you add.",
+        "Community Profiles, Clips & Discussions" to "Set your custom username & profile picture, post recorded gameplay clips from Gallery to your profile, and like, favorite, comment & discuss topics with other players."
     ); internal set
 
     // Cloud Layout Save (Optional Google Sign-In)

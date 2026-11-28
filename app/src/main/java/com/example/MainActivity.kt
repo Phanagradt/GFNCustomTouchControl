@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.FolderCopy
 import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TouchApp
@@ -48,6 +49,7 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -96,13 +98,17 @@ import com.example.service.OverlayControllerService
 import com.example.service.ScreenCaptureService
 import com.example.ui.NexusViewModel
 import com.example.ui.components.WhatsNewDialog
+import com.example.ui.screens.ButtonThemeCreatorScreen
 import com.example.ui.screens.CockpitScreen
+import com.example.ui.screens.CommunityAvatar
+import com.example.ui.screens.CommunityHubScreen
 import com.example.ui.screens.GalleryScreen
 import com.example.ui.screens.GameFilterScreen
 import com.example.ui.screens.LayoutEditorScreen
 import com.example.ui.screens.ProfilesScreen
 import com.example.ui.screens.SetupScreen
 import com.example.ui.screens.TestArenaScreen
+import com.example.ui.screens.UserProfileScreen
 import com.example.ui.theme.NexusPadTheme
 import com.example.update.UpdateUiState
 import com.example.util.SystemIntegrations
@@ -116,8 +122,15 @@ object NexusRoutes {
     const val SANDBOX = "sandbox"
     const val SETUP = "setup"
     const val EDITOR = "editor/{profileId}"
+    const val WORKSHOP = "workshop/{tab}"
+    const val THEME_CREATOR = "theme_creator?themeId={themeId}"
+    const val USER_PROFILE = "user_profile/{userId}"
 
     fun editor(profileId: String): String = "editor/$profileId"
+    fun workshop(tab: Int = 0): String = "workshop/$tab"
+    fun themeCreator(themeId: String? = null): String =
+        if (themeId.isNullOrBlank()) "theme_creator" else "theme_creator?themeId=$themeId"
+    fun userProfile(userId: String): String = "user_profile/$userId"
 }
 
 private data class NavTab(
@@ -256,6 +269,24 @@ private fun NexusPadAppShell(
     val cloudSyncState by viewModel.cloudSyncState.collectAsStateWithLifecycle()
     val shareCodeState by viewModel.shareCodeState.collectAsStateWithLifecycle()
     val connectedControllers by viewModel.connectedControllers.collectAsStateWithLifecycle()
+    val localButtonThemes by viewModel.localButtonThemes.collectAsStateWithLifecycle()
+    val activeButtonThemeId by viewModel.activeButtonThemeId.collectAsStateWithLifecycle()
+    val workshopThemes by viewModel.workshopThemes.collectAsStateWithLifecycle()
+    val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
+    val favoriteThemeIds by viewModel.favoriteThemeIds.collectAsStateWithLifecycle()
+    val communityPosts by viewModel.communityPosts.collectAsStateWithLifecycle()
+    val likedPostIds by viewModel.likedPostIds.collectAsStateWithLifecycle()
+    val likedClipIds by viewModel.likedClipIds.collectAsStateWithLifecycle()
+    val myPublicProfile by viewModel.myPublicProfile.collectAsStateWithLifecycle()
+    val myProfileClips by viewModel.myProfileClips.collectAsStateWithLifecycle()
+    val myProfileThemes by viewModel.myProfileThemes.collectAsStateWithLifecycle()
+    val myProfilePosts by viewModel.myProfilePosts.collectAsStateWithLifecycle()
+    val viewedPublicProfile by viewModel.viewedPublicProfile.collectAsStateWithLifecycle()
+    val viewedProfileClips by viewModel.viewedProfileClips.collectAsStateWithLifecycle()
+    val viewedProfileThemes by viewModel.viewedProfileThemes.collectAsStateWithLifecycle()
+    val viewedProfilePosts by viewModel.viewedProfilePosts.collectAsStateWithLifecycle()
+    val isCommunityLoading by viewModel.isCommunityLoading.collectAsStateWithLifecycle()
+    val isPublishingTheme by viewModel.isPublishingTheme.collectAsStateWithLifecycle()
     val hasUpdateBadge = updateState is UpdateUiState.UpdateAvailable || updateState is UpdateUiState.ReadyToInstall
 
     var showOverlayPermissionDialog by remember { mutableStateOf(false) }
@@ -365,16 +396,19 @@ private fun NexusPadAppShell(
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val isInEditor = currentRoute?.startsWith("editor/") == true
+    val isInFullscreenSubscreen = currentRoute?.startsWith("editor/") == true ||
+        currentRoute?.startsWith("workshop/") == true ||
+        currentRoute?.startsWith("theme_creator") == true ||
+        currentRoute?.startsWith("user_profile/") == true
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val useRail = maxWidth >= 680.dp
 
         Scaffold(
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-            contentWindowInsets = if (isInEditor) WindowInsets(0) else WindowInsets.safeDrawing,
+            contentWindowInsets = if (isInFullscreenSubscreen) WindowInsets(0) else WindowInsets.safeDrawing,
             topBar = {
-                if (!isInEditor) {
+                if (!isInFullscreenSubscreen) {
                     TopAppBar(
                         title = {
                             Row(
@@ -396,6 +430,28 @@ private fun NexusPadAppShell(
                                 )
                             }
                         },
+                        actions = {
+                            IconButton(
+                                onClick = { navController.navigate(NexusRoutes.workshop(0)) },
+                                modifier = Modifier.testTag("topbar_workshop_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Palette,
+                                    contentDescription = "Button Theme Workshop & Community",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(
+                                onClick = { navController.navigate(NexusRoutes.workshop(2)) },
+                                modifier = Modifier.testTag("topbar_profile_button")
+                            ) {
+                                CommunityAvatar(
+                                    avatarBase64 = myPublicProfile?.avatarBase64,
+                                    username = myPublicProfile?.username ?: cloudUser?.displayName ?: "Me",
+                                    size = 30.dp
+                                )
+                            }
+                        },
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = MaterialTheme.colorScheme.background
                         )
@@ -403,7 +459,7 @@ private fun NexusPadAppShell(
                 }
             },
             bottomBar = {
-                if (!isInEditor && !useRail) {
+                if (!isInFullscreenSubscreen && !useRail) {
                     NavigationBar(windowInsets = WindowInsets.navigationBars) {
                         primaryTabs.forEach { tab ->
                             val selected = currentRoute == tab.route
@@ -447,10 +503,10 @@ private fun NexusPadAppShell(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(
-                        if (isInEditor) Modifier else Modifier.padding(innerPadding)
+                        if (isInFullscreenSubscreen) Modifier else Modifier.padding(innerPadding)
                     )
             ) {
-                if (!isInEditor && useRail) {
+                if (!isInFullscreenSubscreen && useRail) {
                     NavigationRail(
                         modifier = Modifier
                             .fillMaxHeight()
@@ -650,6 +706,7 @@ private fun NexusPadAppShell(
                                 onReplayDurationChange = viewModel::setInstantReplayDurationSec,
                                 onRecordingResolutionChange = viewModel::setRecordingResolution,
                                 onRecordingFpsChange = viewModel::setRecordingFps,
+                                onPostClipToProfile = viewModel::postGalleryClipToProfile,
                                 onShowMessage = viewModel::showMessage
                             )
                         }
@@ -779,7 +836,10 @@ private fun NexusPadAppShell(
                                 onGridSnapChange = viewModel::setGridSnapEnabled,
                                 onGridDivisionsChange = viewModel::setGridDivisions,
                                 onUpdateControl = viewModel::updateControl,
+                                onResizeControlScales = viewModel::resizeControlScales,
                                 onPickCustomImage = viewModel::applyCustomButtonImage,
+                                onPickCustomBackground = viewModel::applyCustomButtonBackground,
+                                onPickCustomStroke = viewModel::applyCustomButtonStroke,
                                 onAddControl = viewModel::addControl,
                                 onDuplicateControl = viewModel::duplicateSelectedControl,
                                 onMirrorControl = viewModel::mirrorDuplicateSelectedControl,
@@ -791,6 +851,156 @@ private fun NexusPadAppShell(
                                 onUpdateProfileMeta = viewModel::updateProfileMeta,
                                 onPickCustomBg = viewModel::importCustomTestBackground,
                                 onResetCustomBg = viewModel::clearCustomTestBackground,
+                                localButtonThemes = localButtonThemes,
+                                activeButtonThemeId = activeButtonThemeId,
+                                onSelectButtonTheme = viewModel::setActiveButtonTheme,
+                                onApplyThemeToAllButtons = viewModel::applyActiveThemeToEditorLayout,
+                                onOpenThemeCreator = {
+                                    navController.navigate(NexusRoutes.themeCreator())
+                                },
+                                onOpenThemeWorkshop = {
+                                    navController.navigate(NexusRoutes.workshop(0))
+                                },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(
+                            route = NexusRoutes.WORKSHOP,
+                            arguments = listOf(navArgument("tab") { type = NavType.IntType; defaultValue = 0 })
+                        ) { backStackEntry ->
+                            val initialTab = backStackEntry.arguments?.getInt("tab") ?: 0
+                            CommunityHubScreen(
+                                initialTab = initialTab,
+                                cloudUser = cloudUser,
+                                myProfile = myPublicProfile,
+                                localThemes = localButtonThemes,
+                                activeThemeId = activeButtonThemeId,
+                                workshopThemes = workshopThemes,
+                                likedThemeIds = likedThemeIds,
+                                favoriteThemeIds = favoriteThemeIds,
+                                communityPosts = communityPosts,
+                                likedPostIds = likedPostIds,
+                                myProfileClips = myProfileClips,
+                                myProfileThemes = myProfileThemes,
+                                myProfilePosts = myProfilePosts,
+                                likedClipIds = likedClipIds,
+                                isLoading = isCommunityLoading,
+                                notation = settings.controllerNotation,
+                                onSignIn = { viewModel.signInForCloudSave(activity) },
+                                onRefresh = viewModel::refreshWorkshopAndCommunity,
+                                onCreateTheme = { navController.navigate(NexusRoutes.themeCreator()) },
+                                onEditTheme = { themeId -> navController.navigate(NexusRoutes.themeCreator(themeId)) },
+                                onActivateTheme = viewModel::setActiveButtonTheme,
+                                onDeleteLocalTheme = viewModel::deleteLocalButtonTheme,
+                                onDownloadWorkshopTheme = viewModel::downloadWorkshopTheme,
+                                onDeletePublishedTheme = viewModel::deletePublishedButtonTheme,
+                                onToggleLikeTheme = viewModel::toggleLikeTheme,
+                                onToggleFavoriteTheme = viewModel::toggleFavoriteTheme,
+                                onLoadThemeComments = viewModel::loadThemeComments,
+                                onAddThemeComment = viewModel::addThemeComment,
+                                onDeleteThemeComment = viewModel::deleteThemeComment,
+                                onCreatePost = viewModel::createCommunityPost,
+                                onDeletePost = viewModel::deleteCommunityPost,
+                                onToggleLikePost = viewModel::toggleLikePost,
+                                onLoadPostComments = viewModel::loadPostComments,
+                                onAddPostComment = viewModel::addPostComment,
+                                onDeletePostComment = viewModel::deletePostComment,
+                                onSaveMyProfile = viewModel::saveMyPublicProfile,
+                                onUploadMyAvatar = viewModel::uploadMyProfileAvatar,
+                                onRemoveMyAvatar = viewModel::removeMyProfileAvatar,
+                                onDeleteClip = viewModel::deleteProfileClip,
+                                onToggleLikeClip = viewModel::toggleLikeClip,
+                                onOpenGalleryForClip = {
+                                    navController.navigate(NexusRoutes.GALLERY) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                onOpenPublicProfile = { uid ->
+                                    navController.navigate(NexusRoutes.userProfile(uid))
+                                },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(
+                            route = NexusRoutes.THEME_CREATOR,
+                            arguments = listOf(
+                                navArgument("themeId") {
+                                    type = NavType.StringType
+                                    nullable = true
+                                    defaultValue = null
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val editId = backStackEntry.arguments?.getString("themeId")
+                            val initialTheme = remember(editId, localButtonThemes) {
+                                editId?.let { viewModel.getLocalButtonTheme(it) }
+                            }
+                            ButtonThemeCreatorScreen(
+                                initialTheme = initialTheme,
+                                isSignedIn = cloudUser != null,
+                                isPublishing = isPublishingTheme,
+                                notation = settings.controllerNotation,
+                                onSaveDraft = { draft ->
+                                    viewModel.saveButtonThemeDraft(draft, activate = false)
+                                },
+                                onTestTheme = { draft ->
+                                    viewModel.saveButtonThemeDraft(draft, activate = true)
+                                    val targetProfileId = activeProfile?.id ?: profiles.firstOrNull()?.id
+                                    if (targetProfileId != null) {
+                                        viewModel.openEditor(targetProfileId)
+                                        navController.navigate(NexusRoutes.editor(targetProfileId))
+                                    }
+                                },
+                                onPublishTheme = { theme ->
+                                    viewModel.publishButtonTheme(theme) {
+                                        navController.popBackStack()
+                                    }
+                                },
+                                onRequestSignIn = { viewModel.signInForCloudSave(activity) },
+                                onShowMessage = viewModel::showMessage,
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(
+                            route = NexusRoutes.USER_PROFILE,
+                            arguments = listOf(navArgument("userId") { type = NavType.StringType })
+                        ) { backStackEntry ->
+                            val uid = backStackEntry.arguments?.getString("userId").orEmpty()
+                            UserProfileScreen(
+                                userId = uid,
+                                currentUserUid = cloudUser?.uid,
+                                profile = viewedPublicProfile,
+                                themes = viewedProfileThemes,
+                                clips = viewedProfileClips,
+                                posts = viewedProfilePosts,
+                                likedThemeIds = likedThemeIds,
+                                favoriteThemeIds = favoriteThemeIds,
+                                likedClipIds = likedClipIds,
+                                likedPostIds = likedPostIds,
+                                isLoading = isCommunityLoading,
+                                notation = settings.controllerNotation,
+                                onLoadProfile = viewModel::loadPublicProfileBundle,
+                                onDownloadWorkshopTheme = viewModel::downloadWorkshopTheme,
+                                onToggleLikeTheme = viewModel::toggleLikeTheme,
+                                onToggleFavoriteTheme = viewModel::toggleFavoriteTheme,
+                                onDeletePublishedTheme = viewModel::deletePublishedButtonTheme,
+                                onLoadThemeComments = viewModel::loadThemeComments,
+                                onAddThemeComment = viewModel::addThemeComment,
+                                onDeleteThemeComment = viewModel::deleteThemeComment,
+                                onToggleLikeClip = viewModel::toggleLikeClip,
+                                onDeleteClip = viewModel::deleteProfileClip,
+                                onToggleLikePost = viewModel::toggleLikePost,
+                                onDeletePost = viewModel::deleteCommunityPost,
+                                onLoadPostComments = viewModel::loadPostComments,
+                                onAddPostComment = viewModel::addPostComment,
+                                onDeletePostComment = viewModel::deletePostComment,
                                 onBack = { navController.popBackStack() }
                             )
                         }

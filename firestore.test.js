@@ -325,3 +325,170 @@ test("User settings subcollection: owner CRUD succeeds, unauth/cross-user/ghost-
   );
 });
 
+test("Public profiles: signed-in get allowed, list blocked, owner-only write & strict field validation", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const now = new Date(Date.now() - 1000);
+
+  await assertFails(unauthDb.collection("public_profiles").doc(ALICE_UID).get());
+
+  await assertSucceeds(
+    aliceDb.collection("public_profiles").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      username: "LoopMaster_DBD",
+      bio: "Survivor main & custom button artist",
+      avatarBase64: "iVBORw0KGgo=",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  // Bob can view Alice's public profile by UID, but cannot list all profiles or overwrite hers
+  await assertSucceeds(bobDb.collection("public_profiles").doc(ALICE_UID).get());
+  await assertFails(bobDb.collection("public_profiles").get());
+  await assertFails(
+    bobDb.collection("public_profiles").doc(ALICE_UID).update({
+      username: "Hijacked",
+      updatedAt: now,
+    })
+  );
+
+  // Owner update succeeds; ghost field fails
+  await assertSucceeds(
+    aliceDb.collection("public_profiles").doc(ALICE_UID).update({
+      username: "EntityRunner",
+      bio: "New bio",
+      updatedAt: new Date(Date.now() - 500),
+    })
+  );
+  await assertFails(
+    aliceDb.collection("public_profiles").doc(ALICE_UID).update({
+      email: "leak@example.com",
+      updatedAt: new Date(Date.now() - 400),
+    })
+  );
+});
+
+test("Button Theme Workshop: publish, query published, like/favorite/download/comment, and block spoofed counters", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const now = new Date(Date.now() - 1000);
+
+  const validTheme = {
+    ownerId: ALICE_UID,
+    authorName: "Alice",
+    name: "DBD Bloodweb Style",
+    gameTag: "Dead by Daylight",
+    description: "Crimson skill-check icons & dark fog stroke",
+    category: "Horror",
+    themeJson: '{"defaultStyle":{"showStroke":true},"buttonStyles":{}}',
+    published: true,
+    likesCount: 0,
+    favoritesCount: 0,
+    downloadsCount: 0,
+    commentsCount: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await assertFails(unauthDb.collection("button_themes").doc("theme_dbd").set(validTheme));
+  await assertSucceeds(aliceDb.collection("button_themes").doc("theme_dbd").set(validTheme));
+
+  // Bob can browse published themes with limit <= 50, but cannot query unbounded (>50)
+  await assertSucceeds(bobDb.collection("button_themes").where("published", "==", true).limit(25).get());
+  await assertFails(bobDb.collection("button_themes").where("published", "==", true).limit(100).get());
+
+  // Bob can like (+1), favorite (+1), download (+1), and comment (+1)
+  await assertSucceeds(
+    bobDb.collection("button_themes").doc("theme_dbd").collection("likes").doc(BOB_UID).set({
+      userId: BOB_UID,
+      createdAt: now,
+    })
+  );
+  await assertSucceeds(bobDb.collection("button_themes").doc("theme_dbd").update({ likesCount: 1 }));
+  await assertSucceeds(
+    bobDb.collection("users").doc(BOB_UID).collection("favorite_themes").doc("theme_dbd").set({
+      userId: BOB_UID,
+      themeId: "theme_dbd",
+      createdAt: now,
+    })
+  );
+  await assertSucceeds(bobDb.collection("button_themes").doc("theme_dbd").update({ favoritesCount: 1 }));
+  await assertSucceeds(bobDb.collection("button_themes").doc("theme_dbd").update({ downloadsCount: 1 }));
+  await assertSucceeds(
+    bobDb.collection("button_themes").doc("theme_dbd").collection("comments").doc("c1").set({
+      authorUid: BOB_UID,
+      authorName: "Bob",
+      text: "Love these DBD icons!",
+      createdAt: now,
+    })
+  );
+  await assertSucceeds(bobDb.collection("button_themes").doc("theme_dbd").update({ commentsCount: 1 }));
+
+  // Bob cannot jump likesCount by +10, decrement downloadsCount, edit theme name, or delete Alice's theme
+  await assertFails(bobDb.collection("button_themes").doc("theme_dbd").update({ likesCount: 11 }));
+  await assertFails(bobDb.collection("button_themes").doc("theme_dbd").update({ downloadsCount: 0 }));
+  await assertFails(bobDb.collection("button_themes").doc("theme_dbd").update({ name: "Stolen", updatedAt: now }));
+  await assertFails(bobDb.collection("button_themes").doc("theme_dbd").delete());
+
+  // Owner (Alice) can delete Bob's comment on her theme, and delete her own theme
+  await assertSucceeds(aliceDb.collection("button_themes").doc("theme_dbd").collection("comments").doc("c1").delete());
+  await assertSucceeds(aliceDb.collection("button_themes").doc("theme_dbd").delete());
+});
+
+test("Profile clips & community topic posts: owner create/edit/delete, cross-user like & comment, block spoofed writes", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const now = new Date(Date.now() - 1000);
+
+  await assertSucceeds(
+    aliceDb.collection("profile_clips").doc("clip_1").set({
+      ownerId: ALICE_UID,
+      authorName: "Alice",
+      title: "360 Flashlight Save!",
+      gameTag: "Dead by Daylight",
+      caption: "Recorded using XenosPad Web Play",
+      durationMs: 14500,
+      thumbnailBase64: "AAAA",
+      storyboardFrames: ["AAAA", "BBBB"],
+      likesCount: 0,
+      createdAt: now,
+    })
+  );
+
+  await assertSucceeds(bobDb.collection("profile_clips").where("ownerId", "==", ALICE_UID).limit(20).get());
+  await assertSucceeds(bobDb.collection("profile_clips").doc("clip_1").update({ likesCount: 1 }));
+  await assertFails(bobDb.collection("profile_clips").doc("clip_1").update({ likesCount: 50 }));
+  await assertFails(bobDb.collection("profile_clips").doc("clip_1").delete());
+
+  await assertSucceeds(
+    aliceDb.collection("community_posts").doc("post_1").set({
+      ownerId: ALICE_UID,
+      authorName: "Alice",
+      topic: "Dead by Daylight",
+      title: "Best touch layout for killer?",
+      body: "Share your favorite drag-to-aim sensitivity for Huntress!",
+      likesCount: 0,
+      commentsCount: 0,
+      createdAt: now,
+    })
+  );
+
+  await assertSucceeds(bobDb.collection("community_posts").limit(25).get());
+  await assertSucceeds(bobDb.collection("community_posts").doc("post_1").update({ likesCount: 1 }));
+  await assertSucceeds(
+    bobDb.collection("community_posts").doc("post_1").collection("comments").doc("r1").set({
+      authorUid: BOB_UID,
+      authorName: "Bob",
+      text: "Try 1.8x drag aim on M2!",
+      createdAt: now,
+    })
+  );
+  await assertSucceeds(bobDb.collection("community_posts").doc("post_1").update({ commentsCount: 1 }));
+  await assertFails(bobDb.collection("community_posts").doc("post_1").update({ title: "Edited by Bob" }));
+  await assertSucceeds(aliceDb.collection("community_posts").doc("post_1").delete());
+});
+
+

@@ -27,10 +27,22 @@ service cloud.firestore {
       return code is string && code.size() >= 6 && code.size() <= 16 && code.matches('^[A-Z0-9]+$');
     }
 
+    function isOptionalBase64(data, key, maxLen) {
+      return !(key in data) || data[key] == null || (data[key] is string && data[key].size() <= maxLen);
+    }
+
     function isValidUserAccount(data) {
       return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
              data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
              (!('photoUrl' in data) || data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 500));
+    }
+
+    function isValidPublicProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.username is string && data.username.size() >= 1 && data.username.size() <= 36 &&
+             data.bio is string && data.bio.size() <= 220 &&
+             isOptionalBase64(data, 'avatarBase64', 70000) &&
+             (!('avatarUrl' in data) || data.avatarUrl == null || (data.avatarUrl is string && data.avatarUrl.size() <= 500));
     }
 
     function isValidUserLayout(data) {
@@ -67,6 +79,63 @@ service cloud.firestore {
              data.floatingBubbleJson is string && data.floatingBubbleJson.size() <= 4000 &&
              data.darkTheme is bool &&
              data.clientUpdatedAt is int && data.clientUpdatedAt >= 0;
+    }
+
+    function isValidButtonTheme(data) {
+      return data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+             data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 40 &&
+             isOptionalBase64(data, 'authorAvatarBase64', 70000) &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 60 &&
+             data.gameTag is string && data.gameTag.size() >= 1 && data.gameTag.size() <= 50 &&
+             data.description is string && data.description.size() <= 300 &&
+             data.category is string && data.category.size() >= 1 && data.category.size() <= 30 &&
+             data.themeJson is string && data.themeJson.size() >= 2 && data.themeJson.size() <= 720000 &&
+             data.published is bool &&
+             data.likesCount is int && data.likesCount >= 0 &&
+             data.favoritesCount is int && data.favoritesCount >= 0 &&
+             data.downloadsCount is int && data.downloadsCount >= 0 &&
+             data.commentsCount is int && data.commentsCount >= 0;
+    }
+
+    function isValidWorkshopComment(data) {
+      return data.authorUid is string && data.authorUid.size() >= 1 && data.authorUid.size() <= 128 &&
+             data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 40 &&
+             isOptionalBase64(data, 'authorAvatarBase64', 70000) &&
+             data.text is string && data.text.size() >= 1 && data.text.size() <= 400;
+    }
+
+    function isValidProfileClip(data) {
+      return data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+             data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 40 &&
+             isOptionalBase64(data, 'authorAvatarBase64', 70000) &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 80 &&
+             data.gameTag is string && data.gameTag.size() <= 50 &&
+             data.caption is string && data.caption.size() <= 260 &&
+             data.durationMs is int && data.durationMs >= 0 &&
+             isOptionalBase64(data, 'thumbnailBase64', 100000) &&
+             data.storyboardFrames is list && data.storyboardFrames.size() <= 6 &&
+             (!('localMediaUri' in data) || data.localMediaUri == null || (data.localMediaUri is string && data.localMediaUri.size() <= 300)) &&
+             data.likesCount is int && data.likesCount >= 0;
+    }
+
+    function isValidCommunityPost(data) {
+      return data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+             data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 40 &&
+             isOptionalBase64(data, 'authorAvatarBase64', 70000) &&
+             data.topic is string && data.topic.size() >= 1 && data.topic.size() <= 40 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 100 &&
+             data.body is string && data.body.size() >= 1 && data.body.size() <= 1500 &&
+             isOptionalBase64(data, 'imageBase64', 130000) &&
+             data.likesCount is int && data.likesCount >= 0 &&
+             data.commentsCount is int && data.commentsCount >= 0;
+    }
+
+    function isSingleCounterDelta(field, allowDecrement) {
+      let diff = incoming()[field] - existing()[field];
+      return incoming().diff(existing()).affectedKeys().hasOnly([field]) &&
+             incoming()[field] is int &&
+             incoming()[field] >= 0 &&
+             (diff == 1 || (allowDecrement && diff == -1));
     }
 
     match /users/{userId} {
@@ -172,16 +241,58 @@ service cloud.firestore {
 
         allow delete: if isSignedIn() && isValidId(userId) && isValidId(settingId) && request.auth.uid == userId;
       }
+
+      match /favorite_themes/{themeId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(themeId) && request.auth.uid == userId;
+        allow list: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(themeId) &&
+                         request.auth.uid == userId &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().themeId == themeId &&
+                         incoming().keys().hasAll(['userId', 'themeId', 'createdAt']) &&
+                         incoming().keys().hasOnly(['userId', 'themeId', 'createdAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time;
+
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(themeId) && request.auth.uid == userId;
+      }
+    }
+
+    match /public_profiles/{userId} {
+      // Any signed-in user can view another creator's public profile by UID; enumeration disabled.
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'username', 'bio', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'username', 'bio', 'avatarBase64', 'avatarUrl', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidPublicProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       isValidPublicProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['username', 'bio', 'avatarBase64', 'avatarUrl', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
     }
 
     match /shared_layouts/{shareCode} {
-      // Allow lookup of non-existent codes (to show clean "code not found" message) or non-expired codes (or owner).
-      // Existing expired codes are strictly blocked at the rules layer.
       allow get: if isSignedIn() &&
                     isValidShareCode(shareCode) &&
                     (resource == null || existing().ownerId == request.auth.uid || existing().expiresAt > request.time);
 
-      // Only owners can list their own created share codes; blocks scraping other users' share codes.
       allow list: if isSignedIn() && existing().ownerId == request.auth.uid;
 
       allow create: if isSignedIn() &&
@@ -204,6 +315,236 @@ service cloud.firestore {
       allow update: if false;
 
       allow delete: if isSignedIn() && isValidShareCode(shareCode) && existing().ownerId == request.auth.uid;
+    }
+
+    match /button_themes/{themeId} {
+      allow get: if isSignedIn() &&
+                    isValidId(themeId) &&
+                    (resource == null || existing().published == true || existing().ownerId == request.auth.uid);
+
+      allow list: if isSignedIn() &&
+                     request.query.limit <= 50 &&
+                     (existing().published == true || existing().ownerId == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+                       isValidId(themeId) &&
+                       incoming().ownerId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'ownerId', 'authorName', 'name', 'gameTag', 'description',
+                         'category', 'themeJson', 'published', 'likesCount',
+                         'favoritesCount', 'downloadsCount', 'commentsCount',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'ownerId', 'authorName', 'authorAvatarBase64', 'name', 'gameTag',
+                         'description', 'category', 'themeJson', 'published', 'likesCount',
+                         'favoritesCount', 'downloadsCount', 'commentsCount',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().likesCount == 0 &&
+                       incoming().favoritesCount == 0 &&
+                       incoming().downloadsCount == 0 &&
+                       incoming().commentsCount == 0 &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidButtonTheme(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(themeId) &&
+                       isValidButtonTheme(incoming()) &&
+                       incoming().ownerId == existing().ownerId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         (
+                           existing().ownerId == request.auth.uid &&
+                           incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'authorName', 'authorAvatarBase64', 'name', 'gameTag',
+                             'description', 'category', 'themeJson', 'published', 'updatedAt'
+                           ])
+                         ) ||
+                         (
+                           existing().published == true &&
+                           (
+                             isSingleCounterDelta('likesCount', true) ||
+                             isSingleCounterDelta('favoritesCount', true) ||
+                             isSingleCounterDelta('downloadsCount', false) ||
+                             isSingleCounterDelta('commentsCount', true)
+                           )
+                         )
+                       );
+
+      allow delete: if isSignedIn() && isValidId(themeId) && existing().ownerId == request.auth.uid;
+
+      match /likes/{userId} {
+        allow get: if isSignedIn() && isValidId(themeId) && isValidId(userId) && request.auth.uid == userId;
+        allow list: if false;
+
+        allow create: if isSignedIn() &&
+                         isValidId(themeId) &&
+                         isValidId(userId) &&
+                         request.auth.uid == userId &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll(['userId', 'createdAt']) &&
+                         incoming().keys().hasOnly(['userId', 'createdAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time;
+
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(themeId) && isValidId(userId) && request.auth.uid == userId;
+      }
+
+      match /comments/{commentId} {
+        allow get: if isSignedIn() && isValidId(themeId) && isValidId(commentId);
+        allow list: if isSignedIn() && isValidId(themeId) && request.query.limit <= 50;
+
+        allow create: if isSignedIn() &&
+                         isValidId(themeId) &&
+                         isValidId(commentId) &&
+                         incoming().authorUid == request.auth.uid &&
+                         incoming().keys().hasAll(['authorUid', 'authorName', 'text', 'createdAt']) &&
+                         incoming().keys().hasOnly(['authorUid', 'authorName', 'authorAvatarBase64', 'text', 'createdAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         isValidWorkshopComment(incoming());
+
+        allow update: if false;
+        allow delete: if isSignedIn() &&
+                         isValidId(themeId) &&
+                         isValidId(commentId) &&
+                         (
+                           existing().authorUid == request.auth.uid ||
+                           get(/databases/$(database)/documents/button_themes/$(themeId)).data.ownerId == request.auth.uid
+                         );
+      }
+    }
+
+    match /profile_clips/{clipId} {
+      allow get: if isSignedIn() && isValidId(clipId);
+      allow list: if isSignedIn() && request.query.limit <= 30;
+
+      allow create: if isSignedIn() &&
+                       isValidId(clipId) &&
+                       incoming().ownerId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'ownerId', 'authorName', 'title', 'gameTag', 'caption',
+                         'durationMs', 'storyboardFrames', 'likesCount', 'createdAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'ownerId', 'authorName', 'authorAvatarBase64', 'title', 'gameTag',
+                         'caption', 'durationMs', 'thumbnailBase64', 'storyboardFrames',
+                         'localMediaUri', 'likesCount', 'createdAt'
+                       ]) &&
+                       incoming().likesCount == 0 &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       isValidProfileClip(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(clipId) &&
+                       isValidProfileClip(incoming()) &&
+                       incoming().ownerId == existing().ownerId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         (
+                           existing().ownerId == request.auth.uid &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['title', 'gameTag', 'caption', 'authorName', 'authorAvatarBase64'])
+                         ) ||
+                         isSingleCounterDelta('likesCount', true)
+                       );
+
+      allow delete: if isSignedIn() && isValidId(clipId) && existing().ownerId == request.auth.uid;
+
+      match /likes/{userId} {
+        allow get: if isSignedIn() && isValidId(clipId) && isValidId(userId) && request.auth.uid == userId;
+        allow list: if false;
+
+        allow create: if isSignedIn() &&
+                         isValidId(clipId) &&
+                         isValidId(userId) &&
+                         request.auth.uid == userId &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll(['userId', 'createdAt']) &&
+                         incoming().keys().hasOnly(['userId', 'createdAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time;
+
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(clipId) && isValidId(userId) && request.auth.uid == userId;
+      }
+    }
+
+    match /community_posts/{postId} {
+      allow get: if isSignedIn() && isValidId(postId);
+      allow list: if isSignedIn() && request.query.limit <= 40;
+
+      allow create: if isSignedIn() &&
+                       isValidId(postId) &&
+                       incoming().ownerId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'ownerId', 'authorName', 'topic', 'title', 'body',
+                         'likesCount', 'commentsCount', 'createdAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'ownerId', 'authorName', 'authorAvatarBase64', 'topic', 'title',
+                         'body', 'imageBase64', 'likesCount', 'commentsCount', 'createdAt'
+                       ]) &&
+                       incoming().likesCount == 0 &&
+                       incoming().commentsCount == 0 &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       isValidCommunityPost(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(postId) &&
+                       isValidCommunityPost(incoming()) &&
+                       incoming().ownerId == existing().ownerId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         (
+                           existing().ownerId == request.auth.uid &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['topic', 'title', 'body', 'authorName', 'authorAvatarBase64'])
+                         ) ||
+                         isSingleCounterDelta('likesCount', true) ||
+                         isSingleCounterDelta('commentsCount', true)
+                       );
+
+      allow delete: if isSignedIn() && isValidId(postId) && existing().ownerId == request.auth.uid;
+
+      match /likes/{userId} {
+        allow get: if isSignedIn() && isValidId(postId) && isValidId(userId) && request.auth.uid == userId;
+        allow list: if false;
+
+        allow create: if isSignedIn() &&
+                         isValidId(postId) &&
+                         isValidId(userId) &&
+                         request.auth.uid == userId &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll(['userId', 'createdAt']) &&
+                         incoming().keys().hasOnly(['userId', 'createdAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time;
+
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(postId) && isValidId(userId) && request.auth.uid == userId;
+      }
+
+      match /comments/{commentId} {
+        allow get: if isSignedIn() && isValidId(postId) && isValidId(commentId);
+        allow list: if isSignedIn() && isValidId(postId) && request.query.limit <= 50;
+
+        allow create: if isSignedIn() &&
+                         isValidId(postId) &&
+                         isValidId(commentId) &&
+                         incoming().authorUid == request.auth.uid &&
+                         incoming().keys().hasAll(['authorUid', 'authorName', 'text', 'createdAt']) &&
+                         incoming().keys().hasOnly(['authorUid', 'authorName', 'authorAvatarBase64', 'text', 'createdAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         isValidWorkshopComment(incoming());
+
+        allow update: if false;
+        allow delete: if isSignedIn() &&
+                         isValidId(postId) &&
+                         isValidId(commentId) &&
+                         (
+                           existing().authorUid == request.auth.uid ||
+                           get(/databases/$(database)/documents/community_posts/$(postId)).data.ownerId == request.auth.uid
+                         );
+      }
     }
   }
 }

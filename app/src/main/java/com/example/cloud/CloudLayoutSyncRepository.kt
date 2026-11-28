@@ -548,19 +548,31 @@ class CloudLayoutSyncRepository(
 
         fun serializeControls(controls: List<VirtualControl>): List<Map<String, Any>> {
             var remainingImageBudget = MAX_COMBINED_IMAGE_BASE64_CHARS
-            return controls.take(MAX_CONTROLS_PER_LAYOUT).map { ctrl ->
-                val rawImage = ctrl.customImageBase64?.takeIf { it.isNotBlank() }
-                val allowedImage = if (rawImage != null && rawImage.length <= remainingImageBudget) {
-                    remainingImageBudget -= rawImage.length
-                    rawImage
+            fun budgetImage(raw: String?): String? {
+                val clean = raw?.takeIf { it.isNotBlank() } ?: return null
+                return if (clean.length <= remainingImageBudget) {
+                    remainingImageBudget -= clean.length
+                    clean
                 } else {
                     null
                 }
-                controlToMap(ctrl, allowedImage)
+            }
+            return controls.take(MAX_CONTROLS_PER_LAYOUT).map { ctrl ->
+                controlToMap(
+                    ctrl = ctrl,
+                    customImageOverride = budgetImage(ctrl.customImageBase64),
+                    customBackgroundOverride = budgetImage(ctrl.customBackgroundBase64),
+                    customStrokeOverride = budgetImage(ctrl.customStrokeBase64)
+                )
             }
         }
 
-        fun controlToMap(ctrl: VirtualControl, customImageOverride: String? = ctrl.customImageBase64): Map<String, Any> {
+        fun controlToMap(
+            ctrl: VirtualControl,
+            customImageOverride: String? = ctrl.customImageBase64,
+            customBackgroundOverride: String? = ctrl.customBackgroundBase64,
+            customStrokeOverride: String? = ctrl.customStrokeBase64
+        ): Map<String, Any> {
             val bindingMap = mapOf<String, Any>(
                 "id" to ctrl.binding.id,
                 "domain" to ctrl.binding.domain.name,
@@ -588,10 +600,33 @@ class CloudLayoutSyncRepository(
                 "hapticOnPress" to ctrl.hapticOnPress,
                 "invertY" to ctrl.invertY,
                 "touchpadMode" to ctrl.touchpadMode.name,
+                "touchpadTapToClickEnabled" to ctrl.touchpadTapToClickEnabled,
+                "touchpadTwoFingerRightClickEnabled" to ctrl.touchpadTwoFingerRightClickEnabled,
+                "dragToAimEnabled" to ctrl.dragToAimEnabled,
+                "dragAimMode" to ctrl.dragAimMode.name,
+                "dragAimSensitivity" to ctrl.dragAimSensitivity.toDouble(),
+                "dragAimInvertY" to ctrl.dragAimInvertY,
+                "widthScale" to ctrl.widthScale.toDouble(),
+                "heightScale" to ctrl.heightScale.toDouble(),
+                "customImageScale" to ctrl.customImageScale.toDouble(),
+                "customImageOpacity" to ctrl.customImageOpacity.toDouble(),
+                "showBackground" to ctrl.showBackground,
+                "showStroke" to ctrl.showStroke,
+                "strokeWidthDp" to ctrl.strokeWidthDp.toDouble(),
+                "customBackgroundOpacity" to ctrl.customBackgroundOpacity.toDouble(),
+                "customStrokeOpacity" to ctrl.customStrokeOpacity.toDouble(),
                 "binding" to bindingMap
             )
+            ctrl.customBackgroundColorHex?.let { result["customBackgroundColorHex"] = it }
+            ctrl.customStrokeColorHex?.let { result["customStrokeColorHex"] = it }
             if (!customImageOverride.isNullOrBlank()) {
                 result["customImageBase64"] = customImageOverride
+            }
+            if (!customBackgroundOverride.isNullOrBlank()) {
+                result["customBackgroundBase64"] = customBackgroundOverride
+            }
+            if (!customStrokeOverride.isNullOrBlank()) {
+                result["customStrokeBase64"] = customStrokeOverride
             }
             return result
         }
@@ -640,11 +675,30 @@ class CloudLayoutSyncRepository(
             val behavior = TriggerBehavior.entries.firstOrNull { it.name == map["behavior"] } ?: TriggerBehavior.HOLD
             val turboRateHz = ((map["turboRateHz"] as? Number)?.toInt() ?: 10).coerceIn(2, 30)
             val deadzone = ((map["deadzone"] as? Number)?.toFloat() ?: 0.12f).coerceIn(0.0f, 0.5f)
-            val sensitivity = ((map["sensitivity"] as? Number)?.toFloat() ?: 1.0f).coerceIn(0.2f, 3.0f)
+            val sensitivity = ((map["sensitivity"] as? Number)?.toFloat() ?: 1.0f).coerceIn(0.2f, 6.0f)
             val hapticOnPress = (map["hapticOnPress"] as? Boolean) ?: true
             val invertY = (map["invertY"] as? Boolean) ?: false
             val touchpadMode = TouchpadMode.entries.firstOrNull { it.name == map["touchpadMode"] } ?: TouchpadMode.MOUSE
+            val touchpadTapToClickEnabled = (map["touchpadTapToClickEnabled"] as? Boolean) ?: true
+            val touchpadTwoFingerRightClickEnabled = (map["touchpadTwoFingerRightClickEnabled"] as? Boolean) ?: true
+            val dragToAimEnabled = (map["dragToAimEnabled"] as? Boolean) ?: false
+            val dragAimMode = TouchpadMode.entries.firstOrNull { it.name == map["dragAimMode"] } ?: TouchpadMode.MOUSE
+            val dragAimSensitivity = ((map["dragAimSensitivity"] as? Number)?.toFloat() ?: 1.4f).coerceIn(0.4f, 6.0f)
+            val dragAimInvertY = (map["dragAimInvertY"] as? Boolean) ?: false
             val customImageBase64 = (map["customImageBase64"] as? String)?.takeIf { it.isNotBlank() }
+            val widthScale = ((map["widthScale"] as? Number)?.toFloat() ?: 1.0f).coerceIn(0.45f, 2.6f)
+            val heightScale = ((map["heightScale"] as? Number)?.toFloat() ?: 1.0f).coerceIn(0.45f, 2.6f)
+            val customImageScale = ((map["customImageScale"] as? Number)?.toFloat() ?: 1.0f).coerceIn(0.30f, 1.80f)
+            val customImageOpacity = ((map["customImageOpacity"] as? Number)?.toFloat() ?: 1.0f).coerceIn(0.10f, 1.0f)
+            val showBackground = (map["showBackground"] as? Boolean) ?: true
+            val showStroke = (map["showStroke"] as? Boolean) ?: true
+            val strokeWidthDp = ((map["strokeWidthDp"] as? Number)?.toFloat() ?: 1.8f).coerceIn(0.5f, 6.0f)
+            val customBackgroundColorHex = (map["customBackgroundColorHex"] as? Number)?.toLong()
+            val customStrokeColorHex = (map["customStrokeColorHex"] as? Number)?.toLong()
+            val customBackgroundBase64 = (map["customBackgroundBase64"] as? String)?.takeIf { it.isNotBlank() }
+            val customBackgroundOpacity = ((map["customBackgroundOpacity"] as? Number)?.toFloat() ?: 0.90f).coerceIn(0.10f, 1.0f)
+            val customStrokeBase64 = (map["customStrokeBase64"] as? String)?.takeIf { it.isNotBlank() }
+            val customStrokeOpacity = ((map["customStrokeOpacity"] as? Number)?.toFloat() ?: 1.0f).coerceIn(0.10f, 1.0f)
 
             val rawBinding = map["binding"] as? Map<*, *> ?: emptyMap<Any?, Any?>()
             val binding = InputBinding(
@@ -676,7 +730,26 @@ class CloudLayoutSyncRepository(
                 hapticOnPress = hapticOnPress,
                 invertY = invertY,
                 touchpadMode = touchpadMode,
+                touchpadTapToClickEnabled = touchpadTapToClickEnabled,
+                touchpadTwoFingerRightClickEnabled = touchpadTwoFingerRightClickEnabled,
+                dragToAimEnabled = dragToAimEnabled,
+                dragAimMode = dragAimMode,
+                dragAimSensitivity = dragAimSensitivity,
+                dragAimInvertY = dragAimInvertY,
                 customImageBase64 = customImageBase64,
+                widthScale = widthScale,
+                heightScale = heightScale,
+                customImageScale = customImageScale,
+                customImageOpacity = customImageOpacity,
+                showBackground = showBackground,
+                showStroke = showStroke,
+                strokeWidthDp = strokeWidthDp,
+                customBackgroundColorHex = customBackgroundColorHex,
+                customStrokeColorHex = customStrokeColorHex,
+                customBackgroundBase64 = customBackgroundBase64,
+                customBackgroundOpacity = customBackgroundOpacity,
+                customStrokeBase64 = customStrokeBase64,
+                customStrokeOpacity = customStrokeOpacity,
                 binding = binding
             )
         }

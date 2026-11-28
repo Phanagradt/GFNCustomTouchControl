@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -52,8 +54,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -117,6 +121,7 @@ fun GalleryScreen(
     onReplayDurationChange: (Int) -> Unit,
     onRecordingResolutionChange: (RecordingResolution) -> Unit,
     onRecordingFpsChange: (RecordingFps) -> Unit,
+    onPostClipToProfile: (CapturedMediaItem, title: String, gameTag: String, caption: String) -> Unit = { _, _, _, _ -> },
     onShowMessage: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -132,6 +137,7 @@ fun GalleryScreen(
 
     var filterTab by remember { mutableStateOf(GalleryFilterTab.ALL) }
     var viewingItem by remember { mutableStateOf<CapturedMediaItem?>(null) }
+    var postingClipItem by remember { mutableStateOf<CapturedMediaItem?>(null) }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -465,6 +471,7 @@ fun GalleryScreen(
                     GalleryMediaCard(
                         item = item,
                         onClick = { viewingItem = item },
+                        onPostToProfile = { postingClipItem = item },
                         onShare = { shareMediaItem(context, item) },
                         onDelete = {
                             CaptureBridge.deleteMediaItem(context, item)
@@ -480,11 +487,26 @@ fun GalleryScreen(
         MediaPreviewDialog(
             item = current,
             onDismiss = { viewingItem = null },
+            onPostToProfile = {
+                viewingItem = null
+                postingClipItem = current
+            },
             onShare = { shareMediaItem(context, current) },
             onDelete = {
                 CaptureBridge.deleteMediaItem(context, current)
                 viewingItem = null
                 onShowMessage("Deleted ${current.fileName}")
+            }
+        )
+    }
+
+    postingClipItem?.let { clip ->
+        PostClipToProfileDialog(
+            item = clip,
+            onDismiss = { postingClipItem = null },
+            onConfirm = { title, gameTag, caption ->
+                onPostClipToProfile(clip, title, gameTag, caption)
+                postingClipItem = null
             }
         )
     }
@@ -494,6 +516,7 @@ fun GalleryScreen(
 private fun GalleryMediaCard(
     item: CapturedMediaItem,
     onClick: () -> Unit,
+    onPostToProfile: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -630,6 +653,21 @@ private fun GalleryMediaCard(
                     )
                 }
                 Row {
+                    if (isVideo) {
+                        IconButton(
+                            onClick = onPostToProfile,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .testTag("gallery_post_profile_${item.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudUpload,
+                                contentDescription = "Post Clip to Profile",
+                                tint = primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                     IconButton(onClick = onShare, modifier = Modifier.size(34.dp)) {
                         Icon(
                             imageVector = Icons.Default.Share,
@@ -656,6 +694,7 @@ private fun GalleryMediaCard(
 private fun MediaPreviewDialog(
     item: CapturedMediaItem,
     onDismiss: () -> Unit,
+    onPostToProfile: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -694,6 +733,11 @@ private fun MediaPreviewDialog(
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (item.type != CaptureMediaType.SCREENSHOT) {
+                            IconButton(onClick = onPostToProfile) {
+                                Icon(Icons.Default.CloudUpload, contentDescription = "Post Clip to Profile", tint = primary)
+                            }
+                        }
                         IconButton(onClick = onShare) {
                             Icon(Icons.Default.Share, contentDescription = strings.commonShare, tint = TacticalCyan)
                         }
@@ -781,6 +825,67 @@ private fun MediaPreviewDialog(
             }
         }
     }
+}
+
+@Composable
+private fun PostClipToProfileDialog(
+    item: CapturedMediaItem,
+    onDismiss: () -> Unit,
+    onConfirm: (title: String, gameTag: String, caption: String) -> Unit
+) {
+    var title by remember(item.id) { mutableStateOf(item.fileName.substringBeforeLast('.').take(60)) }
+    var gameTag by remember(item.id) { mutableStateOf("Dead by Daylight") }
+    var caption by remember(item.id) { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Post Clip to Your Profile") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Your recorded clip stays safely in your Gallery and will be published to your Community Profile with an animated highlight preview.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { if (it.length <= 80) title = it },
+                    label = { Text("Clip Title") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = gameTag,
+                    onValueChange = { if (it.length <= 50) gameTag = it },
+                    label = { Text("Game Tag") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = caption,
+                    onValueChange = { if (it.length <= 260) caption = it },
+                    label = { Text("Caption (optional)") },
+                    minLines = 2,
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(title, gameTag, caption) },
+                enabled = title.trim().isNotEmpty(),
+                modifier = Modifier.testTag("gallery_post_profile_confirm")
+            ) {
+                Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Post to Profile")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 private fun loadThumbnail(item: CapturedMediaItem): ImageBitmap? {

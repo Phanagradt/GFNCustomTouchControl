@@ -74,6 +74,45 @@ import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
+fun computeControlDimensionsDp(control: VirtualControl): Pair<Float, Float> {
+    val baseW = when (control.shape) {
+        ControlShape.PILL -> control.sizeDp * 1.45f
+        ControlShape.PADDLE -> control.sizeDp * 1.35f
+        ControlShape.KEYCAP -> control.sizeDp * 1.08f
+        ControlShape.TOUCHPAD_RECT -> control.sizeDp * 1.45f
+        else -> control.sizeDp
+    }
+    val baseH = when (control.shape) {
+        ControlShape.PILL -> control.sizeDp * 0.78f
+        ControlShape.PADDLE -> control.sizeDp * 0.84f
+        ControlShape.KEYCAP -> control.sizeDp * 0.94f
+        ControlShape.TOUCHPAD_RECT -> control.sizeDp
+        else -> control.sizeDp
+    }
+    val w = (baseW * control.widthScale.coerceIn(0.45f, 2.6f)).coerceIn(30f, 360f)
+    val h = (baseH * control.heightScale.coerceIn(0.45f, 2.6f)).coerceIn(30f, 360f)
+    return w to h
+}
+
+fun buildControlBadgeText(
+    control: VirtualControl,
+    displayCode: String,
+    isToggled: Boolean
+): String = buildString {
+    if (control.label.isNotBlank() && control.label != displayCode) append(displayCode)
+    if (control.behavior == TriggerBehavior.TOGGLE) {
+        if (isNotEmpty()) append(" • ")
+        append(if (isToggled) "ON" else "TGL")
+    } else if (control.behavior == TriggerBehavior.TURBO) {
+        if (isNotEmpty()) append(" • ")
+        append("${control.turboRateHz}Hz")
+    }
+    if (control.dragToAimEnabled) {
+        if (isNotEmpty()) append(" • ")
+        append("AIM")
+    }
+}
+
 @Composable
 fun VirtualControlCanvasItem(
     control: VirtualControl,
@@ -94,7 +133,6 @@ fun VirtualControlCanvasItem(
 
     val effectiveAlpha = (control.opacity * globalOpacity).coerceIn(0.18f, 1.0f)
     val accentColor = Color(control.accent.hex)
-    val sizeDp = control.sizeDp.dp
 
     val displayCode = remember(control.binding, notation) {
         CommandCatalog.formatFaceLabel(control.binding, notation)
@@ -112,20 +150,9 @@ fun VirtualControlCanvasItem(
         }
     }
 
-    val widthDp = when (control.shape) {
-        ControlShape.PILL -> sizeDp * 1.45f
-        ControlShape.PADDLE -> sizeDp * 1.35f
-        ControlShape.KEYCAP -> sizeDp * 1.08f
-        ControlShape.TOUCHPAD_RECT -> sizeDp * 1.45f
-        else -> sizeDp
-    }
-    val heightDp = when (control.shape) {
-        ControlShape.PILL -> sizeDp * 0.78f
-        ControlShape.PADDLE -> sizeDp * 0.84f
-        ControlShape.KEYCAP -> sizeDp * 0.94f
-        ControlShape.TOUCHPAD_RECT -> sizeDp
-        else -> sizeDp
-    }
+    val (widthDpRaw, heightDpRaw) = computeControlDimensionsDp(control)
+    val widthDp = widthDpRaw.dp
+    val heightDp = heightDpRaw.dp
 
     Box(
         modifier = modifier
@@ -363,7 +390,18 @@ private fun ActionButtonSurface(
     val customBitmap = remember(control.customImageBase64) {
         ButtonImageCodec.decodeBase64ToImageBitmap(control.customImageBase64)
     }
+    val customBgBitmap = remember(control.customBackgroundBase64) {
+        ButtonImageCodec.decodeBase64ToImageBitmap(control.customBackgroundBase64)
+    }
+    val customStrokeBitmap = remember(control.customStrokeBase64) {
+        ButtonImageCodec.decodeBase64ToImageBitmap(control.customStrokeBase64)
+    }
     val clipShape = remember(control.shape) { shapeForControl(control.shape) }
+    val resolvedBgBaseColor = control.customBackgroundColorHex?.let { Color(it) } ?: Color(0xFF0E141E)
+    val resolvedStrokeBaseColor = control.customStrokeColorHex?.let { Color(it) } ?: accentColor
+    val effectiveBorderColor = if (active) resolvedStrokeBaseColor else resolvedStrokeBaseColor.copy(alpha = 0.78f)
+    val imageScale = control.customImageScale.coerceIn(0.30f, 1.80f)
+    val imageOpacity = control.customImageOpacity.coerceIn(0.10f, 1.0f)
 
     Box(
         modifier = Modifier
@@ -371,146 +409,216 @@ private fun ActionButtonSurface(
             .then(touchModifier),
         contentAlignment = Alignment.Center
     ) {
-        if (customBitmap != null) {
+        // Layer 1: Custom uploaded button background image (if present and background enabled)
+        if (control.showBackground && customBgBitmap != null) {
             Image(
-                bitmap = customBitmap,
-                contentDescription = "${control.label} custom icon",
+                bitmap = customBgBitmap,
+                contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(2.dp)
+                    .padding(1.dp)
                     .clip(clipShape)
+                    .alpha(control.customBackgroundOpacity.coerceIn(0.10f, 1.0f))
             )
-            if (active) {
-                Box(
+        }
+
+        // Layer 2: Vector background fill (when showBackground is true)
+        if (control.showBackground) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val baseStrokePx = control.strokeWidthDp.coerceIn(0.5f, 6.0f).dp.toPx()
+                val strokePx = if (active) (baseStrokePx + 1.0.dp.toPx()) else baseStrokePx
+                val hasAnyArtwork = customBitmap != null || customBgBitmap != null
+                val surfaceBaseAlpha = when {
+                    customBgBitmap != null -> 0.12f
+                    customBitmap != null -> 0.28f
+                    else -> 0.78f
+                }
+                val accentOverlayAlpha = if (hasAnyArtwork) (if (active) 0.28f else 0.05f) else fillAlpha
+                when (control.shape) {
+                    ControlShape.CIRCLE, ControlShape.RING -> {
+                        val radius = (size.minDimension / 2f) - strokePx * 0.5f
+                        drawCircle(color = resolvedBgBaseColor.copy(alpha = surfaceBaseAlpha), radius = radius)
+                        drawCircle(color = accentColor.copy(alpha = accentOverlayAlpha), radius = radius)
+                    }
+                    ControlShape.HEX -> {
+                        val path = buildHexagonPath(size.width, size.height, strokePx * 0.5f)
+                        drawPath(path, resolvedBgBaseColor.copy(alpha = surfaceBaseAlpha))
+                        drawPath(path, accentColor.copy(alpha = accentOverlayAlpha))
+                    }
+                    ControlShape.PADDLE -> {
+                        val corner = CornerRadius(14.dp.toPx(), 14.dp.toPx())
+                        val inset = strokePx * 0.5f
+                        drawRoundRect(
+                            color = resolvedBgBaseColor.copy(alpha = surfaceBaseAlpha),
+                            topLeft = Offset(inset, inset),
+                            size = Size(size.width - inset * 2, size.height - inset * 2),
+                            cornerRadius = corner
+                        )
+                        drawRoundRect(
+                            color = accentColor.copy(alpha = accentOverlayAlpha),
+                            topLeft = Offset(inset, inset),
+                            size = Size(size.width - inset * 2, size.height - inset * 2),
+                            cornerRadius = corner
+                        )
+                    }
+                    ControlShape.KEYCAP -> {
+                        val corner = CornerRadius(11.dp.toPx(), 11.dp.toPx())
+                        val inset = strokePx * 0.5f
+                        drawRoundRect(
+                            color = resolvedBgBaseColor.copy(alpha = surfaceBaseAlpha),
+                            topLeft = Offset(inset, inset),
+                            size = Size(size.width - inset * 2, size.height - inset * 2),
+                            cornerRadius = corner
+                        )
+                        drawRoundRect(
+                            color = accentColor.copy(alpha = accentOverlayAlpha),
+                            topLeft = Offset(inset, inset),
+                            size = Size(size.width - inset * 2, size.height - inset * 2),
+                            cornerRadius = corner
+                        )
+                    }
+                    else -> {
+                        val corner = CornerRadius(size.height / 2f, size.height / 2f)
+                        val inset = strokePx * 0.5f
+                        drawRoundRect(
+                            color = resolvedBgBaseColor.copy(alpha = surfaceBaseAlpha),
+                            topLeft = Offset(inset, inset),
+                            size = Size(size.width - inset * 2, size.height - inset * 2),
+                            cornerRadius = corner
+                        )
+                        drawRoundRect(
+                            color = accentColor.copy(alpha = accentOverlayAlpha),
+                            topLeft = Offset(inset, inset),
+                            size = Size(size.width - inset * 2, size.height - inset * 2),
+                            cornerRadius = corner
+                        )
+                    }
+                }
+            }
+        }
+
+        // Layer 3: Custom icon artwork with independent size scale & opacity
+        if (customBitmap != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(2.dp)
+                    .clip(clipShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    bitmap = customBitmap,
+                    contentDescription = if (control.label.isNotBlank()) "${control.label} custom icon" else "Custom button icon",
+                    contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(2.dp)
-                        .clip(clipShape)
-                        .background(accentColor.copy(alpha = 0.28f))
+                        .graphicsLayer {
+                            scaleX = imageScale
+                            scaleY = imageScale
+                            alpha = imageOpacity
+                        }
                 )
             }
         }
 
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val strokePx = if (active) 3.dp.toPx() else 1.8.dp.toPx()
-            val surfaceBaseAlpha = if (customBitmap != null) 0.14f else 0.76f
-            val accentOverlayAlpha = if (customBitmap != null) (if (active) 0.28f else 0.04f) else fillAlpha
-            when (control.shape) {
-                ControlShape.CIRCLE, ControlShape.RING -> {
-                    val radius = (size.minDimension / 2f) - strokePx
-                    drawCircle(
-                        color = Color(0xFF0E141E).copy(alpha = surfaceBaseAlpha),
-                        radius = radius
-                    )
-                    drawCircle(
-                        color = accentColor.copy(alpha = accentOverlayAlpha),
-                        radius = radius
-                    )
-                    drawCircle(
-                        color = borderColor,
-                        radius = radius,
-                        style = Stroke(width = strokePx)
-                    )
-                }
-                ControlShape.HEX -> {
-                    val path = buildHexagonPath(size.width, size.height, strokePx)
-                    drawPath(path, Color(0xFF0E141E).copy(alpha = surfaceBaseAlpha))
-                    drawPath(path, accentColor.copy(alpha = accentOverlayAlpha))
-                    drawPath(path, borderColor, style = Stroke(width = strokePx))
-                }
-                ControlShape.PADDLE -> {
-                    val corner = CornerRadius(14.dp.toPx(), 14.dp.toPx())
-                    drawRoundRect(
-                        color = Color(0xFF0E141E).copy(alpha = surfaceBaseAlpha),
-                        topLeft = Offset(strokePx, strokePx),
-                        size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
-                        cornerRadius = corner
-                    )
-                    drawRoundRect(
-                        color = accentColor.copy(alpha = accentOverlayAlpha),
-                        topLeft = Offset(strokePx, strokePx),
-                        size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
-                        cornerRadius = corner
-                    )
-                    drawRoundRect(
-                        color = borderColor,
-                        topLeft = Offset(strokePx, strokePx),
-                        size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
-                        cornerRadius = corner,
-                        style = Stroke(width = strokePx)
-                    )
-                }
-                ControlShape.KEYCAP -> {
-                    val corner = CornerRadius(11.dp.toPx(), 11.dp.toPx())
-                    val inset = strokePx + 3.dp.toPx()
-                    drawRoundRect(
-                        color = Color(0xFF0A0F18).copy(alpha = surfaceBaseAlpha),
-                        topLeft = Offset(strokePx, strokePx),
-                        size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
-                        cornerRadius = corner
-                    )
-                    drawRoundRect(
-                        color = accentColor.copy(alpha = accentOverlayAlpha),
-                        topLeft = Offset(strokePx, strokePx),
-                        size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
-                        cornerRadius = corner
-                    )
-                    if (customBitmap == null) {
-                        drawRoundRect(
-                            color = borderColor.copy(alpha = 0.32f),
-                            topLeft = Offset(inset, inset),
-                            size = Size(
-                                (size.width - inset * 2).coerceAtLeast(4f),
-                                (size.height - inset * 2.3f).coerceAtLeast(4f)
-                            ),
-                            cornerRadius = CornerRadius(7.dp.toPx(), 7.dp.toPx()),
-                            style = Stroke(width = 1.dp.toPx())
-                        )
+        // Active press highlight glow
+        if (active) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(2.dp)
+                    .clip(clipShape)
+                    .background(accentColor.copy(alpha = 0.24f))
+            )
+        }
+
+        // Layer 4: Custom uploaded stroke/frame image OR vector stroke border (when showStroke is true)
+        if (control.showStroke) {
+            if (customStrokeBitmap != null) {
+                Image(
+                    bitmap = customStrokeBitmap,
+                    contentDescription = null,
+                    contentScale = ContentScale.FillBounds,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .alpha(control.customStrokeOpacity.coerceIn(0.10f, 1.0f))
+                )
+            } else {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val baseStrokePx = control.strokeWidthDp.coerceIn(0.5f, 6.0f).dp.toPx()
+                    val strokePx = if (active) (baseStrokePx + 1.0.dp.toPx()) else baseStrokePx
+                    when (control.shape) {
+                        ControlShape.CIRCLE, ControlShape.RING -> {
+                            val radius = (size.minDimension / 2f) - strokePx * 0.5f
+                            drawCircle(
+                                color = effectiveBorderColor,
+                                radius = radius,
+                                style = Stroke(width = strokePx)
+                            )
+                        }
+                        ControlShape.HEX -> {
+                            val path = buildHexagonPath(size.width, size.height, strokePx * 0.5f)
+                            drawPath(path, effectiveBorderColor, style = Stroke(width = strokePx))
+                        }
+                        ControlShape.PADDLE -> {
+                            val corner = CornerRadius(14.dp.toPx(), 14.dp.toPx())
+                            drawRoundRect(
+                                color = effectiveBorderColor,
+                                topLeft = Offset(strokePx * 0.5f, strokePx * 0.5f),
+                                size = Size(size.width - strokePx, size.height - strokePx),
+                                cornerRadius = corner,
+                                style = Stroke(width = strokePx)
+                            )
+                        }
+                        ControlShape.KEYCAP -> {
+                            val corner = CornerRadius(11.dp.toPx(), 11.dp.toPx())
+                            val inset = strokePx + 3.dp.toPx()
+                            if (customBitmap == null && customBgBitmap == null && control.showBackground) {
+                                drawRoundRect(
+                                    color = effectiveBorderColor.copy(alpha = 0.30f),
+                                    topLeft = Offset(inset, inset),
+                                    size = Size(
+                                        (size.width - inset * 2).coerceAtLeast(4f),
+                                        (size.height - inset * 2.3f).coerceAtLeast(4f)
+                                    ),
+                                    cornerRadius = CornerRadius(7.dp.toPx(), 7.dp.toPx()),
+                                    style = Stroke(width = 1.dp.toPx())
+                                )
+                            }
+                            drawRoundRect(
+                                color = effectiveBorderColor,
+                                topLeft = Offset(strokePx * 0.5f, strokePx * 0.5f),
+                                size = Size(size.width - strokePx, size.height - strokePx),
+                                cornerRadius = corner,
+                                style = Stroke(width = strokePx)
+                            )
+                        }
+                        else -> {
+                            val corner = CornerRadius(size.height / 2f, size.height / 2f)
+                            drawRoundRect(
+                                color = effectiveBorderColor,
+                                topLeft = Offset(strokePx * 0.5f, strokePx * 0.5f),
+                                size = Size(size.width - strokePx, size.height - strokePx),
+                                cornerRadius = corner,
+                                style = Stroke(width = strokePx)
+                            )
+                        }
                     }
-                    drawRoundRect(
-                        color = borderColor,
-                        topLeft = Offset(strokePx, strokePx),
-                        size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
-                        cornerRadius = corner,
-                        style = Stroke(width = strokePx)
-                    )
-                }
-                else -> {
-                    val corner = CornerRadius(size.height / 2f, size.height / 2f)
-                    drawRoundRect(
-                        color = Color(0xFF0E141E).copy(alpha = surfaceBaseAlpha),
-                        topLeft = Offset(strokePx, strokePx),
-                        size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
-                        cornerRadius = corner
-                    )
-                    drawRoundRect(
-                        color = accentColor.copy(alpha = accentOverlayAlpha),
-                        topLeft = Offset(strokePx, strokePx),
-                        size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
-                        cornerRadius = corner
-                    )
-                    drawRoundRect(
-                        color = borderColor,
-                        topLeft = Offset(strokePx, strokePx),
-                        size = Size(size.width - strokePx * 2, size.height - strokePx * 2),
-                        cornerRadius = corner,
-                        style = Stroke(width = strokePx)
-                    )
                 }
             }
         }
 
-        val hasBadge = control.label != displayCode ||
-            control.behavior != TriggerBehavior.HOLD ||
-            control.dragToAimEnabled
-        if (control.label.isNotBlank() || hasBadge) {
+        // Layer 5: Label & Badge — completely hidden (NO empty dark pill/line!) when label is blank and badge is empty
+        val badge = buildControlBadgeText(control, displayCode, isToggled)
+        val hasVisibleText = control.label.isNotBlank() || badge.isNotEmpty()
+        if (hasVisibleText) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .padding(horizontal = 4.dp)
                     .then(
-                        if (customBitmap != null) {
+                        if (customBitmap != null || customBgBitmap != null) {
                             Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(Color(0xA6080C12))
@@ -532,32 +640,16 @@ private fun ActionButtonSurface(
                         textAlign = TextAlign.Center
                     )
                 }
-                if (hasBadge) {
-                    val badge = buildString {
-                        if (control.label.isNotBlank() && control.label != displayCode) append(displayCode)
-                        if (control.behavior == TriggerBehavior.TOGGLE) {
-                            if (isNotEmpty()) append(" • ")
-                            append(if (isToggled) "ON" else "TGL")
-                        } else if (control.behavior == TriggerBehavior.TURBO) {
-                            if (isNotEmpty()) append(" • ")
-                            append("${control.turboRateHz}Hz")
-                        }
-                        if (control.dragToAimEnabled) {
-                            if (isNotEmpty()) append(" • ")
-                            append("AIM")
-                        }
-                    }
-                    if (badge.isNotEmpty()) {
-                        Text(
-                            text = badge,
-                            color = accentColor,
-                            fontFamily = JetBrainsMonoFontFamily,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 9.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                if (badge.isNotEmpty()) {
+                    Text(
+                        text = badge,
+                        color = accentColor,
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 9.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -737,16 +829,18 @@ private fun AnalogStickSurface(
             )
         }
 
-        Text(
-            text = control.label,
-            color = Color(0xFFF0F4FA).copy(alpha = 0.85f),
-            fontFamily = JetBrainsMonoFontFamily,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 6.dp)
-        )
+        if (control.label.isNotBlank()) {
+            Text(
+                text = control.label,
+                color = Color(0xFFF0F4FA).copy(alpha = 0.85f),
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 6.dp)
+            )
+        }
     }
 }
 
@@ -1314,38 +1408,41 @@ private fun TouchpadSurface(
             }
         }
 
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 8.dp)
-        ) {
-            val modeSuffix = when {
-                isPassThrough -> "PASS"
-                isMouseFlickMode -> if (isCoasting) "FLICK" else "MOUSE"
-                else -> "R-STICK"
+        if (control.label.isNotBlank() || isEditMode) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 8.dp)
+            ) {
+                val modeSuffix = when {
+                    isPassThrough -> "PASS"
+                    isMouseFlickMode -> if (isCoasting) "FLICK" else "MOUSE"
+                    else -> "R-STICK"
+                }
+                val prefix = if (control.label.isNotBlank()) "${control.label} • " else ""
+                Text(
+                    text = if (isSwiping || isCoasting) {
+                        val dirH = when {
+                            normX > 0.22f -> "▶"
+                            normX < -0.22f -> "◀"
+                            else -> ""
+                        }
+                        val dirV = when {
+                            normY > 0.22f -> "▼"
+                            normY < -0.22f -> "▲"
+                            else -> ""
+                        }
+                        "$prefix$modeSuffix $dirH$dirV".trim()
+                    } else {
+                        "$prefix$modeSuffix"
+                    },
+                    color = Color(0xFFF0F4FA).copy(alpha = if (isEditMode || isSwiping || isCoasting) 0.9f else 0.55f),
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
-            Text(
-                text = if (isSwiping || isCoasting) {
-                    val dirH = when {
-                        normX > 0.22f -> "▶"
-                        normX < -0.22f -> "◀"
-                        else -> ""
-                    }
-                    val dirV = when {
-                        normY > 0.22f -> "▼"
-                        normY < -0.22f -> "▲"
-                        else -> ""
-                    }
-                    "${control.label} • $modeSuffix $dirH$dirV".trim()
-                } else {
-                    "${control.label} • $modeSuffix"
-                },
-                color = Color(0xFFF0F4FA).copy(alpha = if (isEditMode || isSwiping || isCoasting) 0.9f else 0.55f),
-                fontFamily = JetBrainsMonoFontFamily,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold
-            )
         }
     }
 }
@@ -1391,25 +1488,17 @@ fun PositionedVirtualControl(
     isToggled: Boolean,
     onSelect: () -> Unit,
     onDragDelta: (dxPx: Float, dyPx: Float) -> Unit = { _, _ -> },
-    onCommitPercent: (xPercent: Float, yPercent: Float) -> Unit = { _, _ -> }
+    onCommitPercent: (xPercent: Float, yPercent: Float) -> Unit = { _, _ -> },
+    onResizeScales: ((widthScale: Float, heightScale: Float) -> Unit)? = null
 ) {
     val density = LocalDensity.current
-    val widthDp = when (control.shape) {
-        ControlShape.PILL -> control.sizeDp * 1.45f
-        ControlShape.PADDLE -> control.sizeDp * 1.35f
-        ControlShape.KEYCAP -> control.sizeDp * 1.08f
-        ControlShape.TOUCHPAD_RECT -> control.sizeDp * 1.45f
-        else -> control.sizeDp
-    }
-    val heightDp = when (control.shape) {
-        ControlShape.PILL -> control.sizeDp * 0.78f
-        ControlShape.PADDLE -> control.sizeDp * 0.84f
-        ControlShape.KEYCAP -> control.sizeDp * 0.94f
-        ControlShape.TOUCHPAD_RECT -> control.sizeDp
-        else -> control.sizeDp
-    }
+    val (widthDp, heightDp) = computeControlDimensionsDp(control)
+    val baseWNoScale = (widthDp / control.widthScale.coerceIn(0.45f, 2.6f)).coerceAtLeast(32f)
+    val baseHNoScale = (heightDp / control.heightScale.coerceIn(0.45f, 2.6f)).coerceAtLeast(32f)
     val wPx = with(density) { widthDp.dp.toPx() }
     val hPx = with(density) { heightDp.dp.toPx() }
+    val baseWPx = with(density) { baseWNoScale.dp.toPx() }.coerceAtLeast(32f)
+    val baseHPx = with(density) { baseHNoScale.dp.toPx() }.coerceAtLeast(32f)
 
     val maxTopLeftX = (containerWidthPx - wPx).coerceAtLeast(0f)
     val maxTopLeftY = (containerHeightPx - hPx).coerceAtLeast(0f)
@@ -1422,84 +1511,173 @@ fun PositionedVirtualControl(
     val latestYPx by rememberUpdatedState(yPx)
     val latestOnSelect by rememberUpdatedState(onSelect)
     val latestOnCommit by rememberUpdatedState(onCommitPercent)
+    val latestOnResize by rememberUpdatedState(onResizeScales)
+    val latestControl by rememberUpdatedState(control)
+
+    val showResizeHandles = isEditMode && isSelected && onResizeScales != null
+    val handlePadDp = if (showResizeHandles) 16.dp else 0.dp
+    val handlePadPx = with(density) { handlePadDp.toPx() }
 
     Box(
         modifier = Modifier
-            .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
-            .then(
-                if (isEditMode) {
-                    Modifier.pointerInput(control.id, containerWidthPx, containerHeightPx, wPx, hPx) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            val pointerId = down.id
-                            down.consume()
-                            latestOnSelect()
+            .offset {
+                IntOffset(
+                    (xPx - handlePadPx).roundToInt(),
+                    (yPx - handlePadPx).roundToInt()
+                )
+            }
+            .size(
+                width = widthDp.dp + handlePadDp * 2,
+                height = heightDp.dp + handlePadDp * 2
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = widthDp.dp, height = heightDp.dp)
+                .then(
+                    if (isEditMode) {
+                        Modifier.pointerInput(control.id, containerWidthPx, containerHeightPx, wPx, hPx) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val pointerId = down.id
+                                down.consume()
+                                latestOnSelect()
 
-                            var prevPos = down.position
-                            var totalTravel = 0f
-                            val touchSlop = viewConfiguration.touchSlop
-                            var didDrag = false
+                                var prevPos = down.position
+                                var totalTravel = 0f
+                                val touchSlop = viewConfiguration.touchSlop
+                                var didDrag = false
 
-                            try {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val pointer = event.changes.firstOrNull { it.id == pointerId }
-                                    if (pointer == null || !pointer.pressed) {
-                                        break
+                                try {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val pointer = event.changes.firstOrNull { it.id == pointerId }
+                                        if (pointer == null || !pointer.pressed) {
+                                            break
+                                        }
+                                        val dx = pointer.position.x - prevPos.x
+                                        val dy = pointer.position.y - prevPos.y
+                                        prevPos = pointer.position
+                                        totalTravel += hypot(dx, dy)
+                                        if (totalTravel > touchSlop) {
+                                            didDrag = true
+                                        }
+                                        if (didDrag) {
+                                            pointer.consume()
+                                            dragDeltaX = (dragDeltaX + dx).coerceIn(-latestXPx, maxTopLeftX - latestXPx)
+                                            dragDeltaY = (dragDeltaY + dy).coerceIn(-latestYPx, maxTopLeftY - latestYPx)
+                                        }
                                     }
-                                    val dx = pointer.position.x - prevPos.x
-                                    val dy = pointer.position.y - prevPos.y
-                                    prevPos = pointer.position
-                                    totalTravel += hypot(dx, dy)
-                                    if (totalTravel > touchSlop) {
-                                        didDrag = true
+                                } finally {
+                                    if (didDrag && containerWidthPx > 0f && containerHeightPx > 0f) {
+                                        val finalTopLeftX = (latestXPx + dragDeltaX).coerceIn(0f, maxTopLeftX)
+                                        val finalTopLeftY = (latestYPx + dragDeltaY).coerceIn(0f, maxTopLeftY)
+                                        val centerXPercent = ((finalTopLeftX + wPx / 2f) / containerWidthPx)
+                                        val centerYPercent = ((finalTopLeftY + hPx / 2f) / containerHeightPx)
+                                        dragDeltaX = 0f
+                                        dragDeltaY = 0f
+                                        latestOnCommit(centerXPercent, centerYPercent)
+                                    } else {
+                                        dragDeltaX = 0f
+                                        dragDeltaY = 0f
                                     }
-                                    if (didDrag) {
-                                        pointer.consume()
-                                        dragDeltaX = (dragDeltaX + dx).coerceIn(-latestXPx, maxTopLeftX - latestXPx)
-                                        dragDeltaY = (dragDeltaY + dy).coerceIn(-latestYPx, maxTopLeftY - latestYPx)
-                                    }
-                                }
-                            } finally {
-                                if (didDrag && containerWidthPx > 0f && containerHeightPx > 0f) {
-                                    val finalTopLeftX = (latestXPx + dragDeltaX).coerceIn(0f, maxTopLeftX)
-                                    val finalTopLeftY = (latestYPx + dragDeltaY).coerceIn(0f, maxTopLeftY)
-                                    val centerXPercent = ((finalTopLeftX + wPx / 2f) / containerWidthPx)
-                                    val centerYPercent = ((finalTopLeftY + hPx / 2f) / containerHeightPx)
-                                    dragDeltaX = 0f
-                                    dragDeltaY = 0f
-                                    latestOnCommit(centerXPercent, centerYPercent)
-                                } else {
-                                    dragDeltaX = 0f
-                                    dragDeltaY = 0f
                                 }
                             }
                         }
+                    } else {
+                        Modifier
+                    }
+                )
+        ) {
+            VirtualControlCanvasItem(
+                control = control,
+                notation = notation,
+                globalOpacity = globalOpacity,
+                vibrationMode = vibrationMode,
+                isEditMode = isEditMode,
+                isSelected = isSelected,
+                isPressed = isPressed,
+                isToggled = isToggled,
+                onSelect = onSelect,
+                onDragDelta = onDragDelta,
+                modifier = if (isEditMode) {
+                    Modifier.graphicsLayer {
+                        translationX = dragDeltaX
+                        translationY = dragDeltaY
                     }
                 } else {
                     Modifier
                 }
             )
-    ) {
-        VirtualControlCanvasItem(
-            control = control,
-            notation = notation,
-            globalOpacity = globalOpacity,
-            vibrationMode = vibrationMode,
-            isEditMode = isEditMode,
-            isSelected = isSelected,
-            isPressed = isPressed,
-            isToggled = isToggled,
-            onSelect = onSelect,
-            onDragDelta = onDragDelta,
-            modifier = if (isEditMode) {
-                Modifier.graphicsLayer {
-                    translationX = dragDeltaX
-                    translationY = dragDeltaY
+        }
+
+        // Free-style resize dots (X-axis on Right edge, Y-axis on Bottom edge, X+Y Corner on Bottom-Right)
+        if (showResizeHandles && dragDeltaX == 0f && dragDeltaY == 0f) {
+            // Right edge dot — Free-style X-axis (width) resize
+            ResizeHandleDot(
+                color = Color(0xFF00E5FF),
+                tag = "resize_handle_x_${control.id}",
+                modifier = Modifier.align(Alignment.CenterEnd),
+                onDragDeltaPx = { dx, _ ->
+                    val current = latestControl
+                    val nextW = (current.widthScale + (dx * 2f) / baseWPx).coerceIn(0.45f, 2.6f)
+                    latestOnResize?.invoke(nextW, current.heightScale)
                 }
-            } else {
-                Modifier
-            }
+            )
+            // Bottom edge dot — Free-style Y-axis (height) resize
+            ResizeHandleDot(
+                color = Color(0xFFFFB300),
+                tag = "resize_handle_y_${control.id}",
+                modifier = Modifier.align(Alignment.BottomCenter),
+                onDragDeltaPx = { _, dy ->
+                    val current = latestControl
+                    val nextH = (current.heightScale + (dy * 2f) / baseHPx).coerceIn(0.45f, 2.6f)
+                    latestOnResize?.invoke(current.widthScale, nextH)
+                }
+            )
+            // Bottom-Right corner dot — Free-style X+Y proportional or diagonal resize
+            ResizeHandleDot(
+                color = Color(0xFF8CE000),
+                tag = "resize_handle_xy_${control.id}",
+                modifier = Modifier.align(Alignment.BottomEnd),
+                onDragDeltaPx = { dx, dy ->
+                    val current = latestControl
+                    val nextW = (current.widthScale + (dx * 2f) / baseWPx).coerceIn(0.45f, 2.6f)
+                    val nextH = (current.heightScale + (dy * 2f) / baseHPx).coerceIn(0.45f, 2.6f)
+                    latestOnResize?.invoke(nextW, nextH)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ResizeHandleDot(
+    color: Color,
+    tag: String,
+    modifier: Modifier = Modifier,
+    onDragDeltaPx: (dx: Float, dy: Float) -> Unit
+) {
+    val latestOnDrag by rememberUpdatedState(onDragDeltaPx)
+    Box(
+        modifier = modifier
+            .size(30.dp)
+            .testTag(tag)
+            .pointerInput(tag) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    latestOnDrag(dragAmount.x, dragAmount.y)
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(13.dp)
+                .clip(CircleShape)
+                .background(color)
+                .border(2.dp, Color(0xFF080C12), CircleShape)
         )
     }
 }

@@ -24,20 +24,32 @@ object ButtonImageCodec {
     suspend fun encodeUriToBase64(
         context: Context,
         uri: Uri,
-        cropSquare: Boolean = true
+        cropSquare: Boolean = true,
+        maxDimPx: Int = MAX_DIM_PX,
+        maxEncodedBytes: Int = MAX_ENCODED_BYTES
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val decoded = decodeUriBitmap(context, uri)
+            val decoded = decodeUriBitmap(context, uri, maxDimPx)
                 ?: throw IllegalArgumentException("Unsupported or unreadable image file")
             try {
-                encodeBitmapToBase64(decoded, cropSquare = cropSquare)
+                encodeBitmapToBase64(
+                    source = decoded,
+                    cropSquare = cropSquare,
+                    maxDimPx = maxDimPx,
+                    maxEncodedBytes = maxEncodedBytes
+                )
             } finally {
                 if (!decoded.isRecycled) decoded.recycle()
             }
         }
     }
 
-    fun encodeBitmapToBase64(source: Bitmap, cropSquare: Boolean = true): String {
+    fun encodeBitmapToBase64(
+        source: Bitmap,
+        cropSquare: Boolean = true,
+        maxDimPx: Int = MAX_DIM_PX,
+        maxEncodedBytes: Int = MAX_ENCODED_BYTES
+    ): String {
         val softSource = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             source.config == Bitmap.Config.HARDWARE
         ) {
@@ -49,7 +61,7 @@ object ButtonImageCodec {
         val shaped = if (cropSquare) centerCropToSquare(softSource) else softSource
         if (shaped !== softSource && softSource !== source) softSource.recycle()
 
-        val scaled = scaleDownToFit(shaped, MAX_DIM_PX)
+        val scaled = scaleDownToFit(shaped, maxDimPx)
         if (scaled !== shaped && shaped !== source) shaped.recycle()
 
         val hasAlpha = scaled.hasAlpha()
@@ -69,7 +81,7 @@ object ButtonImageCodec {
                 bytes = out.toByteArray()
             }
             quality -= 14
-        } while (bytes.size > MAX_ENCODED_BYTES && quality >= 30 && primaryFormat != Bitmap.CompressFormat.PNG)
+        } while (bytes.size > maxEncodedBytes && quality >= 24 && primaryFormat != Bitmap.CompressFormat.PNG)
 
         if (bytes.isEmpty()) {
             val pngOut = ByteArrayOutputStream()
@@ -94,7 +106,7 @@ object ButtonImageCodec {
         }.getOrNull()
     }
 
-    private fun decodeUriBitmap(context: Context, uri: Uri): Bitmap? {
+    private fun decodeUriBitmap(context: Context, uri: Uri, maxDimPx: Int = MAX_DIM_PX): Bitmap? {
         val resolver = context.contentResolver
 
         // Try ImageDecoder first on Android 9+ (handles HEIC/HEIF/AVIF/WebP/PNG/JPG + Photo Picker URIs cleanly)
@@ -105,8 +117,8 @@ object ButtonImageCodec {
                     decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                     val w = info.size.width
                     val h = info.size.height
-                    if (w > 0 && h > 0 && (w > MAX_DIM_PX * 2 || h > MAX_DIM_PX * 2)) {
-                        val scale = (MAX_DIM_PX * 2f) / max(w, h).toFloat()
+                    if (w > 0 && h > 0 && (w > maxDimPx * 2 || h > maxDimPx * 2)) {
+                        val scale = (maxDimPx * 2f) / max(w, h).toFloat()
                         decoder.setTargetSize(
                             (w * scale).roundToInt().coerceAtLeast(1),
                             (h * scale).roundToInt().coerceAtLeast(1)
@@ -130,7 +142,7 @@ object ButtonImageCodec {
         BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
-        val sampleSize = computeInSampleSize(bounds.outWidth, bounds.outHeight, MAX_DIM_PX * 2)
+        val sampleSize = computeInSampleSize(bounds.outWidth, bounds.outHeight, maxDimPx * 2)
         val decodeOpts = BitmapFactory.Options().apply {
             inSampleSize = sampleSize
             inPreferredConfig = Bitmap.Config.ARGB_8888

@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
@@ -106,6 +107,7 @@ import com.example.R
 import com.example.data.OverlaySettings
 import com.example.model.AxisPair
 import com.example.model.BindingDomain
+import com.example.model.ButtonThemePreset
 import com.example.model.ColorMatrixBuilder
 import com.example.model.CommandCatalog
 import com.example.model.ControlAccent
@@ -153,7 +155,10 @@ fun LayoutEditorScreen(
     onGridSnapChange: (Boolean) -> Unit,
     onGridDivisionsChange: (Int) -> Unit,
     onUpdateControl: (VirtualControl) -> Unit,
+    onResizeControlScales: (controlId: String, widthScale: Float, heightScale: Float) -> Unit = { _, _, _ -> },
     onPickCustomImage: (controlId: String, uri: Uri) -> Unit,
+    onPickCustomBackground: (controlId: String, uri: Uri) -> Unit = { _, _ -> },
+    onPickCustomStroke: (controlId: String, uri: Uri) -> Unit = { _, _ -> },
     onAddControl: (ControlType, InputBinding) -> Unit,
     onDuplicateControl: () -> Unit,
     onMirrorControl: () -> Unit,
@@ -165,6 +170,12 @@ fun LayoutEditorScreen(
     onUpdateProfileMeta: (name: String, gameTitle: String, genre: GameGenre) -> Unit,
     onPickCustomBg: (Uri) -> Unit = {},
     onResetCustomBg: () -> Unit = {},
+    localButtonThemes: List<ButtonThemePreset> = emptyList(),
+    activeButtonThemeId: String? = null,
+    onSelectButtonTheme: (String?) -> Unit = {},
+    onApplyThemeToAllButtons: () -> Unit = {},
+    onOpenThemeCreator: () -> Unit = {},
+    onOpenThemeWorkshop: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -188,6 +199,7 @@ fun LayoutEditorScreen(
     var showGridDialog by remember { mutableStateOf(false) }
     var showMetaDialog by remember { mutableStateOf(false) }
     var showBgDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
     var showUnsavedDialog by remember { mutableStateOf(false) }
     var hideFloatingTools by remember { mutableStateOf(false) }
 
@@ -321,6 +333,9 @@ fun LayoutEditorScreen(
                 onSelect = { onSelectControl(control.id) },
                 onCommitPercent = { xPct, yPct ->
                     onCommitControlPercent(control.id, xPct, yPct)
+                },
+                onResizeScales = { wScale, hScale ->
+                    onResizeControlScales(control.id, wScale, hScale)
                 }
             )
         }
@@ -422,6 +437,18 @@ fun LayoutEditorScreen(
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = Color.White)
                             }
+                        }
+                        IconButton(
+                            onClick = { showThemeDialog = true },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .testTag("editor_theme_preset_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Palette,
+                                contentDescription = "Button Theme Preset",
+                                tint = if (activeButtonThemeId != null) GeForceLime else Color(0xFF9FB0C7)
+                            )
                         }
                         IconButton(
                             onClick = { showBgDialog = true },
@@ -529,7 +556,7 @@ fun LayoutEditorScreen(
                 ) {
                     Column(modifier = Modifier.padding(start = 4.dp, end = 4.dp)) {
                         Text(
-                            text = selected.label,
+                            text = selected.label.ifBlank { selected.binding.codeLabel },
                             style = MaterialTheme.typography.titleSmall,
                             color = Color(selected.accent.hex),
                             fontWeight = FontWeight.Bold,
@@ -537,7 +564,7 @@ fun LayoutEditorScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = selected.binding.codeLabel,
+                            text = if (selected.label.isBlank()) "${selected.binding.codeLabel} • Blank" else selected.binding.codeLabel,
                             style = MaterialTheme.typography.labelSmall,
                             color = Color(0xFF9FB0C7)
                         )
@@ -694,6 +721,8 @@ fun LayoutEditorScreen(
                 control = selected,
                 onChange = onUpdateControl,
                 onPickCustomImage = { uri -> onPickCustomImage(selected.id, uri) },
+                onPickCustomBackground = { uri -> onPickCustomBackground(selected.id, uri) },
+                onPickCustomStroke = { uri -> onPickCustomStroke(selected.id, uri) },
                 onNudge = onNudgeControl,
                 onMirror = {
                     onMirrorControl()
@@ -702,6 +731,116 @@ fun LayoutEditorScreen(
                 onClose = { showInspectorSheet = false }
             )
         }
+    }
+
+    if (showThemeDialog) {
+        val activeTheme = localButtonThemes.firstOrNull { it.id == activeButtonThemeId }
+        AlertDialog(
+            onDismissRequest = { showThemeDialog = false },
+            title = { Text("Button Theme Preset") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "New buttons you add automatically inherit the active Button Theme (icons, strokes, backgrounds & style).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(190.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        item(key = "theme_none") {
+                            val selectedNone = activeButtonThemeId == null
+                            Surface(
+                                color = if (selectedNone) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSelectButtonTheme(null) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Default XenosPad Style", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    if (selectedNone) Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                        items(localButtonThemes, key = { it.id }) { theme ->
+                            val selected = theme.id == activeButtonThemeId
+                            Surface(
+                                color = if (selected) GeForceLime.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(
+                                        width = if (selected) 1.5.dp else 1.dp,
+                                        color = if (selected) GeForceLime else Color.Transparent,
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    .clickable { onSelectButtonTheme(theme.id) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(theme.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text(
+                                            text = "${theme.gameTag}${if (theme.isDraft) " • Draft" else ""}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    if (selected) Icon(Icons.Default.Check, contentDescription = null, tint = GeForceLime)
+                                }
+                            }
+                        }
+                    }
+
+                    if (activeTheme != null) {
+                        Button(
+                            onClick = {
+                                onApplyThemeToAllButtons()
+                                showThemeDialog = false
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Apply \"${activeTheme.name}\" to All Buttons")
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                showThemeDialog = false
+                                onOpenThemeCreator()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Create Theme", fontSize = 12.sp)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                showThemeDialog = false
+                                onOpenThemeWorkshop()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Workshop", fontSize = 12.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showThemeDialog = false }) { Text("Done") }
+            }
+        )
     }
 
     if (showGridDialog) {

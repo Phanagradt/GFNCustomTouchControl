@@ -314,6 +314,9 @@ object InputBridge {
         }
     }
 
+    @Volatile
+    private var lastOverlayRightStickSwipeMs: Long = 0L
+
     fun updateAnalogStick(
         axisPair: AxisPair,
         sourceLabel: String,
@@ -327,12 +330,49 @@ object InputBridge {
         val adjY = applyDeadzoneAndCurve(rawY, deadzone, sensitivity)
         val state = StickState(x = adjX, y = adjY, active = active)
 
+        val web = webInputSink
         if (axisPair == AxisPair.RIGHT_STICK) {
             _rightStick.value = state
-            webInputSink?.onAnalogStick(isLeft = false, x = if (active) adjX else 0f, y = if (active) adjY else 0f)
+            if (web != null) {
+                web.onAnalogStick(isLeft = false, x = if (active) adjX else 0f, y = if (active) adjY else 0f)
+            } else {
+                // Overlay Mode fallback: route Right Stick to smooth camera swipe or arrow keys
+                val ptr = pointerSink
+                if (ptr != null && canDispatchAccessibilityGestureNow()) {
+                    if (active && (kotlin.math.abs(adjX) > 0.08f || kotlin.math.abs(adjY) > 0.08f)) {
+                        val now = safeUptimeMillis()
+                        if (now - lastOverlayRightStickSwipeMs >= 55L) {
+                            lastOverlayRightStickSwipeMs = now
+                            val stepScale = (28f * sensitivity.coerceIn(0.4f, 4.0f))
+                            ptr.onMouseSwipe(adjX * stepScale, adjY * stepScale)
+                        }
+                    }
+                } else {
+                    updateDirectionalCluster(
+                        controlId = "__rstick_overlay__",
+                        sourceLabel = sourceLabel,
+                        axisPair = AxisPair.ARROW_KEYS,
+                        x = if (active) adjX else 0f,
+                        y = if (active) adjY else 0f,
+                        active = active
+                    )
+                }
+            }
         } else {
             _leftStick.value = state
-            webInputSink?.onAnalogStick(isLeft = true, x = if (active) adjX else 0f, y = if (active) adjY else 0f)
+            if (web != null) {
+                web.onAnalogStick(isLeft = true, x = if (active) adjX else 0f, y = if (active) adjY else 0f)
+            } else {
+                // Overlay Mode fallback: route Left Stick to WASD movement keys so Controller layouts work in overlay
+                updateDirectionalCluster(
+                    controlId = "__lstick_overlay__",
+                    sourceLabel = sourceLabel,
+                    axisPair = AxisPair.WASD_KEYS,
+                    x = if (active) adjX else 0f,
+                    y = if (active) adjY else 0f,
+                    active = active
+                )
+            }
         }
 
         if (active && (kotlin.math.abs(adjX) > 0.02f || kotlin.math.abs(adjY) > 0.02f)) {
@@ -960,7 +1000,14 @@ object InputBridge {
         }
         val scanCode = resolveLinuxScanCode(keyCode, domain)
         val source = when (domain) {
-            BindingDomain.CONTROLLER -> InputDevice.SOURCE_GAMEPAD
+            BindingDomain.CONTROLLER -> when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP,
+                KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_LEFT,
+                KeyEvent.KEYCODE_DPAD_RIGHT,
+                KeyEvent.KEYCODE_DPAD_CENTER -> InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD
+                else -> InputDevice.SOURCE_GAMEPAD
+            }
             BindingDomain.MOUSE -> InputDevice.SOURCE_MOUSE or InputDevice.SOURCE_KEYBOARD
             else -> InputDevice.SOURCE_KEYBOARD
         }

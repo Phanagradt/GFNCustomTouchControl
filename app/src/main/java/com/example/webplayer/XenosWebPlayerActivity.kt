@@ -113,6 +113,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import com.example.data.ButtonThemeLocalStore
 import com.example.data.NexusDatabase
 import com.example.data.OverlaySettings
 import com.example.data.PreferencesRepository
@@ -1552,6 +1553,24 @@ private fun WebPlayerScreenContent(
                                     )
                                 }
                             }
+                        },
+                        onResizeScales = { wScale, hScale ->
+                            if (isLiveEditMode) {
+                                mutateLiveDraft(nextSelectedId = control.id) { current ->
+                                    current.copy(
+                                        controls = current.controls.map { c ->
+                                            if (c.id == control.id) {
+                                                c.copy(
+                                                    widthScale = wScale.coerceIn(0.45f, 2.6f),
+                                                    heightScale = hScale.coerceIn(0.45f, 2.6f)
+                                                )
+                                            } else {
+                                                c
+                                            }
+                                        }
+                                    )
+                                }
+                            }
                         }
                     )
                 }
@@ -2071,7 +2090,8 @@ private fun WebPlayerScreenContent(
                     title = "Add Virtual Control",
                     includeClusters = true,
                     onPick = { binding ->
-                        val newCtrl = LayoutStudioHelper.createControlFromBinding(binding)
+                        val activeTheme = ButtonThemeLocalStore(context).getActiveTheme()
+                        val newCtrl = LayoutStudioHelper.createControlFromBinding(binding, activeTheme)
                         mutateLiveDraft(nextSelectedId = newCtrl.id) { current ->
                             current.copy(controls = current.controls + newCtrl)
                         }
@@ -2142,6 +2162,58 @@ private fun WebPlayerScreenContent(
                                     err.message ?: "Unable to import image",
                                     Toast.LENGTH_SHORT
                                 ).show()
+                            }
+                        }
+                    },
+                    onPickCustomBackground = { uri ->
+                        val targetId = activeSelectedControl.id
+                        scope.launch {
+                            ButtonImageCodec.encodeUriToBase64(
+                                context = context,
+                                uri = uri,
+                                cropSquare = false,
+                                maxDimPx = 144,
+                                maxEncodedBytes = 32_000
+                            ).onSuccess { encoded ->
+                                mutateLiveDraft(nextSelectedId = targetId) { current ->
+                                    current.copy(
+                                        controls = current.controls.map { c ->
+                                            if (c.id == targetId) {
+                                                c.copy(customBackgroundBase64 = encoded, showBackground = true)
+                                            } else {
+                                                c
+                                            }
+                                        }
+                                    )
+                                }
+                            }.onFailure { err ->
+                                Toast.makeText(context, err.message ?: "Unable to import background", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    onPickCustomStroke = { uri ->
+                        val targetId = activeSelectedControl.id
+                        scope.launch {
+                            ButtonImageCodec.encodeUriToBase64(
+                                context = context,
+                                uri = uri,
+                                cropSquare = false,
+                                maxDimPx = 144,
+                                maxEncodedBytes = 32_000
+                            ).onSuccess { encoded ->
+                                mutateLiveDraft(nextSelectedId = targetId) { current ->
+                                    current.copy(
+                                        controls = current.controls.map { c ->
+                                            if (c.id == targetId) {
+                                                c.copy(customStrokeBase64 = encoded, showStroke = true)
+                                            } else {
+                                                c
+                                            }
+                                        }
+                                    )
+                                }
+                            }.onFailure { err ->
+                                Toast.makeText(context, err.message ?: "Unable to import stroke frame", Toast.LENGTH_SHORT).show()
                             }
                         }
                     },

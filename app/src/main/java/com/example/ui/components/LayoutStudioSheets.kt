@@ -62,9 +62,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Clear
 import com.example.model.AxisPair
 import com.example.model.BindingDomain
+import com.example.model.ButtonThemePreset
 import com.example.model.CommandCatalog
+import com.example.model.CommunityConstants
 import com.example.model.ControlAccent
 import com.example.model.ControlShape
 import com.example.model.ControlType
@@ -107,7 +110,10 @@ object LayoutStudioHelper {
             }
         }
 
-    fun createControlFromBinding(binding: InputBinding): VirtualControl {
+    fun createControlFromBinding(
+        binding: InputBinding,
+        activeTheme: ButtonThemePreset? = null
+    ): VirtualControl {
         val controlType = controlTypeForBinding(binding)
         val defaultShape = when (controlType) {
             ControlType.ANALOG_STICK -> ControlShape.RING
@@ -132,7 +138,7 @@ object LayoutStudioHelper {
             BindingDomain.COMBO -> ControlAccent.VIOLET
             BindingDomain.ANALOG_AXIS -> ControlAccent.CYAN
         }
-        return VirtualControl(
+        val base = VirtualControl(
             id = UUID.randomUUID().toString(),
             label = binding.codeLabel,
             controlType = controlType,
@@ -145,6 +151,7 @@ object LayoutStudioHelper {
             behavior = TriggerBehavior.HOLD,
             binding = binding
         )
+        return activeTheme?.applyToControl(base) ?: base
     }
 
     fun rebindControl(control: VirtualControl, binding: InputBinding): VirtualControl {
@@ -373,29 +380,109 @@ fun CommandPickerSheetContent(
 }
 
 @Composable
+private fun CompactAssetPickerRow(
+    title: String,
+    subtitle: String,
+    base64: String?,
+    accentHex: Long,
+    uploadTag: String,
+    removeTag: String,
+    onPick: (Uri) -> Unit,
+    onRemove: () -> Unit
+) {
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri -> if (uri != null) onPick(uri) }
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) onPick(uri) }
+    val previewBitmap = remember(base64) {
+        ButtonImageCodec.decodeBase64ToImageBitmap(base64)
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(46.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF0A0F18))
+                .border(1.dp, Color(accentHex).copy(alpha = 0.6f), RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (previewBitmap != null) {
+                Image(
+                    bitmap = previewBitmap,
+                    contentDescription = "$title preview",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Image,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            OutlinedButton(
+                onClick = {
+                    photoPickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                contentPadding = PaddingValues(horizontal = 8.dp),
+                modifier = Modifier
+                    .height(38.dp)
+                    .testTag(uploadTag)
+            ) {
+                Text(if (previewBitmap != null) "Change" else "Upload", fontSize = 11.sp)
+            }
+            OutlinedButton(
+                onClick = { documentPickerLauncher.launch(arrayOf("image/*")) },
+                contentPadding = PaddingValues(horizontal = 7.dp),
+                modifier = Modifier.height(38.dp)
+            ) {
+                Text("Files", fontSize = 10.sp)
+            }
+            if (previewBitmap != null) {
+                IconButton(
+                    onClick = onRemove,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .testTag(removeTag)
+                ) {
+                    Icon(
+                        Icons.Default.DeleteOutline,
+                        contentDescription = "Remove $title",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun CustomButtonImagePickerCard(
     control: VirtualControl,
     onChange: (VirtualControl) -> Unit,
     onPickCustomImage: (Uri) -> Unit
 ) {
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
-            onPickCustomImage(uri)
-        }
-    }
-    val documentPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            onPickCustomImage(uri)
-        }
-    }
-    val customBitmap = remember(control.customImageBase64) {
-        ButtonImageCodec.decodeBase64ToImageBitmap(control.customImageBase64)
-    }
-
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.medium,
@@ -403,80 +490,288 @@ private fun CustomButtonImagePickerCard(
             .fillMaxWidth()
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium)
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(52.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF0A0F18))
-                    .border(1.dp, Color(control.accent.hex).copy(alpha = 0.6f), RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center
+            CompactAssetPickerRow(
+                title = "Custom Button Icon",
+                subtitle = if (!control.customImageBase64.isNullOrBlank()) "Icon active • adjust size & opacity below" else "Upload your own icon or transparent PNG",
+                base64 = control.customImageBase64,
+                accentHex = control.accent.hex,
+                uploadTag = "inspector_upload_image_button",
+                removeTag = "inspector_remove_image_button",
+                onPick = onPickCustomImage,
+                onRemove = { onChange(control.copy(customImageBase64 = null)) }
+            )
+
+            if (!control.customImageBase64.isNullOrBlank()) {
+                var imgScaleDraft by remember(control.id) { mutableFloatStateOf(control.customImageScale.coerceIn(0.30f, 1.80f)) }
+                var imgScaleDragging by remember(control.id) { mutableStateOf(false) }
+                LaunchedEffect(control.customImageScale, imgScaleDragging) {
+                    if (!imgScaleDragging) imgScaleDraft = control.customImageScale.coerceIn(0.30f, 1.80f)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Icon Image Size", style = MaterialTheme.typography.bodyMedium)
+                    Text("${(imgScaleDraft * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, color = GeForceLime)
+                }
+                SmoothSlider(
+                    value = control.customImageScale.coerceIn(0.30f, 1.80f),
+                    onValueChange = { v ->
+                        imgScaleDragging = true
+                        imgScaleDraft = v
+                        onChange(control.copy(customImageScale = v))
+                    },
+                    onValueChangeFinished = { v ->
+                        imgScaleDragging = false
+                        imgScaleDraft = v
+                        onChange(control.copy(customImageScale = v))
+                    },
+                    valueRange = 0.30f..1.80f,
+                    accentColor = GeForceLime,
+                    modifier = Modifier.testTag("inspector_custom_image_scale_slider")
+                )
+
+                var imgAlphaDraft by remember(control.id) { mutableFloatStateOf(control.customImageOpacity.coerceIn(0.10f, 1.0f)) }
+                var imgAlphaDragging by remember(control.id) { mutableStateOf(false) }
+                LaunchedEffect(control.customImageOpacity, imgAlphaDragging) {
+                    if (!imgAlphaDragging) imgAlphaDraft = control.customImageOpacity.coerceIn(0.10f, 1.0f)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Icon Image Opacity", style = MaterialTheme.typography.bodyMedium)
+                    Text("${(imgAlphaDraft * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, color = TacticalCyan)
+                }
+                SmoothSlider(
+                    value = control.customImageOpacity.coerceIn(0.10f, 1.0f),
+                    onValueChange = { v ->
+                        imgAlphaDragging = true
+                        imgAlphaDraft = v
+                        onChange(control.copy(customImageOpacity = v))
+                    },
+                    onValueChangeFinished = { v ->
+                        imgAlphaDragging = false
+                        imgAlphaDraft = v
+                        onChange(control.copy(customImageOpacity = v))
+                    },
+                    valueRange = 0.10f..1.0f,
+                    accentColor = TacticalCyan,
+                    modifier = Modifier.testTag("inspector_custom_image_opacity_slider")
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ButtonBackgroundAndStrokeCard(
+    control: VirtualControl,
+    onChange: (VirtualControl) -> Unit,
+    onPickCustomBackground: ((Uri) -> Unit)?,
+    onPickCustomStroke: ((Uri) -> Unit)?
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("Background & Stroke Style", style = MaterialTheme.typography.titleSmall)
+
+            // Background toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (customBitmap != null) {
-                    Image(
-                        bitmap = customBitmap,
-                        contentDescription = "Custom button artwork preview",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Image,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Show Button Background", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Turn off for transparent icon-only buttons",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            }
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Custom Button Image", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    text = if (customBitmap != null) "Custom icon active (saved with layout)" else "Upload your own icon or art",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                Switch(
+                    checked = control.showBackground,
+                    onCheckedChange = { onChange(control.copy(showBackground = it)) },
+                    modifier = Modifier.testTag("inspector_show_background_switch")
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(
-                    onClick = {
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            if (control.showBackground) {
+                Text("Background Color", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        val isDefault = control.customBackgroundColorHex == null
+                        FilterChip(
+                            selected = isDefault,
+                            onClick = { onChange(control.copy(customBackgroundColorHex = null)) },
+                            label = { Text("Default", fontSize = 11.sp) }
                         )
-                    },
-                    contentPadding = PaddingValues(horizontal = 10.dp),
-                    modifier = Modifier
-                        .height(42.dp)
-                        .testTag("inspector_upload_image_button")
-                ) {
-                    Text(if (customBitmap != null) "Change" else "Upload", fontSize = 12.sp)
+                    }
+                    items(CommunityConstants.PRESET_BG_COLORS) { (_, hex) ->
+                        val selected = control.customBackgroundColorHex == hex
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(Color(hex))
+                                .border(
+                                    width = if (selected) 2.5.dp else 1.dp,
+                                    color = if (selected) GeForceLime else Color(0xFF475569),
+                                    shape = CircleShape
+                                )
+                                .clickable { onChange(control.copy(customBackgroundColorHex = hex)) }
+                        )
+                    }
                 }
-                OutlinedButton(
-                    onClick = {
-                        documentPickerLauncher.launch(arrayOf("image/*"))
-                    },
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                    modifier = Modifier
-                        .height(42.dp)
-                        .testTag("inspector_upload_file_button")
-                ) {
-                    Text("Files", fontSize = 11.sp)
+
+                if (onPickCustomBackground != null) {
+                    CompactAssetPickerRow(
+                        title = "Custom Background Image",
+                        subtitle = if (!control.customBackgroundBase64.isNullOrBlank()) "Custom texture active" else "Upload button backdrop texture",
+                        base64 = control.customBackgroundBase64,
+                        accentHex = control.accent.hex,
+                        uploadTag = "inspector_upload_bg_button",
+                        removeTag = "inspector_remove_bg_button",
+                        onPick = onPickCustomBackground,
+                        onRemove = { onChange(control.copy(customBackgroundBase64 = null)) }
+                    )
+                    if (!control.customBackgroundBase64.isNullOrBlank()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Background Image Opacity", style = MaterialTheme.typography.bodySmall)
+                            Text("${(control.customBackgroundOpacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelSmall)
+                        }
+                        SmoothSlider(
+                            value = control.customBackgroundOpacity.coerceIn(0.10f, 1.0f),
+                            onValueChange = { onChange(control.copy(customBackgroundOpacity = it)) },
+                            onValueChangeFinished = { onChange(control.copy(customBackgroundOpacity = it)) },
+                            valueRange = 0.10f..1.0f,
+                            accentColor = TacticalCyan
+                        )
+                    }
                 }
-                if (customBitmap != null) {
-                    IconButton(
-                        onClick = { onChange(control.copy(customImageBase64 = null)) },
-                        modifier = Modifier
-                            .size(42.dp)
-                            .testTag("inspector_remove_image_button")
+            }
+
+            // Stroke toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Show Stroke / Border", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Toggle outline border or upload a custom frame PNG",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = control.showStroke,
+                    onCheckedChange = { onChange(control.copy(showStroke = it)) },
+                    modifier = Modifier.testTag("inspector_show_stroke_switch")
+                )
+            }
+
+            if (control.showStroke) {
+                if (control.customStrokeBase64.isNullOrBlank()) {
+                    var strokeDraft by remember(control.id) { mutableFloatStateOf(control.strokeWidthDp.coerceIn(0.5f, 6.0f)) }
+                    var strokeDragging by remember(control.id) { mutableStateOf(false) }
+                    LaunchedEffect(control.strokeWidthDp, strokeDragging) {
+                        if (!strokeDragging) strokeDraft = control.strokeWidthDp.coerceIn(0.5f, 6.0f)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Icon(
-                            Icons.Default.DeleteOutline,
-                            contentDescription = "Remove Custom Image",
-                            tint = MaterialTheme.colorScheme.error
+                        Text("Stroke Thickness", style = MaterialTheme.typography.bodyMedium)
+                        Text("%.1f dp".format(strokeDraft), style = MaterialTheme.typography.labelMedium, color = TurboAmber)
+                    }
+                    SmoothSlider(
+                        value = control.strokeWidthDp.coerceIn(0.5f, 6.0f),
+                        onValueChange = { v ->
+                            strokeDragging = true
+                            strokeDraft = v
+                            onChange(control.copy(strokeWidthDp = v))
+                        },
+                        onValueChangeFinished = { v ->
+                            strokeDragging = false
+                            strokeDraft = v
+                            onChange(control.copy(strokeWidthDp = v))
+                        },
+                        valueRange = 0.5f..6.0f,
+                        accentColor = TurboAmber,
+                        modifier = Modifier.testTag("inspector_stroke_width_slider")
+                    )
+
+                    Text("Stroke Color", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            val isDefault = control.customStrokeColorHex == null
+                            FilterChip(
+                                selected = isDefault,
+                                onClick = { onChange(control.copy(customStrokeColorHex = null)) },
+                                label = { Text("Accent", fontSize = 11.sp) }
+                            )
+                        }
+                        items(CommunityConstants.PRESET_STROKE_COLORS) { (_, hex) ->
+                            val selected = control.customStrokeColorHex == hex
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(hex))
+                                    .border(
+                                        width = if (selected) 2.5.dp else 1.dp,
+                                        color = if (selected) Color.White else Color(0xFF475569),
+                                        shape = CircleShape
+                                    )
+                                    .clickable { onChange(control.copy(customStrokeColorHex = hex)) }
+                            )
+                        }
+                    }
+                }
+
+                if (onPickCustomStroke != null) {
+                    CompactAssetPickerRow(
+                        title = "Custom Stroke / Frame Image",
+                        subtitle = if (!control.customStrokeBase64.isNullOrBlank()) "Custom frame overlay active" else "Upload transparent border or ring PNG",
+                        base64 = control.customStrokeBase64,
+                        accentHex = control.accent.hex,
+                        uploadTag = "inspector_upload_stroke_button",
+                        removeTag = "inspector_remove_stroke_button",
+                        onPick = onPickCustomStroke,
+                        onRemove = { onChange(control.copy(customStrokeBase64 = null)) }
+                    )
+                    if (!control.customStrokeBase64.isNullOrBlank()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Frame Image Opacity", style = MaterialTheme.typography.bodySmall)
+                            Text("${(control.customStrokeOpacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelSmall)
+                        }
+                        SmoothSlider(
+                            value = control.customStrokeOpacity.coerceIn(0.10f, 1.0f),
+                            onValueChange = { onChange(control.copy(customStrokeOpacity = it)) },
+                            onValueChangeFinished = { onChange(control.copy(customStrokeOpacity = it)) },
+                            valueRange = 0.10f..1.0f,
+                            accentColor = TurboAmber
                         )
                     }
                 }
@@ -490,6 +785,8 @@ fun ControlInspectorSheetContent(
     control: VirtualControl,
     onChange: (VirtualControl) -> Unit,
     onPickCustomImage: ((Uri) -> Unit)? = null,
+    onPickCustomBackground: ((Uri) -> Unit)? = null,
+    onPickCustomStroke: ((Uri) -> Unit)? = null,
     onNudge: (dxPercent: Float, dyPercent: Float) -> Unit,
     onMirror: () -> Unit,
     onClose: () -> Unit
@@ -516,7 +813,18 @@ fun ControlInspectorSheetContent(
             OutlinedTextField(
                 value = control.label,
                 onValueChange = { onChange(control.copy(label = it.take(12))) },
-                label = { Text("Button Label (optional if custom image set)") },
+                label = { Text("Button Label (leave blank for no text)") },
+                placeholder = { Text("Blank = clean icon/button only") },
+                trailingIcon = {
+                    if (control.label.isNotEmpty()) {
+                        IconButton(
+                            onClick = { onChange(control.copy(label = "")) },
+                            modifier = Modifier.testTag("inspector_clear_label_button")
+                        ) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear Label")
+                        }
+                    }
+                },
                 singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -532,6 +840,17 @@ fun ControlInspectorSheetContent(
                     control = control,
                     onChange = onChange,
                     onPickCustomImage = onPickCustomImage
+                )
+            }
+        }
+
+        if (control.controlType == ControlType.BUTTON || control.controlType == ControlType.SHOULDER_PADDLE) {
+            item {
+                ButtonBackgroundAndStrokeCard(
+                    control = control,
+                    onChange = onChange,
+                    onPickCustomBackground = onPickCustomBackground,
+                    onPickCustomStroke = onPickCustomStroke
                 )
             }
         }
@@ -627,6 +946,76 @@ fun ControlInspectorSheetContent(
                     valueRange = 48f..maxSize,
                     accentColor = GeForceLime
                 )
+            }
+        }
+
+        item {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium)
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Free-Style Stretch (X / Y)", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "Or drag the Cyan (X), Amber (Y), and Lime (X+Y) dots on the button",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (control.widthScale != 1.0f || control.heightScale != 1.0f) {
+                            TextButton(
+                                onClick = { onChange(control.copy(widthScale = 1.0f, heightScale = 1.0f)) },
+                                modifier = Modifier.testTag("inspector_reset_xy_scale")
+                            ) {
+                                Text("Reset 1:1", fontSize = 11.sp)
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Width (X-Axis)", style = MaterialTheme.typography.bodySmall)
+                        Text("%.2fx".format(control.widthScale), style = MaterialTheme.typography.labelMedium, color = TacticalCyan)
+                    }
+                    SmoothSlider(
+                        value = control.widthScale.coerceIn(0.45f, 2.6f),
+                        onValueChange = { onChange(control.copy(widthScale = it)) },
+                        onValueChangeFinished = { onChange(control.copy(widthScale = it)) },
+                        valueRange = 0.45f..2.6f,
+                        accentColor = TacticalCyan,
+                        modifier = Modifier.testTag("inspector_width_scale_slider")
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Height (Y-Axis)", style = MaterialTheme.typography.bodySmall)
+                        Text("%.2fx".format(control.heightScale), style = MaterialTheme.typography.labelMedium, color = TurboAmber)
+                    }
+                    SmoothSlider(
+                        value = control.heightScale.coerceIn(0.45f, 2.6f),
+                        onValueChange = { onChange(control.copy(heightScale = it)) },
+                        onValueChangeFinished = { onChange(control.copy(heightScale = it)) },
+                        valueRange = 0.45f..2.6f,
+                        accentColor = TurboAmber,
+                        modifier = Modifier.testTag("inspector_height_scale_slider")
+                    )
+                }
             }
         }
 

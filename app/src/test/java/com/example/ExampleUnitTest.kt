@@ -2099,6 +2099,155 @@ class ExampleUnitTest {
         assertEquals(1280, smallW)
         assertEquals(720, smallH)
     }
+
+    @Test
+    fun `web play virtual Xbox 360 gamepad uses standard XInput ID prototype hook and listener replay`() {
+        val script = BetterGfnScriptEngine.buildBootstrapScript(
+            config = WebStreamQualityConfig()
+        )
+        assertTrue(
+            "Expected standard Chromium XInput gamepad ID",
+            script.contains("Xbox 360 Controller (XInput STANDARD GAMEPAD) (Vendor: 045e Product: 028e)")
+        )
+        assertTrue(
+            "Expected Navigator.prototype.getGamepads hook",
+            script.contains("Navigator.prototype")
+        )
+        assertTrue(
+            "Expected immutable fresh snapshotVirtualPad generator",
+            script.contains("function snapshotVirtualPad")
+        )
+        assertTrue(
+            "Expected gamepadconnected late-listener replay wrapper",
+            script.contains("type === 'gamepadconnected' && listener")
+        )
+        assertTrue(
+            "Expected dual-rumble vibrationActuator stub",
+            script.contains("vibrationActuator")
+        )
+    }
+
+    @Test
+    fun `overlay mode routes left analog stick to WASD keys and releases cleanly`() {
+        InputBridge.clearTelemetry()
+        InputBridge.updateAnalogStick(
+            axisPair = AxisPair.LEFT_STICK,
+            sourceLabel = "L-STICK",
+            rawX = 0.85f,
+            rawY = -0.85f,
+            deadzone = 0.10f,
+            sensitivity = 1.0f,
+            active = true
+        )
+        val pressedCodes = InputBridge.telemetry.value.filter { it.actionName == "KEY_DOWN" }.map { it.codeLabel }
+        assertTrue("Expected W down from Left Stick up in Overlay mode", "W" in pressedCodes)
+        assertTrue("Expected D down from Left Stick right in Overlay mode", "D" in pressedCodes)
+
+        InputBridge.clearTelemetry()
+        InputBridge.updateAnalogStick(
+            axisPair = AxisPair.LEFT_STICK,
+            sourceLabel = "L-STICK",
+            rawX = 0f,
+            rawY = 0f,
+            deadzone = 0.10f,
+            sensitivity = 1.0f,
+            active = false
+        )
+        val releasedCodes = InputBridge.telemetry.value.filter { it.actionName == "KEY_UP" }.map { it.codeLabel }
+        assertTrue("Expected W up on Left Stick release", "W" in releasedCodes)
+        assertTrue("Expected D up on Left Stick release", "D" in releasedCodes)
+    }
+
+    @Test
+    fun `blank button label emits empty badge and free-style widthScale heightScale compute dimensions`() {
+        val space = CommandCatalog.findById("key_space")
+        val blankCtrl = com.example.model.VirtualControl(
+            id = "btn_blank_1",
+            label = "",
+            controlType = ControlType.BUTTON,
+            shape = com.example.model.ControlShape.CIRCLE,
+            xPercent = 0.5f,
+            yPercent = 0.5f,
+            sizeDp = 64f,
+            widthScale = 1.5f,
+            heightScale = 0.75f,
+            binding = space
+        )
+        assertEquals(
+            "Blank label on HOLD button must produce empty badge text (no dark pill)",
+            "",
+            com.example.ui.components.buildControlBadgeText(blankCtrl, "SPACE", isToggled = false)
+        )
+        val (wDp, hDp) = com.example.ui.components.computeControlDimensionsDp(blankCtrl)
+        assertEquals(96f, wDp, 0.01f)
+        assertEquals(48f, hDp, 0.01f)
+    }
+
+    @Test
+    fun `active Button Theme auto-styles newly created buttons and CloudLayoutSyncRepository preserves new fields`() {
+        val dbdTheme = com.example.model.ButtonThemePreset(
+            id = "dbd_test_theme",
+            name = "DBD Custom",
+            gameTag = "Dead by Daylight",
+            defaultStyle = com.example.model.ButtonStyleOverride(
+                shape = com.example.model.ControlShape.HEX,
+                showBackground = true,
+                showStroke = true,
+                strokeWidthDp = 3.2f,
+                customBackgroundColorHex = 0xFF2B0B12L,
+                customStrokeColorHex = 0xFFE53935L,
+                blankLabel = false
+            ),
+            buttonStyles = mapOf(
+                "key_space" to com.example.model.ButtonStyleOverride(
+                    shape = com.example.model.ControlShape.CIRCLE,
+                    showBackground = false,
+                    showStroke = true,
+                    strokeWidthDp = 2.8f,
+                    customImageBase64 = "UklGRg==",
+                    customImageScale = 1.35f,
+                    customImageOpacity = 0.75f,
+                    customStrokeBase64 = "UklGRh==",
+                    blankLabel = true,
+                    widthScale = 1.25f,
+                    heightScale = 1.10f
+                )
+            )
+        )
+
+        val spaceBinding = CommandCatalog.findById("key_space")
+        val styledSpace = LayoutStudioHelper.createControlFromBinding(spaceBinding, dbdTheme)
+        assertEquals("", styledSpace.label)
+        assertFalse(styledSpace.showBackground)
+        assertTrue(styledSpace.showStroke)
+        assertEquals("UklGRg==", styledSpace.customImageBase64)
+        assertEquals("UklGRh==", styledSpace.customStrokeBase64)
+        assertEquals(1.35f, styledSpace.customImageScale, 0.01f)
+        assertEquals(0.75f, styledSpace.customImageOpacity, 0.01f)
+        assertEquals(1.25f, styledSpace.widthScale, 0.01f)
+        assertEquals(1.10f, styledSpace.heightScale, 0.01f)
+
+        val keyE = CommandCatalog.findById("key_e")
+        val styledE = LayoutStudioHelper.createControlFromBinding(keyE, dbdTheme)
+        assertEquals(com.example.model.ControlShape.HEX, styledE.shape)
+        assertEquals(0xFF2B0B12L, styledE.customBackgroundColorHex)
+        assertEquals(0xFFE53935L, styledE.customStrokeColorHex)
+        assertEquals(3.2f, styledE.strokeWidthDp, 0.01f)
+
+        // Verify CloudLayoutSyncRepository round-trip of all new customization fields
+        val mapped = CloudLayoutSyncRepository.controlToMap(styledSpace)
+        val restored = CloudLayoutSyncRepository.mapToControl(mapped)
+        assertNotNull(restored)
+        assertEquals("", restored!!.label)
+        assertFalse(restored.showBackground)
+        assertTrue(restored.showStroke)
+        assertEquals(1.35f, restored.customImageScale, 0.01f)
+        assertEquals(0.75f, restored.customImageOpacity, 0.01f)
+        assertEquals(1.25f, restored.widthScale, 0.01f)
+        assertEquals(1.10f, restored.heightScale, 0.01f)
+        assertEquals("UklGRh==", restored.customStrokeBase64)
+    }
 }
+
 
 

@@ -115,6 +115,7 @@ import com.example.MainActivity
 import com.example.R
 import com.example.capture.CaptureBridge
 import com.example.cloud.CloudLayoutSyncRepository
+import com.example.data.ButtonThemeLocalStore
 import com.example.data.NexusDatabase
 import com.example.data.OverlaySettings
 import com.example.data.PreferencesRepository
@@ -2240,7 +2241,8 @@ class OverlayControllerService : Service() {
                                             title = "Add Virtual Control",
                                             includeClusters = true,
                                             onPick = { binding ->
-                                                val newCtrl = LayoutStudioHelper.createControlFromBinding(binding)
+                                                val activeTheme = ButtonThemeLocalStore(applicationContext).getActiveTheme()
+                                                val newCtrl = LayoutStudioHelper.createControlFromBinding(binding, activeTheme)
                                                 mutateLiveEditDraft(
                                                     nextSelectedId = newCtrl.id,
                                                     rebuildWindows = true

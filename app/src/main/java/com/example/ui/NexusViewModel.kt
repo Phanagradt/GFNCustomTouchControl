@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.app.Activity
 import android.app.Application
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -9,8 +10,10 @@ import com.example.capture.CaptureBridge
 import com.example.cloud.CloudAuthResult
 import com.example.cloud.CloudLayoutSyncRepository
 import com.example.cloud.CloudUserInfo
+import com.example.cloud.CommunityWorkshopRepository
 import com.example.cloud.GoogleAuthManager
 import com.example.cloud.SharedLayoutCodeResult
+import com.example.data.ButtonThemeLocalStore
 import com.example.data.NexusDatabase
 import com.example.data.OverlaySettings
 import com.example.data.PreferencesRepository
@@ -26,6 +29,10 @@ import com.example.model.AppFontConfig
 import com.example.model.AppFontPreset
 import com.example.model.AppLanguage
 import com.example.model.BindingDomain
+import com.example.model.ButtonThemePreset
+import com.example.model.CapturedMediaItem
+import com.example.model.CommunityTopicPost
+import com.example.model.CommunityUserProfile
 import com.example.model.ControlAccent
 import com.example.model.ControlShape
 import com.example.model.ControlType
@@ -45,7 +52,9 @@ import com.example.model.InputBinding
 import com.example.model.PerfHudConfig
 import com.example.model.PhysicalControllerConfig
 import com.example.model.PinnedGame
+import com.example.model.PostComment
 import com.example.model.PresetProfiles
+import com.example.model.ProfileClipPost
 import com.example.model.ProfileTemplate
 import com.example.model.RecordingFps
 import com.example.model.RecordingResolution
@@ -53,9 +62,11 @@ import com.example.model.StickState
 import com.example.model.StickerPreset
 import com.example.model.TargetPlatformMode
 import com.example.model.TelemetryEvent
+import com.example.model.ThemeComment
 import com.example.model.TriggerBehavior
 import com.example.model.VirtualControl
 import com.example.model.WebStreamQualityConfig
+import com.example.ui.components.LayoutStudioHelper
 import com.example.update.ApkUpgradeCompatibility
 import com.example.update.GitHubUpdateManager
 import com.example.update.UpdateUiState
@@ -73,9 +84,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.UUID
 import kotlin.math.roundToInt
 
@@ -122,7 +135,9 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     private val database = NexusDatabase.getInstance(application)
     private val profileRepo = ProfileRepository(database.profileDao())
     private val prefsRepo = PreferencesRepository(application)
+    private val themeLocalStore = ButtonThemeLocalStore(application)
     private val cloudRepo by lazy { CloudLayoutSyncRepository(application) }
+    private val communityRepo by lazy { CommunityWorkshopRepository(application) }
     private val firebaseAuth: FirebaseAuth? = runCatching { Firebase.auth }.getOrNull()
 
     val profiles: StateFlow<List<ControllerProfile>> = profileRepo.profiles
@@ -133,6 +148,15 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
 
     val settings: StateFlow<OverlaySettings> = prefsRepo.settingsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), OverlaySettings())
+
+    val localButtonThemes: StateFlow<List<ButtonThemePreset>> = themeLocalStore.localThemes
+    val activeButtonThemeId: StateFlow<String?> = themeLocalStore.activeThemeId
+    val activeButtonTheme: StateFlow<ButtonThemePreset?> = combine(
+        themeLocalStore.localThemes,
+        themeLocalStore.activeThemeId
+    ) { list, id ->
+        if (id == null) null else list.firstOrNull { it.id == id }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), themeLocalStore.getActiveTheme())
 
     val isOverlayRunning: StateFlow<Boolean> = InputBridge.isOverlayRunning
     val isImeConnected: StateFlow<Boolean> = InputBridge.isImeConnected
@@ -171,6 +195,55 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     private val _shareCodeState = MutableStateFlow<ShareCodeUiState>(ShareCodeUiState.Idle)
     val shareCodeState: StateFlow<ShareCodeUiState> = _shareCodeState.asStateFlow()
 
+    // Community Workshop, Discussions & Public Profiles state
+    private val _workshopThemes = MutableStateFlow<List<ButtonThemePreset>>(emptyList())
+    val workshopThemes: StateFlow<List<ButtonThemePreset>> = _workshopThemes.asStateFlow()
+
+    private val _likedThemeIds = MutableStateFlow<Set<String>>(emptySet())
+    val likedThemeIds: StateFlow<Set<String>> = _likedThemeIds.asStateFlow()
+
+    private val _favoriteThemeIds = MutableStateFlow<Set<String>>(emptySet())
+    val favoriteThemeIds: StateFlow<Set<String>> = _favoriteThemeIds.asStateFlow()
+
+    private val _communityPosts = MutableStateFlow<List<CommunityTopicPost>>(emptyList())
+    val communityPosts: StateFlow<List<CommunityTopicPost>> = _communityPosts.asStateFlow()
+
+    private val _likedPostIds = MutableStateFlow<Set<String>>(emptySet())
+    val likedPostIds: StateFlow<Set<String>> = _likedPostIds.asStateFlow()
+
+    private val _likedClipIds = MutableStateFlow<Set<String>>(emptySet())
+    val likedClipIds: StateFlow<Set<String>> = _likedClipIds.asStateFlow()
+
+    private val _myPublicProfile = MutableStateFlow<CommunityUserProfile?>(null)
+    val myPublicProfile: StateFlow<CommunityUserProfile?> = _myPublicProfile.asStateFlow()
+
+    private val _myProfileClips = MutableStateFlow<List<ProfileClipPost>>(emptyList())
+    val myProfileClips: StateFlow<List<ProfileClipPost>> = _myProfileClips.asStateFlow()
+
+    private val _myProfileThemes = MutableStateFlow<List<ButtonThemePreset>>(emptyList())
+    val myProfileThemes: StateFlow<List<ButtonThemePreset>> = _myProfileThemes.asStateFlow()
+
+    private val _myProfilePosts = MutableStateFlow<List<CommunityTopicPost>>(emptyList())
+    val myProfilePosts: StateFlow<List<CommunityTopicPost>> = _myProfilePosts.asStateFlow()
+
+    private val _viewedPublicProfile = MutableStateFlow<CommunityUserProfile?>(null)
+    val viewedPublicProfile: StateFlow<CommunityUserProfile?> = _viewedPublicProfile.asStateFlow()
+
+    private val _viewedProfileClips = MutableStateFlow<List<ProfileClipPost>>(emptyList())
+    val viewedProfileClips: StateFlow<List<ProfileClipPost>> = _viewedProfileClips.asStateFlow()
+
+    private val _viewedProfileThemes = MutableStateFlow<List<ButtonThemePreset>>(emptyList())
+    val viewedProfileThemes: StateFlow<List<ButtonThemePreset>> = _viewedProfileThemes.asStateFlow()
+
+    private val _viewedProfilePosts = MutableStateFlow<List<CommunityTopicPost>>(emptyList())
+    val viewedProfilePosts: StateFlow<List<CommunityTopicPost>> = _viewedProfilePosts.asStateFlow()
+
+    private val _isCommunityLoading = MutableStateFlow(false)
+    val isCommunityLoading: StateFlow<Boolean> = _isCommunityLoading.asStateFlow()
+
+    private val _isPublishingTheme = MutableStateFlow(false)
+    val isPublishingTheme: StateFlow<Boolean> = _isPublishingTheme.asStateFlow()
+
     private var updateJob: Job? = null
     private var cloudSyncJob: Job? = null
     private var appearancePushJob: Job? = null
@@ -187,12 +260,21 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
             if (lastSyncedUid != info.uid) {
                 lastSyncedUid = info.uid
                 syncLayoutsWithCloud(user = info, forceCloudWins = false, showToast = false)
+                ensureMyPublicProfileLoaded(info)
             }
         } else {
             cloudSyncJob?.cancel()
             cloudSyncJob = null
             lastSyncedUid = null
             _cloudUser.value = null
+            _myPublicProfile.value = null
+            _myProfileClips.value = emptyList()
+            _myProfileThemes.value = emptyList()
+            _myProfilePosts.value = emptyList()
+            _favoriteThemeIds.value = emptySet()
+            _likedThemeIds.value = emptySet()
+            _likedPostIds.value = emptySet()
+            _likedClipIds.value = emptySet()
             if (_cloudSyncState.value !is CloudSaveUiState.SigningIn &&
                 _cloudSyncState.value !is CloudSaveUiState.Error
             ) {
@@ -617,6 +699,60 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
                 .onFailure { err ->
                     _snackbarMessage.value = "Failed to load image: ${err.localizedMessage ?: "Unsupported file"}"
                 }
+        }
+    }
+
+    fun applyCustomButtonBackground(controlId: String, imageUri: Uri) {
+        viewModelScope.launch {
+            ButtonImageCodec.encodeUriToBase64(
+                context = getApplication(),
+                uri = imageUri,
+                cropSquare = false,
+                maxDimPx = 144,
+                maxEncodedBytes = 32_000
+            ).onSuccess { encoded ->
+                mutateEditorProfile(selectId = controlId) { current ->
+                    current.copy(
+                        controls = current.controls.map { ctrl ->
+                            if (ctrl.id == controlId) {
+                                ctrl.copy(customBackgroundBase64 = encoded, showBackground = true)
+                            } else {
+                                ctrl
+                            }
+                        }
+                    )
+                }
+                _snackbarMessage.value = "Custom button background applied"
+            }.onFailure { err ->
+                _snackbarMessage.value = "Failed to load background: ${err.localizedMessage ?: "Unsupported file"}"
+            }
+        }
+    }
+
+    fun applyCustomButtonStroke(controlId: String, imageUri: Uri) {
+        viewModelScope.launch {
+            ButtonImageCodec.encodeUriToBase64(
+                context = getApplication(),
+                uri = imageUri,
+                cropSquare = false,
+                maxDimPx = 144,
+                maxEncodedBytes = 32_000
+            ).onSuccess { encoded ->
+                mutateEditorProfile(selectId = controlId) { current ->
+                    current.copy(
+                        controls = current.controls.map { ctrl ->
+                            if (ctrl.id == controlId) {
+                                ctrl.copy(customStrokeBase64 = encoded, showStroke = true)
+                            } else {
+                                ctrl
+                            }
+                        }
+                    )
+                }
+                _snackbarMessage.value = "Custom button stroke frame applied"
+            }.onFailure { err ->
+                _snackbarMessage.value = "Failed to load stroke frame: ${err.localizedMessage ?: "Unsupported file"}"
+            }
         }
     }
 
@@ -1101,44 +1237,41 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun resizeControlScales(controlId: String, widthScale: Float, heightScale: Float) {
+        val clampedW = widthScale.coerceIn(0.45f, 2.6f)
+        val clampedH = heightScale.coerceIn(0.45f, 2.6f)
+        mutateEditorProfile(selectId = controlId) { current ->
+            current.copy(
+                controls = current.controls.map { ctrl ->
+                    if (ctrl.id == controlId) {
+                        ctrl.copy(widthScale = clampedW, heightScale = clampedH)
+                    } else {
+                        ctrl
+                    }
+                }
+            )
+        }
+    }
+
+    fun applyActiveThemeToEditorLayout() {
+        val theme = themeLocalStore.getActiveTheme() ?: run {
+            _snackbarMessage.value = "Select a Button Theme first"
+            return
+        }
+        mutateEditorProfile { current ->
+            current.copy(
+                controls = current.controls.map { ctrl -> theme.applyToControl(ctrl) }
+            )
+        }
+        _snackbarMessage.value = "Applied \"${theme.name}\" to all buttons in layout"
+    }
+
     fun addControl(controlType: ControlType, binding: InputBinding) {
-        val defaultShape = when (controlType) {
-            ControlType.ANALOG_STICK -> ControlShape.RING
-            ControlType.TOUCHPAD -> ControlShape.TOUCHPAD_RECT
-            ControlType.DPAD_CLUSTER, ControlType.WASD_CLUSTER -> ControlShape.CROSS
-            ControlType.SHOULDER_PADDLE -> ControlShape.PADDLE
-            ControlType.BUTTON -> when (binding.domain) {
-                BindingDomain.KEYBOARD -> ControlShape.KEYCAP
-                BindingDomain.MOUSE -> ControlShape.KEYCAP
-                else -> ControlShape.CIRCLE
+        val activeTheme = themeLocalStore.getActiveTheme()
+        val newControl = LayoutStudioHelper.createControlFromBinding(binding, activeTheme)
+            .let { base ->
+                if (base.controlType == controlType) base else base.copy(controlType = controlType)
             }
-        }
-        val defaultSize = when (controlType) {
-            ControlType.TOUCHPAD -> 148f
-            ControlType.ANALOG_STICK, ControlType.DPAD_CLUSTER, ControlType.WASD_CLUSTER -> 118f
-            ControlType.SHOULDER_PADDLE -> 72f
-            ControlType.BUTTON -> 60f
-        }
-        val defaultAccent = when (binding.domain) {
-            BindingDomain.CONTROLLER -> ControlAccent.LIME
-            BindingDomain.MOUSE -> ControlAccent.AMBER
-            BindingDomain.KEYBOARD -> ControlAccent.CYAN
-            BindingDomain.COMBO -> ControlAccent.VIOLET
-            BindingDomain.ANALOG_AXIS -> ControlAccent.CYAN
-        }
-        val newControl = VirtualControl(
-            id = UUID.randomUUID().toString(),
-            label = binding.codeLabel,
-            controlType = controlType,
-            shape = defaultShape,
-            xPercent = 0.50f,
-            yPercent = 0.50f,
-            sizeDp = defaultSize,
-            opacity = 0.85f,
-            accent = defaultAccent,
-            behavior = TriggerBehavior.HOLD,
-            binding = binding
-        )
         mutateEditorProfile(selectId = newControl.id) { current ->
             current.copy(controls = current.controls + newControl)
         }
@@ -1238,5 +1371,518 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearTelemetry() {
         InputBridge.clearTelemetry()
+    }
+
+    // -------------------------------------------------------------------------
+    // Button Theme Presets, Workshop, Discussions & Public Profiles
+    // -------------------------------------------------------------------------
+
+    private fun ensureMyPublicProfileLoaded(user: CloudUserInfo) {
+        viewModelScope.launch {
+            val loaded = communityRepo.getPublicProfile(user.uid).getOrNull()
+            if (loaded != null) {
+                _myPublicProfile.value = loaded
+            } else {
+                val created = communityRepo.upsertPublicProfile(
+                    username = user.displayName.ifBlank { "XenosPad Player" },
+                    bio = "",
+                    avatarBase64 = null,
+                    avatarUrl = user.photoUrl
+                ).getOrNull()
+                _myPublicProfile.value = created ?: CommunityUserProfile(
+                    uid = user.uid,
+                    username = user.displayName.ifBlank { "XenosPad Player" },
+                    avatarUrl = user.photoUrl
+                )
+            }
+        }
+    }
+
+    private suspend fun requireAuthorProfile(): CommunityUserProfile? {
+        val user = _cloudUser.value ?: return null
+        val cached = _myPublicProfile.value
+        if (cached != null && cached.uid == user.uid) return cached
+        val fetched = communityRepo.getPublicProfile(user.uid).getOrNull()
+        if (fetched != null) {
+            _myPublicProfile.value = fetched
+            return fetched
+        }
+        val created = communityRepo.upsertPublicProfile(
+            username = user.displayName.ifBlank { "XenosPad Player" },
+            bio = "",
+            avatarBase64 = null,
+            avatarUrl = user.photoUrl
+        ).getOrNull()
+        val resolved = created ?: CommunityUserProfile(
+            uid = user.uid,
+            username = user.displayName.ifBlank { "XenosPad Player" },
+            avatarUrl = user.photoUrl
+        )
+        _myPublicProfile.value = resolved
+        return resolved
+    }
+
+    fun getLocalButtonTheme(themeId: String): ButtonThemePreset? =
+        themeLocalStore.localThemes.value.firstOrNull { it.id == themeId }
+
+    fun saveButtonThemeDraft(theme: ButtonThemePreset, activate: Boolean = false) {
+        viewModelScope.launch {
+            themeLocalStore.upsertTheme(theme.copy(isDraft = true))
+            if (activate) {
+                themeLocalStore.setActiveThemeId(theme.id)
+                _snackbarMessage.value = "Draft \"${theme.name}\" saved & activated for testing"
+            } else {
+                _snackbarMessage.value = "Draft \"${theme.name}\" saved locally"
+            }
+        }
+    }
+
+    fun setActiveButtonTheme(themeId: String?) {
+        viewModelScope.launch {
+            themeLocalStore.setActiveThemeId(themeId)
+            val active = themeLocalStore.getActiveTheme()
+            _snackbarMessage.value = if (active != null) {
+                "Active Button Theme: ${active.name} (auto-applied to new buttons)"
+            } else {
+                "Using default button style"
+            }
+        }
+    }
+
+    fun deleteLocalButtonTheme(themeId: String) {
+        viewModelScope.launch {
+            themeLocalStore.deleteTheme(themeId)
+            _snackbarMessage.value = "Removed local button theme"
+        }
+    }
+
+    fun downloadWorkshopTheme(theme: ButtonThemePreset) {
+        viewModelScope.launch {
+            val localCopy = theme.copy(isDraft = false, isPublished = true)
+            themeLocalStore.upsertTheme(localCopy)
+            themeLocalStore.setActiveThemeId(localCopy.id)
+            communityRepo.incrementThemeDownload(theme.id)
+            _workshopThemes.update { list ->
+                list.map { if (it.id == theme.id) it.copy(downloadsCount = it.downloadsCount + 1) else it }
+            }
+            _snackbarMessage.value = "Downloaded & activated \"${theme.name}\" — new buttons will use this style!"
+        }
+    }
+
+    fun publishButtonTheme(theme: ButtonThemePreset, onPublished: () -> Unit = {}) {
+        if (_cloudUser.value == null) {
+            _snackbarMessage.value = "Sign in with Google first to publish to the Button Theme Workshop"
+            return
+        }
+        viewModelScope.launch {
+            _isPublishingTheme.value = true
+            val author = requireAuthorProfile()
+            if (author == null) {
+                _isPublishingTheme.value = false
+                return@launch
+            }
+            communityRepo.publishTheme(theme, author)
+                .onSuccess { published ->
+                    themeLocalStore.upsertTheme(published)
+                    themeLocalStore.setActiveThemeId(published.id)
+                    _workshopThemes.update { list ->
+                        listOf(published) + list.filterNot { it.id == published.id }
+                    }
+                    _myProfileThemes.update { list ->
+                        listOf(published) + list.filterNot { it.id == published.id }
+                    }
+                    _snackbarMessage.value = "Published \"${published.name}\" to the Button Theme Workshop!"
+                    onPublished()
+                }
+                .onFailure { err ->
+                    _snackbarMessage.value = err.localizedMessage ?: "Failed to publish button theme"
+                }
+            _isPublishingTheme.value = false
+        }
+    }
+
+    fun deletePublishedButtonTheme(themeId: String) {
+        viewModelScope.launch {
+            communityRepo.deletePublishedTheme(themeId)
+                .onSuccess {
+                    _workshopThemes.update { it.filterNot { t -> t.id == themeId } }
+                    _myProfileThemes.update { it.filterNot { t -> t.id == themeId } }
+                    _viewedProfileThemes.update { it.filterNot { t -> t.id == themeId } }
+                    _snackbarMessage.value = "Removed theme from Workshop"
+                }
+                .onFailure { err ->
+                    _snackbarMessage.value = err.localizedMessage ?: "Could not remove theme"
+                }
+        }
+    }
+
+    fun refreshWorkshopAndCommunity() {
+        val user = _cloudUser.value ?: return
+        viewModelScope.launch {
+            _isCommunityLoading.value = true
+            requireAuthorProfile()
+            communityRepo.fetchWorkshopThemes().onSuccess { _workshopThemes.value = it }
+            communityRepo.fetchFavoriteThemeIds().onSuccess { _favoriteThemeIds.value = it }
+            communityRepo.fetchCommunityPosts().onSuccess { _communityPosts.value = it }
+            communityRepo.fetchUserClips(user.uid).onSuccess { _myProfileClips.value = it }
+            communityRepo.fetchUserPublishedThemes(user.uid).onSuccess { _myProfileThemes.value = it }
+            communityRepo.fetchUserPosts(user.uid).onSuccess { _myProfilePosts.value = it }
+            _isCommunityLoading.value = false
+        }
+    }
+
+    fun toggleLikeTheme(theme: ButtonThemePreset) {
+        if (_cloudUser.value == null) {
+            _snackbarMessage.value = "Sign in with Google to like themes"
+            return
+        }
+        val currentlyLiked = theme.id in _likedThemeIds.value
+        viewModelScope.launch {
+            communityRepo.toggleLikeTheme(theme.id, currentlyLiked)
+                .onSuccess { nowLiked ->
+                    _likedThemeIds.update { if (nowLiked) it + theme.id else it - theme.id }
+                    val delta = if (nowLiked) 1 else -1
+                    _workshopThemes.update { list ->
+                        list.map {
+                            if (it.id == theme.id) it.copy(likesCount = (it.likesCount + delta).coerceAtLeast(0)) else it
+                        }
+                    }
+                }
+                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Could not update like" }
+        }
+    }
+
+    fun toggleFavoriteTheme(theme: ButtonThemePreset) {
+        if (_cloudUser.value == null) {
+            _snackbarMessage.value = "Sign in with Google to favorite themes"
+            return
+        }
+        val currentlyFav = theme.id in _favoriteThemeIds.value
+        viewModelScope.launch {
+            communityRepo.toggleFavoriteTheme(theme.id, currentlyFav)
+                .onSuccess { nowFav ->
+                    _favoriteThemeIds.update { if (nowFav) it + theme.id else it - theme.id }
+                    val delta = if (nowFav) 1 else -1
+                    _workshopThemes.update { list ->
+                        list.map {
+                            if (it.id == theme.id) it.copy(favoritesCount = (it.favoritesCount + delta).coerceAtLeast(0)) else it
+                        }
+                    }
+                }
+                .onFailure { _snackbarMessage.value = it.localizedMessage ?: "Could not update favorite" }
+        }
+    }
+
+    fun loadThemeComments(themeId: String, onLoaded: (List<ThemeComment>) -> Unit) {
+        viewModelScope.launch {
+            val list = communityRepo.fetchThemeComments(themeId).getOrDefault(emptyList())
+            onLoaded(list)
+        }
+    }
+
+    fun addThemeComment(themeId: String, text: String, onAdded: (ThemeComment?) -> Unit) {
+        if (_cloudUser.value == null) {
+            _snackbarMessage.value = "Sign in with Google to comment"
+            onAdded(null)
+            return
+        }
+        viewModelScope.launch {
+            val author = requireAuthorProfile() ?: return@launch
+            communityRepo.addThemeComment(themeId, author, text)
+                .onSuccess { comment ->
+                    _workshopThemes.update { list ->
+                        list.map { if (it.id == themeId) it.copy(commentsCount = it.commentsCount + 1) else it }
+                    }
+                    onAdded(comment)
+                }
+                .onFailure {
+                    _snackbarMessage.value = it.localizedMessage ?: "Failed to post comment"
+                    onAdded(null)
+                }
+        }
+    }
+
+    fun deleteThemeComment(themeId: String, commentId: String, onDeleted: () -> Unit) {
+        viewModelScope.launch {
+            communityRepo.deleteThemeComment(themeId, commentId)
+                .onSuccess {
+                    _workshopThemes.update { list ->
+                        list.map {
+                            if (it.id == themeId) it.copy(commentsCount = (it.commentsCount - 1).coerceAtLeast(0)) else it
+                        }
+                    }
+                    onDeleted()
+                }
+        }
+    }
+
+    fun saveMyPublicProfile(username: String, bio: String) {
+        val user = _cloudUser.value ?: return
+        val existing = _myPublicProfile.value
+        viewModelScope.launch {
+            communityRepo.upsertPublicProfile(
+                username = username,
+                bio = bio,
+                avatarBase64 = existing?.avatarBase64,
+                avatarUrl = existing?.avatarUrl ?: user.photoUrl
+            ).onSuccess { updated ->
+                _myPublicProfile.value = updated
+                _snackbarMessage.value = "Profile updated as ${updated.username}"
+            }.onFailure {
+                _snackbarMessage.value = it.localizedMessage ?: "Could not save profile"
+            }
+        }
+    }
+
+    fun uploadMyProfileAvatar(uri: Uri) {
+        val user = _cloudUser.value ?: return
+        viewModelScope.launch {
+            ButtonImageCodec.encodeUriToBase64(
+                context = getApplication(),
+                uri = uri,
+                cropSquare = true,
+                maxDimPx = 144,
+                maxEncodedBytes = 42_000
+            ).onSuccess { encoded ->
+                val current = requireAuthorProfile()
+                communityRepo.upsertPublicProfile(
+                    username = current?.username ?: user.displayName,
+                    bio = current?.bio.orEmpty(),
+                    avatarBase64 = encoded,
+                    avatarUrl = current?.avatarUrl ?: user.photoUrl
+                ).onSuccess { updated ->
+                    _myPublicProfile.value = updated
+                    _snackbarMessage.value = "Profile picture updated!"
+                }.onFailure {
+                    _snackbarMessage.value = it.localizedMessage ?: "Could not save profile picture"
+                }
+            }.onFailure {
+                _snackbarMessage.value = it.localizedMessage ?: "Could not read selected image"
+            }
+        }
+    }
+
+    fun removeMyProfileAvatar() {
+        val user = _cloudUser.value ?: return
+        val current = _myPublicProfile.value ?: return
+        viewModelScope.launch {
+            communityRepo.upsertPublicProfile(
+                username = current.username,
+                bio = current.bio,
+                avatarBase64 = null,
+                avatarUrl = user.photoUrl
+            ).onSuccess { updated ->
+                _myPublicProfile.value = updated
+                _snackbarMessage.value = "Profile picture removed"
+            }
+        }
+    }
+
+    fun loadPublicProfileBundle(userId: String) {
+        viewModelScope.launch {
+            _isCommunityLoading.value = true
+            _viewedPublicProfile.value = communityRepo.getPublicProfile(userId).getOrNull()
+            _viewedProfileThemes.value = communityRepo.fetchUserPublishedThemes(userId).getOrDefault(emptyList())
+            _viewedProfileClips.value = communityRepo.fetchUserClips(userId).getOrDefault(emptyList())
+            _viewedProfilePosts.value = communityRepo.fetchUserPosts(userId).getOrDefault(emptyList())
+            _isCommunityLoading.value = false
+        }
+    }
+
+    fun postGalleryClipToProfile(
+        item: CapturedMediaItem,
+        title: String,
+        gameTag: String,
+        caption: String
+    ) {
+        if (_cloudUser.value == null) {
+            _snackbarMessage.value = "Sign in with Google first to post clips to your Profile"
+            return
+        }
+        viewModelScope.launch {
+            val author = requireAuthorProfile() ?: return@launch
+            val extracted = withContext(Dispatchers.IO) {
+                extractClipThumbnailAndStoryboard(item)
+            }
+            communityRepo.publishClipToProfile(
+                authorProfile = author,
+                title = title.ifBlank { item.fileName },
+                gameTag = gameTag,
+                caption = caption,
+                durationMs = item.durationMs,
+                thumbnailBase64 = extracted.first,
+                storyboardFrames = extracted.second,
+                localMediaUri = item.filePath
+            ).onSuccess { clip ->
+                _myProfileClips.update { listOf(clip) + it }
+                _snackbarMessage.value = "Posted \"${clip.title}\" to your Profile!"
+            }.onFailure {
+                _snackbarMessage.value = it.localizedMessage ?: "Failed to post clip to profile"
+            }
+        }
+    }
+
+    private fun extractClipThumbnailAndStoryboard(item: CapturedMediaItem): Pair<String?, List<String>> {
+        val file = File(item.filePath)
+        if (!file.exists()) return null to emptyList()
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(file.absolutePath)
+            val durationMs = item.durationMs.takeIf { it > 0L }
+                ?: (retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L)
+            val thumbBmp = retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            val thumbB64 = thumbBmp?.let { bmp ->
+                val res = runCatching {
+                    ButtonImageCodec.encodeBitmapToBase64(bmp, cropSquare = false, maxDimPx = 320, maxEncodedBytes = 55_000)
+                }.getOrNull()
+                bmp.recycle()
+                res
+            }
+            val frames = mutableListOf<String>()
+            val frameCount = 5
+            val stepUs = if (durationMs > 500L) (durationMs * 1000L) / frameCount else 0L
+            for (i in 0 until frameCount) {
+                val timeUs = if (stepUs > 0L) i * stepUs else (i * 500_000L)
+                val frame = runCatching {
+                    retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                }.getOrNull() ?: continue
+                runCatching {
+                    ButtonImageCodec.encodeBitmapToBase64(frame, cropSquare = false, maxDimPx = 240, maxEncodedBytes = 32_000)
+                }.getOrNull()?.let { frames.add(it) }
+                frame.recycle()
+            }
+            thumbB64 to frames
+        } catch (_: Exception) {
+            null to emptyList<String>()
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
+    fun deleteProfileClip(clipId: String) {
+        viewModelScope.launch {
+            communityRepo.deleteProfileClip(clipId).onSuccess {
+                _myProfileClips.update { it.filterNot { c -> c.id == clipId } }
+                _viewedProfileClips.update { it.filterNot { c -> c.id == clipId } }
+                _snackbarMessage.value = "Removed clip from profile"
+            }
+        }
+    }
+
+    fun toggleLikeClip(clip: ProfileClipPost) {
+        if (_cloudUser.value == null) return
+        val liked = clip.id in _likedClipIds.value
+        viewModelScope.launch {
+            communityRepo.toggleLikeClip(clip.id, liked).onSuccess { nowLiked ->
+                _likedClipIds.update { if (nowLiked) it + clip.id else it - clip.id }
+                val delta = if (nowLiked) 1 else -1
+                _myProfileClips.update { list ->
+                    list.map { if (it.id == clip.id) it.copy(likesCount = (it.likesCount + delta).coerceAtLeast(0)) else it }
+                }
+                _viewedProfileClips.update { list ->
+                    list.map { if (it.id == clip.id) it.copy(likesCount = (it.likesCount + delta).coerceAtLeast(0)) else it }
+                }
+            }
+        }
+    }
+
+    fun createCommunityPost(topic: String, title: String, body: String, imageUri: Uri?) {
+        if (_cloudUser.value == null) {
+            _snackbarMessage.value = "Sign in with Google to create posts"
+            return
+        }
+        viewModelScope.launch {
+            val author = requireAuthorProfile() ?: return@launch
+            val imgB64 = if (imageUri != null) {
+                ButtonImageCodec.encodeUriToBase64(
+                    context = getApplication(),
+                    uri = imageUri,
+                    cropSquare = false,
+                    maxDimPx = 360,
+                    maxEncodedBytes = 85_000
+                ).getOrNull()
+            } else {
+                null
+            }
+            communityRepo.createCommunityPost(author, topic, title, body, imgB64)
+                .onSuccess { post ->
+                    _communityPosts.update { listOf(post) + it }
+                    _myProfilePosts.update { listOf(post) + it }
+                    _snackbarMessage.value = "Posted to $topic!"
+                }
+                .onFailure {
+                    _snackbarMessage.value = it.localizedMessage ?: "Failed to publish post"
+                }
+        }
+    }
+
+    fun deleteCommunityPost(postId: String) {
+        viewModelScope.launch {
+            communityRepo.deleteCommunityPost(postId).onSuccess {
+                _communityPosts.update { it.filterNot { p -> p.id == postId } }
+                _myProfilePosts.update { it.filterNot { p -> p.id == postId } }
+                _viewedProfilePosts.update { it.filterNot { p -> p.id == postId } }
+                _snackbarMessage.value = "Deleted post"
+            }
+        }
+    }
+
+    fun toggleLikePost(post: CommunityTopicPost) {
+        if (_cloudUser.value == null) {
+            _snackbarMessage.value = "Sign in with Google to like posts"
+            return
+        }
+        val liked = post.id in _likedPostIds.value
+        viewModelScope.launch {
+            communityRepo.toggleLikePost(post.id, liked).onSuccess { nowLiked ->
+                _likedPostIds.update { if (nowLiked) it + post.id else it - post.id }
+                val delta = if (nowLiked) 1 else -1
+                _communityPosts.update { list ->
+                    list.map { if (it.id == post.id) it.copy(likesCount = (it.likesCount + delta).coerceAtLeast(0)) else it }
+                }
+                _myProfilePosts.update { list ->
+                    list.map { if (it.id == post.id) it.copy(likesCount = (it.likesCount + delta).coerceAtLeast(0)) else it }
+                }
+            }
+        }
+    }
+
+    fun loadPostComments(postId: String, onLoaded: (List<PostComment>) -> Unit) {
+        viewModelScope.launch {
+            onLoaded(communityRepo.fetchPostComments(postId).getOrDefault(emptyList()))
+        }
+    }
+
+    fun addPostComment(postId: String, text: String, onAdded: (PostComment?) -> Unit) {
+        if (_cloudUser.value == null) {
+            _snackbarMessage.value = "Sign in with Google to reply"
+            onAdded(null)
+            return
+        }
+        viewModelScope.launch {
+            val author = requireAuthorProfile() ?: return@launch
+            communityRepo.addPostComment(postId, author, text)
+                .onSuccess { reply ->
+                    _communityPosts.update { list ->
+                        list.map { if (it.id == postId) it.copy(commentsCount = it.commentsCount + 1) else it }
+                    }
+                    onAdded(reply)
+                }
+                .onFailure {
+                    _snackbarMessage.value = it.localizedMessage ?: "Failed to send reply"
+                    onAdded(null)
+                }
+        }
+    }
+
+    fun deletePostComment(postId: String, commentId: String, onDeleted: () -> Unit) {
+        viewModelScope.launch {
+            communityRepo.deletePostComment(postId, commentId).onSuccess {
+                _communityPosts.update { list ->
+                    list.map { if (it.id == postId) it.copy(commentsCount = (it.commentsCount - 1).coerceAtLeast(0)) else it }
+                }
+                onDeleted()
+            }
+        }
     }
 }

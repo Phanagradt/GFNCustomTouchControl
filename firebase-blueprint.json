@@ -35,70 +35,41 @@
         "updatedAt"
       ]
     },
+    "PublicProfile": {
+      "title": "PublicProfile",
+      "description": "Public community profile containing custom username, bio, and uploaded avatar (zero PII).",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "bio": { "type": "string" },
+        "avatarBase64": { "type": "string" },
+        "avatarUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "username", "bio", "createdAt", "updatedAt"]
+    },
     "UserLayout": {
       "title": "UserLayout",
       "description": "Cloud-synced controller and keyboard layout belonging to a specific user.",
       "type": "object",
       "properties": {
-        "userId": {
-          "type": "string",
-          "description": "Owner Firebase Auth UID."
-        },
-        "name": {
-          "type": "string",
-          "description": "Layout profile name."
-        },
-        "gameTitle": {
-          "type": "string",
-          "description": "Target GeForce NOW game title."
-        },
-        "genre": {
-          "type": "string",
-          "description": "GameGenre enum name."
-        },
-        "globalOpacity": {
-          "type": "number",
-          "description": "Default global opacity between 0.2 and 1.0."
-        },
-        "gridSnap": {
-          "type": "boolean",
-          "description": "Whether grid snapping is enabled."
-        },
-        "active": {
-          "type": "boolean",
-          "description": "Whether this layout is currently armed."
-        },
-        "controls": {
-          "type": "array",
-          "description": "Native list of virtual control maps including bindings and optional compact custom button images."
-        },
-        "clientUpdatedAt": {
-          "type": "integer",
-          "description": "Client modification epoch milliseconds."
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server creation timestamp written via FieldValue.serverTimestamp()."
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server update timestamp written via FieldValue.serverTimestamp()."
-        }
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "gameTitle": { "type": "string" },
+        "genre": { "type": "string" },
+        "globalOpacity": { "type": "number" },
+        "gridSnap": { "type": "boolean" },
+        "active": { "type": "boolean" },
+        "controls": { "type": "array" },
+        "clientUpdatedAt": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [
-        "userId",
-        "name",
-        "gameTitle",
-        "genre",
-        "globalOpacity",
-        "gridSnap",
-        "active",
-        "controls",
-        "clientUpdatedAt",
-        "createdAt",
-        "updatedAt"
+        "userId", "name", "gameTitle", "genre", "globalOpacity",
+        "gridSnap", "active", "controls", "clientUpdatedAt", "createdAt", "updatedAt"
       ]
     },
     "SharedLayout": {
@@ -106,148 +77,206 @@
       "description": "Temporary 5-minute share code snapshot allowing friends to import a copy of a layout.",
       "type": "object",
       "properties": {
-        "ownerId": {
-          "type": "string",
-          "description": "Creator Firebase Auth UID."
-        },
-        "authorName": {
-          "type": "string",
-          "description": "Creator display name."
-        },
-        "name": {
-          "type": "string",
-          "description": "Shared profile name."
-        },
-        "gameTitle": {
-          "type": "string",
-          "description": "Target game title."
-        },
-        "genre": {
-          "type": "string",
-          "description": "GameGenre enum name."
-        },
-        "globalOpacity": {
-          "type": "number",
-          "description": "Profile opacity."
-        },
-        "gridSnap": {
-          "type": "boolean",
-          "description": "Grid snap preference."
-        },
-        "controls": {
-          "type": "array",
-          "description": "Native list of virtual control maps."
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server creation timestamp written via FieldValue.serverTimestamp()."
-        },
-        "expiresAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Expiration timestamp 5 minutes after creation."
-        }
+        "ownerId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "name": { "type": "string" },
+        "gameTitle": { "type": "string" },
+        "genre": { "type": "string" },
+        "globalOpacity": { "type": "number" },
+        "gridSnap": { "type": "boolean" },
+        "controls": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" }
       },
       "required": [
-        "ownerId",
-        "authorName",
-        "name",
-        "gameTitle",
-        "genre",
-        "globalOpacity",
-        "gridSnap",
-        "controls",
-        "createdAt",
-        "expiresAt"
+        "ownerId", "authorName", "name", "gameTitle", "genre",
+        "globalOpacity", "gridSnap", "controls", "createdAt", "expiresAt"
       ]
     },
     "UserSettingsBackup": {
       "title": "UserSettingsBackup",
-      "description": "Cloud-synced Freestyle Filters, Crosshair, App Theme, Font preset, and Floating Bubble preferences belonging to a user.",
+      "description": "Cloud-synced Freestyle Filters, Crosshair, App Theme, Font preset, and Floating Bubble preferences.",
       "type": "object",
       "properties": {
-        "userId": {
-          "type": "string",
-          "description": "Owner Firebase Auth UID."
-        },
-        "gameFilterJson": {
-          "type": "string",
-          "description": "Moshi-serialized GameFilterState across all 3 Freestyle slots."
-        },
-        "crosshairJson": {
-          "type": "string",
-          "description": "Moshi-serialized CrosshairSettings."
-        },
-        "colorSchemeJson": {
-          "type": "string",
-          "description": "Moshi-serialized AppColorSchemeConfig."
-        },
-        "fontConfigJson": {
-          "type": "string",
-          "description": "Moshi-serialized AppFontConfig (preset synced; device-local paths omitted)."
-        },
-        "floatingBubbleJson": {
-          "type": "string",
-          "description": "Moshi-serialized FloatingBubbleConfig (style, size, opacity, accent)."
-        },
-        "darkTheme": {
-          "type": "boolean",
-          "description": "Whether dark mode is enabled."
-        },
-        "clientUpdatedAt": {
-          "type": "integer",
-          "description": "Client modification epoch milliseconds."
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server creation timestamp written via FieldValue.serverTimestamp()."
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server update timestamp written via FieldValue.serverTimestamp()."
-        }
+        "userId": { "type": "string" },
+        "gameFilterJson": { "type": "string" },
+        "crosshairJson": { "type": "string" },
+        "colorSchemeJson": { "type": "string" },
+        "fontConfigJson": { "type": "string" },
+        "floatingBubbleJson": { "type": "string" },
+        "darkTheme": { "type": "boolean" },
+        "clientUpdatedAt": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [
-        "userId",
-        "gameFilterJson",
-        "crosshairJson",
-        "colorSchemeJson",
-        "fontConfigJson",
-        "floatingBubbleJson",
-        "darkTheme",
-        "clientUpdatedAt",
-        "createdAt",
-        "updatedAt"
+        "userId", "gameFilterJson", "crosshairJson", "colorSchemeJson",
+        "fontConfigJson", "floatingBubbleJson", "darkTheme",
+        "clientUpdatedAt", "createdAt", "updatedAt"
+      ]
+    },
+    "FavoriteTheme": {
+      "title": "FavoriteTheme",
+      "description": "Owner-scoped bookmark referencing a Button Theme Workshop preset.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "themeId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "themeId", "createdAt"]
+    },
+    "ButtonTheme": {
+      "title": "ButtonTheme",
+      "description": "Community-created custom button theme preset (e.g., DBD style) published to the Theme Workshop.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorAvatarBase64": { "type": "string" },
+        "name": { "type": "string" },
+        "gameTag": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "themeJson": { "type": "string" },
+        "published": { "type": "boolean" },
+        "likesCount": { "type": "integer" },
+        "favoritesCount": { "type": "integer" },
+        "downloadsCount": { "type": "integer" },
+        "commentsCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId", "authorName", "name", "gameTag", "description", "category",
+        "themeJson", "published", "likesCount", "favoritesCount", "downloadsCount",
+        "commentsCount", "createdAt", "updatedAt"
+      ]
+    },
+    "LikeRecord": {
+      "title": "LikeRecord",
+      "description": "Per-user like marker document.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "createdAt"]
+    },
+    "WorkshopComment": {
+      "title": "WorkshopComment",
+      "description": "User comment on a button theme or community discussion post.",
+      "type": "object",
+      "properties": {
+        "authorUid": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorAvatarBase64": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["authorUid", "authorName", "text", "createdAt"]
+    },
+    "ProfileClip": {
+      "title": "ProfileClip",
+      "description": "Gameplay clip recorded in the app and posted from Gallery onto a user's profile.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorAvatarBase64": { "type": "string" },
+        "title": { "type": "string" },
+        "gameTag": { "type": "string" },
+        "caption": { "type": "string" },
+        "durationMs": { "type": "integer" },
+        "thumbnailBase64": { "type": "string" },
+        "storyboardFrames": { "type": "array" },
+        "localMediaUri": { "type": "string" },
+        "likesCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId", "authorName", "title", "gameTag", "caption",
+        "durationMs", "storyboardFrames", "likesCount", "createdAt"
+      ]
+    },
+    "CommunityPost": {
+      "title": "CommunityPost",
+      "description": "Conversation and topic post displayed on user profiles and community discussions.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorAvatarBase64": { "type": "string" },
+        "topic": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "imageBase64": { "type": "string" },
+        "likesCount": { "type": "integer" },
+        "commentsCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId", "authorName", "topic", "title", "body",
+        "likesCount", "commentsCount", "createdAt"
       ]
     }
   },
   "firestore": {
     "/users/{userId}": {
-      "schema": {
-        "$ref": "#/entities/UserAccount"
-      },
+      "schema": { "$ref": "#/entities/UserAccount" },
       "description": "Private user account profile."
     },
     "/users/{userId}/layouts/{layoutId}": {
-      "schema": {
-        "$ref": "#/entities/UserLayout"
-      },
+      "schema": { "$ref": "#/entities/UserLayout" },
       "description": "User-owned cloud-backed layouts synced across app updates."
     },
     "/users/{userId}/settings/{settingId}": {
-      "schema": {
-        "$ref": "#/entities/UserSettingsBackup"
-      },
+      "schema": { "$ref": "#/entities/UserSettingsBackup" },
       "description": "User-owned cloud-backed Freestyle filters, crosshair, and visual theme settings."
     },
+    "/users/{userId}/favorite_themes/{themeId}": {
+      "schema": { "$ref": "#/entities/FavoriteTheme" },
+      "description": "User-owned favorited Button Theme Workshop IDs."
+    },
+    "/public_profiles/{userId}": {
+      "schema": { "$ref": "#/entities/PublicProfile" },
+      "description": "Public community profiles with custom username, bio, and uploaded avatar."
+    },
     "/shared_layouts/{shareCode}": {
-      "schema": {
-        "$ref": "#/entities/SharedLayout"
-      },
+      "schema": { "$ref": "#/entities/SharedLayout" },
       "description": "5-minute expiring share codes for friend-to-friend layout sharing."
+    },
+    "/button_themes/{themeId}": {
+      "schema": { "$ref": "#/entities/ButtonTheme" },
+      "description": "Published custom button theme presets in the Button Theme Workshop."
+    },
+    "/button_themes/{themeId}/likes/{userId}": {
+      "schema": { "$ref": "#/entities/LikeRecord" },
+      "description": "Per-user like records for button themes."
+    },
+    "/button_themes/{themeId}/comments/{commentId}": {
+      "schema": { "$ref": "#/entities/WorkshopComment" },
+      "description": "Community comments on button themes."
+    },
+    "/profile_clips/{clipId}": {
+      "schema": { "$ref": "#/entities/ProfileClip" },
+      "description": "Recorded gameplay clips posted from Gallery onto user profiles."
+    },
+    "/profile_clips/{clipId}/likes/{userId}": {
+      "schema": { "$ref": "#/entities/LikeRecord" },
+      "description": "Per-user like records for profile clips."
+    },
+    "/community_posts/{postId}": {
+      "schema": { "$ref": "#/entities/CommunityPost" },
+      "description": "User topic conversations and discussion posts."
+    },
+    "/community_posts/{postId}/likes/{userId}": {
+      "schema": { "$ref": "#/entities/LikeRecord" },
+      "description": "Per-user like records for community posts."
+    },
+    "/community_posts/{postId}/comments/{commentId}": {
+      "schema": { "$ref": "#/entities/WorkshopComment" },
+      "description": "Replies and comments on community posts."
     }
   }
 }

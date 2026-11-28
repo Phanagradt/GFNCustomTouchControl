@@ -129,6 +129,19 @@ data class VirtualControl(
     val dragAimSensitivity: Float = 1.4f,
     val dragAimInvertY: Boolean = false,
     val customImageBase64: String? = null,
+    val widthScale: Float = 1.0f,
+    val heightScale: Float = 1.0f,
+    val customImageScale: Float = 1.0f,
+    val customImageOpacity: Float = 1.0f,
+    val showBackground: Boolean = true,
+    val showStroke: Boolean = true,
+    val strokeWidthDp: Float = 1.8f,
+    val customBackgroundColorHex: Long? = null,
+    val customStrokeColorHex: Long? = null,
+    val customBackgroundBase64: String? = null,
+    val customBackgroundOpacity: Float = 0.90f,
+    val customStrokeBase64: String? = null,
+    val customStrokeOpacity: Float = 1.0f,
     val binding: InputBinding
 )
 
