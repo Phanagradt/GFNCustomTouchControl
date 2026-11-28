@@ -57,11 +57,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -91,6 +97,7 @@ import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TurboAmber
 import com.example.util.ButtonImageCodec
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
 import kotlin.math.roundToInt
@@ -112,9 +119,13 @@ private enum class ThemeButtonFilter(val label: String) {
 @Composable
 fun ButtonThemeCreatorScreen(
     initialTheme: ButtonThemePreset?,
+    autoSavedDraft: ButtonThemePreset? = null,
     isSignedIn: Boolean,
     isPublishing: Boolean,
     notation: ControllerNotation,
+    onAutoSaveDraft: (ButtonThemePreset) -> Unit = {},
+    onAutoSaveDraftSync: (ButtonThemePreset) -> Unit = {},
+    onClearAutoSavedDraft: () -> Unit = {},
     onSaveDraft: (ButtonThemePreset) -> Unit,
     onTestTheme: (ButtonThemePreset) -> Unit,
     onPublishTheme: (ButtonThemePreset) -> Unit,
@@ -123,38 +134,48 @@ fun ButtonThemeCreatorScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val primary = MaterialTheme.colorScheme.primary
 
-    BackHandler(onBack = onBack)
+    // If user opens a fresh creator and an unsaved auto-draft exists, restore it automatically!
+    val seedTheme = remember(initialTheme?.id, autoSavedDraft?.id) {
+        initialTheme ?: autoSavedDraft
+    }
+    var restoredFromAutoDraft by remember(initialTheme?.id) {
+        mutableStateOf(initialTheme == null && autoSavedDraft != null)
+    }
 
-    var themeId by remember(initialTheme?.id) {
+    var themeId by remember(seedTheme?.id) {
         mutableStateOf(
-            if (initialTheme != null && initialTheme.ownerId != "builtin") {
-                initialTheme.id
+            if (seedTheme != null && seedTheme.ownerId != "builtin") {
+                seedTheme.id
             } else {
                 "theme_${UUID.randomUUID().toString().take(10)}"
             }
         )
     }
-    var name by remember(initialTheme?.id) {
+    var name by remember(seedTheme?.id) {
         mutableStateOf(
             when {
-                initialTheme == null -> ""
-                initialTheme.ownerId == "builtin" -> "${initialTheme.name} Remix"
-                else -> initialTheme.name
+                seedTheme == null -> ""
+                seedTheme.ownerId == "builtin" -> "${seedTheme.name} Remix"
+                else -> seedTheme.name
             }
         )
     }
-    var gameTag by remember(initialTheme?.id) { mutableStateOf(initialTheme?.gameTag ?: "Dead by Daylight") }
-    var category by remember(initialTheme?.id) { mutableStateOf(initialTheme?.category ?: "Horror") }
-    var description by remember(initialTheme?.id) { mutableStateOf(initialTheme?.description ?: "") }
-    var defaultStyle by remember(initialTheme?.id) {
-        mutableStateOf(initialTheme?.defaultStyle ?: ButtonStyleOverride())
+    var gameTag by remember(seedTheme?.id) { mutableStateOf(seedTheme?.gameTag ?: "Dead by Daylight") }
+    var category by remember(seedTheme?.id) { mutableStateOf(seedTheme?.category ?: "Horror") }
+    var description by remember(seedTheme?.id) { mutableStateOf(seedTheme?.description ?: "") }
+    var defaultStyle by remember(seedTheme?.id) {
+        mutableStateOf(seedTheme?.defaultStyle ?: ButtonStyleOverride())
     }
-    var buttonStyles by remember(initialTheme?.id) {
-        mutableStateOf(initialTheme?.buttonStyles ?: emptyMap())
+    var buttonStyles by remember(seedTheme?.id) {
+        mutableStateOf(seedTheme?.buttonStyles ?: emptyMap())
     }
+    var hasDirtyEdits by remember { mutableStateOf(false) }
+    var autoSavedIndicator by remember { mutableStateOf(restoredFromAutoDraft) }
+    var didExplicitSaveOrPublish by remember { mutableStateOf(false) }
 
     // null = editing "Default Style (All Buttons)", non-null = editing that specific binding ID
     var selectedBindingId by remember { mutableStateOf<String?>(null) }
@@ -185,6 +206,7 @@ fun ButtonThemeCreatorScreen(
     }
 
     fun updateEditingStyle(transform: (ButtonStyleOverride) -> ButtonStyleOverride) {
+        hasDirtyEdits = true
         val bid = selectedBindingId
         if (bid == null) {
             defaultStyle = transform(defaultStyle)
@@ -201,20 +223,60 @@ fun ButtonThemeCreatorScreen(
             gameTag = gameTag.trim().ifEmpty { "Universal" },
             description = description.trim(),
             category = category.ifBlank { "Custom" },
-            ownerId = initialTheme?.ownerId?.takeIf { it != "builtin" } ?: "",
-            authorName = initialTheme?.authorName ?: "",
-            authorAvatarBase64 = initialTheme?.authorAvatarBase64,
+            ownerId = seedTheme?.ownerId?.takeIf { it != "builtin" } ?: "",
+            authorName = seedTheme?.authorName ?: "",
+            authorAvatarBase64 = seedTheme?.authorAvatarBase64,
             isDraft = isDraftFlag,
             isPublished = !isDraftFlag,
             defaultStyle = defaultStyle,
             buttonStyles = buttonStyles,
-            likesCount = initialTheme?.likesCount ?: 0,
-            favoritesCount = initialTheme?.favoritesCount ?: 0,
-            downloadsCount = initialTheme?.downloadsCount ?: 0,
-            commentsCount = initialTheme?.commentsCount ?: 0,
+            likesCount = seedTheme?.likesCount ?: 0,
+            favoritesCount = seedTheme?.favoritesCount ?: 0,
+            downloadsCount = seedTheme?.downloadsCount ?: 0,
+            commentsCount = seedTheme?.commentsCount ?: 0,
             updatedAtMs = System.currentTimeMillis()
         )
     }
+
+    val latestSnapshotProvider = rememberUpdatedState { buildThemeSnapshot(isDraftFlag = true) }
+    val latestHasDirty = rememberUpdatedState(hasDirtyEdits)
+    val latestExplicitSaved = rememberUpdatedState(didExplicitSaveOrPublish)
+
+    // Debounced auto-save on every edit
+    LaunchedEffect(name, gameTag, category, description, defaultStyle, buttonStyles, hasDirtyEdits) {
+        if (hasDirtyEdits && !didExplicitSaveOrPublish) {
+            delay(450L)
+            onAutoSaveDraft(buildThemeSnapshot(isDraftFlag = true))
+            autoSavedIndicator = true
+        }
+    }
+
+    // Immediate synchronous auto-save when app goes to background or user swipes/closes the app tab!
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if ((event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) &&
+                latestHasDirty.value && !latestExplicitSaved.value
+            ) {
+                onAutoSaveDraftSync(latestSnapshotProvider.value())
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            if (latestHasDirty.value && !latestExplicitSaved.value) {
+                onAutoSaveDraftSync(latestSnapshotProvider.value())
+            }
+        }
+    }
+
+    val handleBack: () -> Unit = {
+        if (hasDirtyEdits && !didExplicitSaveOrPublish) {
+            onAutoSaveDraftSync(buildThemeSnapshot(isDraftFlag = true))
+            onShowMessage("Draft auto-saved locally")
+        }
+        onBack()
+    }
+    BackHandler(onBack = handleBack)
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -282,15 +344,15 @@ fun ButtonThemeCreatorScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${buttonStyles.size} custom buttons • Draft & test before publishing",
+                            text = "${buttonStyles.size} custom buttons • ${if (autoSavedIndicator) "Auto-saved" else "Draft & test before publishing"}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (autoSavedIndicator) GeForceLime else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
                 navigationIcon = {
                     IconButton(
-                        onClick = onBack,
+                        onClick = handleBack,
                         modifier = Modifier.testTag("theme_creator_back")
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -311,7 +373,11 @@ fun ButtonThemeCreatorScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
-                        onClick = { onSaveDraft(buildThemeSnapshot(isDraftFlag = true)) },
+                        onClick = {
+                            didExplicitSaveOrPublish = true
+                            hasDirtyEdits = false
+                            onSaveDraft(buildThemeSnapshot(isDraftFlag = true))
+                        },
                         contentPadding = PaddingValues(horizontal = 10.dp),
                         modifier = Modifier
                             .weight(1f)
@@ -324,7 +390,11 @@ fun ButtonThemeCreatorScreen(
                     }
 
                     OutlinedButton(
-                        onClick = { onTestTheme(buildThemeSnapshot(isDraftFlag = true)) },
+                        onClick = {
+                            didExplicitSaveOrPublish = true
+                            hasDirtyEdits = false
+                            onTestTheme(buildThemeSnapshot(isDraftFlag = true))
+                        },
                         contentPadding = PaddingValues(horizontal = 10.dp),
                         modifier = Modifier
                             .weight(1f)
@@ -341,6 +411,8 @@ fun ButtonThemeCreatorScreen(
                             if (!isSignedIn) {
                                 onRequestSignIn()
                             } else {
+                                didExplicitSaveOrPublish = true
+                                hasDirtyEdits = false
                                 onPublishTheme(buildThemeSnapshot(isDraftFlag = false))
                             }
                         },
@@ -381,6 +453,45 @@ fun ButtonThemeCreatorScreen(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (restoredFromAutoDraft) {
+                Surface(
+                    color = GeForceLime.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, GeForceLime.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Restored your auto-saved draft theme.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = GeForceLime,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = {
+                                restoredFromAutoDraft = false
+                                autoSavedIndicator = false
+                                hasDirtyEdits = false
+                                themeId = "theme_${UUID.randomUUID().toString().take(10)}"
+                                name = ""
+                                gameTag = "Dead by Daylight"
+                                category = "Horror"
+                                description = ""
+                                defaultStyle = ButtonStyleOverride()
+                                buttonStyles = emptyMap()
+                                onClearAutoSavedDraft()
+                            }
+                        ) {
+                            Text("Start Fresh", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
             // 1. Live Preview Stage
             Card(
                 shape = RoundedCornerShape(18.dp),
@@ -480,7 +591,7 @@ fun ButtonThemeCreatorScreen(
                     )
                     OutlinedTextField(
                         value = name,
-                        onValueChange = { if (it.length <= 60) name = it },
+                        onValueChange = { if (it.length <= 60) { name = it; hasDirtyEdits = true } },
                         label = { Text("Theme Name (e.g. DBD Bloodweb)") },
                         singleLine = true,
                         modifier = Modifier
@@ -489,7 +600,7 @@ fun ButtonThemeCreatorScreen(
                     )
                     OutlinedTextField(
                         value = gameTag,
-                        onValueChange = { if (it.length <= 50) gameTag = it },
+                        onValueChange = { if (it.length <= 50) { gameTag = it; hasDirtyEdits = true } },
                         label = { Text("Game / Style Tag") },
                         singleLine = true,
                         modifier = Modifier
@@ -498,7 +609,7 @@ fun ButtonThemeCreatorScreen(
                     )
                     OutlinedTextField(
                         value = description,
-                        onValueChange = { if (it.length <= 300) description = it },
+                        onValueChange = { if (it.length <= 300) { description = it; hasDirtyEdits = true } },
                         label = { Text("Description (optional)") },
                         minLines = 2,
                         maxLines = 3,
@@ -510,7 +621,7 @@ fun ButtonThemeCreatorScreen(
                         items(CommunityConstants.THEME_CATEGORIES.filterNot { it == "All" }) { cat ->
                             FilterChip(
                                 selected = category == cat,
-                                onClick = { category = cat },
+                                onClick = { category = cat; hasDirtyEdits = true },
                                 label = { Text(cat) }
                             )
                         }

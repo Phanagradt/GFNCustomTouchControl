@@ -72,6 +72,7 @@ fun BetterGfnCockpitCard(
     config: WebStreamQualityConfig,
     onSelectRegion: (GfnRegionPreset) -> Unit,
     onLaunchWebPlayer: () -> Unit,
+    onLaunchXboxCloud: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val strings = LocalNexusStrings.current
@@ -146,7 +147,7 @@ fun BetterGfnCockpitCard(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "play.geforcenow.com • ${config.userAgentMode.shortLabel}",
+                                text = "GeForce NOW & Xbox Cloud • ${config.userAgentMode.shortLabel}",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontFamily = JetBrainsMonoFontFamily,
                                 color = TacticalCyan
@@ -286,6 +287,32 @@ fun BetterGfnCockpitCard(
                         text = strings.webPlayerLaunchButton,
                         fontWeight = FontWeight.Bold
                     )
+                }
+
+                if (onLaunchXboxCloud != null) {
+                    Button(
+                        onClick = onLaunchXboxCloud,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF107C10),
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("launch_xbox_cloud_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudQueue,
+                            contentDescription = null,
+                            modifier = Modifier.size(19.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Launch Xbox Cloud Gaming (xbox.com/play)",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }

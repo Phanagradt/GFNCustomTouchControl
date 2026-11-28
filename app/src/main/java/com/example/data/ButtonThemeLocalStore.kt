@@ -24,6 +24,7 @@ class ButtonThemeLocalStore(context: Context) {
     private val dir = File(context.applicationContext.filesDir, "button_themes").apply { mkdirs() }
     private val themesFile = File(dir, "themes_v1.json")
     private val activeIdFile = File(dir, "active_theme_id.txt")
+    private val autoDraftFile = File(dir, "auto_draft_v1.json")
 
     private val moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())
@@ -31,12 +32,16 @@ class ButtonThemeLocalStore(context: Context) {
 
     private val listType = Types.newParameterizedType(List::class.java, ButtonThemePreset::class.java)
     private val listAdapter = moshi.adapter<List<ButtonThemePreset>>(listType)
+    private val singleAdapter = moshi.adapter(ButtonThemePreset::class.java)
 
     private val _localThemes = MutableStateFlow<List<ButtonThemePreset>>(emptyList())
     val localThemes: StateFlow<List<ButtonThemePreset>> = _localThemes.asStateFlow()
 
     private val _activeThemeId = MutableStateFlow<String?>(null)
     val activeThemeId: StateFlow<String?> = _activeThemeId.asStateFlow()
+
+    private val _autoSavedDraft = MutableStateFlow<ButtonThemePreset?>(null)
+    val autoSavedDraft: StateFlow<ButtonThemePreset?> = _autoSavedDraft.asStateFlow()
 
     init {
         reloadSync()
@@ -70,6 +75,41 @@ class ButtonThemeLocalStore(context: Context) {
             if (activeIdFile.exists()) activeIdFile.readText().trim().takeIf { it.isNotEmpty() } else null
         }.getOrNull()
         _activeThemeId.value = active?.takeIf { id -> seeded.any { it.id == id } }
+
+        _autoSavedDraft.value = runCatching {
+            if (autoDraftFile.exists()) singleAdapter.fromJson(autoDraftFile.readText()) else null
+        }.getOrNull()
+    }
+
+    fun saveAutoDraftSync(theme: ButtonThemePreset) {
+        val updated = theme.copy(isDraft = true, isPublished = false, updatedAtMs = System.currentTimeMillis())
+        runCatching {
+            dir.mkdirs()
+            val tmp = File(dir, "auto_draft_v1.json.tmp")
+            val json = singleAdapter.toJson(updated)
+            tmp.writeText(json)
+            if (!tmp.renameTo(autoDraftFile)) {
+                autoDraftFile.writeText(json)
+                tmp.delete()
+            }
+        }
+        _autoSavedDraft.value = updated
+        // Also upsert into local drafts list so it is never lost even if the user navigates elsewhere
+        val next = _localThemes.value
+            .filterNot { it.id == updated.id }
+            .let { listOf(updated) + it }
+            .sortedByDescending { it.updatedAtMs }
+        writeThemesSync(next)
+        _localThemes.value = next
+    }
+
+    suspend fun saveAutoDraft(theme: ButtonThemePreset) = withContext(Dispatchers.IO) {
+        saveAutoDraftSync(theme)
+    }
+
+    suspend fun clearAutoDraft() = withContext(Dispatchers.IO) {
+        runCatching { if (autoDraftFile.exists()) autoDraftFile.delete() }
+        _autoSavedDraft.value = null
     }
 
     suspend fun upsertTheme(theme: ButtonThemePreset) = withContext(Dispatchers.IO) {
@@ -88,6 +128,10 @@ class ButtonThemeLocalStore(context: Context) {
         _localThemes.value = next
         if (_activeThemeId.value == themeId) {
             setActiveThemeId(null)
+        }
+        if (_autoSavedDraft.value?.id == themeId) {
+            runCatching { if (autoDraftFile.exists()) autoDraftFile.delete() }
+            _autoSavedDraft.value = null
         }
     }
 

@@ -11,6 +11,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,8 +23,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -45,12 +48,16 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
@@ -91,7 +98,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -117,14 +126,16 @@ import com.example.model.ProfileClipPost
 import com.example.model.ThemeComment
 import com.example.ui.components.AdminRoleBadge
 import com.example.ui.components.CosmeticShopAndWardrobeSheet
-import com.example.ui.components.FramedCommunityAvatar
+import com.example.ui.components.FullScreenImageViewerDialog
+import com.example.ui.components.ImageCropAspect
+import com.example.ui.components.ImageEditProcessor
+import com.example.ui.components.ImageEditorDialog
 import com.example.ui.components.LayoutStudioHelper
-import com.example.ui.components.ProfileNameTagChip
-import com.example.ui.components.ProfileRoleCornerBadges
-import com.example.ui.components.ProfileVerificationIconBadge
+import com.example.ui.components.PlatformAdaptiveProfileHeader
 import com.example.ui.components.VirtualControlCanvasItem
 import com.example.ui.theme.GeForceLime
 import com.example.ui.theme.JetBrainsMonoFontFamily
+import com.example.ui.theme.LocalAppPlatformTheme
 import com.example.ui.theme.MacroCoral
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TurboAmber
@@ -236,6 +247,7 @@ fun CommunityHubScreen(
     var inspectingTheme by remember { mutableStateOf<ButtonThemePreset?>(null) }
     var inspectingPost by remember { mutableStateOf<CommunityTopicPost?>(null) }
     var viewingClip by remember { mutableStateOf<ProfileClipPost?>(null) }
+    var fullScreenImage by remember { mutableStateOf<Triple<ImageBitmap, String, String>?>(null) }
     var showNewPostDialog by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showCosmeticShopSheet by remember { mutableStateOf(false) }
@@ -347,7 +359,8 @@ fun CommunityHubScreen(
                     onInspectPost = { inspectingPost = it },
                     onToggleLikePost = onToggleLikePost,
                     onDeletePost = onDeletePost,
-                    onOpenAuthorProfile = onOpenPublicProfile
+                    onOpenAuthorProfile = onOpenPublicProfile,
+                    onOpenFullScreenImage = { bmp, title, sub -> fullScreenImage = Triple(bmp, title, sub) }
                 )
 
                 2 -> ProfileContentBody(
@@ -378,7 +391,8 @@ fun CommunityHubScreen(
                     onNewPostClick = { showNewPostDialog = true },
                     onInspectPost = { inspectingPost = it },
                     onToggleLikePost = onToggleLikePost,
-                    onDeletePost = onDeletePost
+                    onDeletePost = onDeletePost,
+                    onOpenFullScreenImage = { bmp, title, sub -> fullScreenImage = Triple(bmp, title, sub) }
                 )
             }
         }
@@ -425,6 +439,7 @@ fun CommunityHubScreen(
                 inspectingPost = null
                 onOpenPublicProfile(uid)
             },
+            onOpenFullScreenImage = { bmp, title, sub -> fullScreenImage = Triple(bmp, title, sub) },
             onLoadComments = { cb -> onLoadPostComments(livePost.id, cb) },
             onAddComment = { txt, cb -> onAddPostComment(livePost.id, txt, cb) },
             onDeleteComment = { cid, cb -> onDeletePostComment(livePost.id, cid, cb) }
@@ -442,6 +457,15 @@ fun CommunityHubScreen(
                 viewingClip = null
             },
             onDismiss = { viewingClip = null }
+        )
+    }
+
+    fullScreenImage?.let { (bmp, title, subtitle) ->
+        FullScreenImageViewerDialog(
+            imageBitmap = bmp,
+            title = title,
+            subtitle = subtitle,
+            onDismiss = { fullScreenImage = null }
         )
     }
 
@@ -518,6 +542,7 @@ fun UserProfileScreen(
     var inspectingTheme by remember { mutableStateOf<ButtonThemePreset?>(null) }
     var inspectingPost by remember { mutableStateOf<CommunityTopicPost?>(null) }
     var viewingClip by remember { mutableStateOf<ProfileClipPost?>(null) }
+    var fullScreenImage by remember { mutableStateOf<Triple<ImageBitmap, String, String>?>(null) }
 
     LaunchedEffect(userId) {
         onLoadProfile(userId)
@@ -574,7 +599,8 @@ fun UserProfileScreen(
                 onNewPostClick = {},
                 onInspectPost = { inspectingPost = it },
                 onToggleLikePost = onToggleLikePost,
-                onDeletePost = onDeletePost
+                onDeletePost = onDeletePost,
+                onOpenFullScreenImage = { bmp, title, sub -> fullScreenImage = Triple(bmp, title, sub) }
             )
         }
     }
@@ -612,6 +638,7 @@ fun UserProfileScreen(
             onDismiss = { inspectingPost = null },
             onToggleLike = { onToggleLikePost(post) },
             onOpenAuthorProfile = {},
+            onOpenFullScreenImage = { bmp, title, sub -> fullScreenImage = Triple(bmp, title, sub) },
             onLoadComments = { cb -> onLoadPostComments(post.id, cb) },
             onAddComment = { txt, cb -> onAddPostComment(post.id, txt, cb) },
             onDeleteComment = { cid, cb -> onDeletePostComment(post.id, cid, cb) }
@@ -629,6 +656,15 @@ fun UserProfileScreen(
                 viewingClip = null
             },
             onDismiss = { viewingClip = null }
+        )
+    }
+
+    fullScreenImage?.let { (bmp, title, subtitle) ->
+        FullScreenImageViewerDialog(
+            imageBitmap = bmp,
+            title = title,
+            subtitle = subtitle,
+            onDismiss = { fullScreenImage = null }
         )
     }
 }
@@ -1086,7 +1122,8 @@ private fun DiscussionsTabContent(
     onInspectPost: (CommunityTopicPost) -> Unit,
     onToggleLikePost: (CommunityTopicPost) -> Unit,
     onDeletePost: (String) -> Unit,
-    onOpenAuthorProfile: (String) -> Unit
+    onOpenAuthorProfile: (String) -> Unit,
+    onOpenFullScreenImage: (ImageBitmap, String, String) -> Unit
 ) {
     var selectedTopic by remember { mutableStateOf("All") }
     val filteredPosts = remember(posts, selectedTopic) {
@@ -1159,7 +1196,10 @@ private fun DiscussionsTabContent(
                     onClick = { onInspectPost(post) },
                     onToggleLike = { onToggleLikePost(post) },
                     onDelete = { onDeletePost(post.id) },
-                    onAuthorClick = { if (post.ownerId.isNotBlank()) onOpenAuthorProfile(post.ownerId) }
+                    onAuthorClick = { if (post.ownerId.isNotBlank()) onOpenAuthorProfile(post.ownerId) },
+                    onImageClick = { bmp ->
+                        onOpenFullScreenImage(bmp, post.title, "${post.authorName} • ${post.topic}")
+                    }
                 )
             }
         }
@@ -1174,7 +1214,8 @@ private fun DiscussionPostCard(
     onClick: () -> Unit,
     onToggleLike: () -> Unit,
     onDelete: () -> Unit,
-    onAuthorClick: () -> Unit
+    onAuthorClick: () -> Unit,
+    onImageClick: (ImageBitmap) -> Unit = {}
 ) {
     val imgBmp = remember(post.imageBase64) {
         ButtonImageCodec.decodeBase64ToImageBitmap(post.imageBase64)
@@ -1244,15 +1285,42 @@ private fun DiscussionPostCard(
             )
 
             if (imgBmp != null) {
-                Image(
-                    bitmap = imgBmp,
-                    contentDescription = post.title,
-                    contentScale = ContentScale.Crop,
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(160.dp)
+                        .height(172.dp)
                         .clip(RoundedCornerShape(12.dp))
-                )
+                        .clickable { onImageClick(imgBmp) }
+                        .testTag("post_attached_image_${post.id}")
+                ) {
+                    Image(
+                        bitmap = imgBmp,
+                        contentDescription = post.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    Surface(
+                        color = Color(0xAA060A10),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Fullscreen,
+                                contentDescription = "View full screen",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text("Full Screen", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
             }
 
             Row(
@@ -1323,7 +1391,8 @@ private fun ProfileContentBody(
     onNewPostClick: () -> Unit,
     onInspectPost: (CommunityTopicPost) -> Unit,
     onToggleLikePost: (CommunityTopicPost) -> Unit,
-    onDeletePost: (String) -> Unit
+    onDeletePost: (String) -> Unit,
+    onOpenFullScreenImage: (ImageBitmap, String, String) -> Unit
 ) {
     if (isOwnProfile && currentUserUid == null) {
         Box(modifier = Modifier.fillMaxSize().padding(top = 24.dp)) {
@@ -1336,6 +1405,7 @@ private fun ProfileContentBody(
         return
     }
 
+    val platformTheme = LocalAppPlatformTheme.current
     val itemById = remember(cosmeticItems) { cosmeticItems.associateBy { it.id } }
     val equippedFrame = profile?.equippedFrameId?.let { itemById[it] }
     val equippedNameTag = profile?.equippedNameTagId?.let { itemById[it] }
@@ -1348,136 +1418,24 @@ private fun ProfileContentBody(
         contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Profile Header with Top-Right Corner Admin/Verified Role Indicators
+        // Platform-Adaptive Profile Header (Steam, Epic Games, Xbox, Switch, PlayStation 5, or Xenos Default)
+        // preserving equipped cosmetics and top-right Admin/Verified role badges
         item(key = "profile_header") {
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), RoundedCornerShape(18.dp))
-            ) {
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            modifier = Modifier.padding(
-                                end = if (profile?.adminRole == true || profile?.verifiedRole == true) 68.dp else 0.dp
-                            )
-                        ) {
-                            FramedCommunityAvatar(
-                                avatarBase64 = profile?.avatarBase64,
-                                username = profile?.username ?: "Player",
-                                frameItem = equippedFrame,
-                                size = 64.dp
-                            )
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        text = profile?.username ?: "XenosPad Player",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f, fill = false)
-                                    )
-                                    if (equippedVerificationIcon != null) {
-                                        ProfileVerificationIconBadge(
-                                            item = equippedVerificationIcon,
-                                            size = 20.dp
-                                        )
-                                    }
-                                }
-                                if (equippedNameTag != null) {
-                                    ProfileNameTagChip(item = equippedNameTag)
-                                }
-                                Text(
-                                    text = profile?.bio?.ifBlank { "No bio set yet." } ?: "Loading profile...",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        if (isOwnProfile) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = onEditProfileClick,
-                                    contentPadding = PaddingValues(horizontal = 10.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(40.dp)
-                                        .testTag("profile_edit_btn")
-                                ) {
-                                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Edit Profile", fontSize = 12.sp, maxLines = 1)
-                                }
-                                Button(
-                                    onClick = onOpenShopClick,
-                                    colors = ButtonDefaults.buttonColors(containerColor = GeForceLime),
-                                    contentPadding = PaddingValues(horizontal = 10.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(40.dp)
-                                        .testTag("profile_cosmetic_shop_btn")
-                                ) {
-                                    Icon(Icons.Default.Storefront, contentDescription = null, tint = Color.Black, modifier = Modifier.size(15.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Shop & Gear", fontSize = 12.sp, color = Color.Black, fontWeight = FontWeight.Bold, maxLines = 1)
-                                }
-                            }
-                            if (isPrimaryAdmin) {
-                                OutlinedButton(
-                                    onClick = onOpenAdminPanelClick,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(42.dp)
-                                        .testTag("profile_open_admin_panel_btn")
-                                ) {
-                                    AdminRoleBadge(size = 20.dp)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Open Admin Management Panel", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            ProfileStatBadge(count = clips.size, label = "Clips")
-                            ProfileStatBadge(count = publishedThemes.size, label = "Themes")
-                            ProfileStatBadge(count = posts.size, label = "Posts")
-                        }
-                    }
-
-                    // Role Badges pinned strictly to the right corner of the profile:
-                    // Admin Role = white wrench icon on gold background
-                    // Verified Role = white checkmark icon on blue background
-                    ProfileRoleCornerBadges(
-                        adminRole = profile?.adminRole == true,
-                        verifiedRole = profile?.verifiedRole == true,
-                        badgeSize = 30.dp,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(12.dp)
-                    )
-                }
-            }
+            PlatformAdaptiveProfileHeader(
+                platformTheme = platformTheme,
+                profile = profile,
+                equippedFrame = equippedFrame,
+                equippedNameTag = equippedNameTag,
+                equippedVerificationIcon = equippedVerificationIcon,
+                clipsCount = clips.size,
+                themesCount = publishedThemes.size,
+                postsCount = posts.size,
+                isOwnProfile = isOwnProfile,
+                isPrimaryAdmin = isPrimaryAdmin,
+                onEditProfileClick = onEditProfileClick,
+                onOpenShopClick = onOpenShopClick,
+                onOpenAdminPanelClick = onOpenAdminPanelClick
+            )
         }
 
         // Sub-tabs: Clips | Themes | Posts
@@ -1640,7 +1598,10 @@ private fun ProfileContentBody(
                                 onClick = { onInspectPost(post) },
                                 onToggleLike = { onToggleLikePost(post) },
                                 onDelete = { onDeletePost(post.id) },
-                                onAuthorClick = {}
+                                onAuthorClick = {},
+                                onImageClick = { bmp ->
+                                    onOpenFullScreenImage(bmp, post.title, "${post.authorName} • ${post.topic}")
+                                }
                             )
                         }
                     }
@@ -1989,6 +1950,7 @@ private fun PostCommentsSheet(
     onDismiss: () -> Unit,
     onToggleLike: () -> Unit,
     onOpenAuthorProfile: (String) -> Unit,
+    onOpenFullScreenImage: (ImageBitmap, String, String) -> Unit = { _, _, _ -> },
     onLoadComments: ((List<PostComment>) -> Unit) -> Unit,
     onAddComment: (String, (PostComment?) -> Unit) -> Unit,
     onDeleteComment: (String, () -> Unit) -> Unit
@@ -1996,6 +1958,9 @@ private fun PostCommentsSheet(
     var comments by remember(post.id) { mutableStateOf<List<PostComment>>(emptyList()) }
     var draft by remember { mutableStateOf("") }
     var loading by remember(post.id) { mutableStateOf(true) }
+    val attachedImg = remember(post.imageBase64) {
+        ButtonImageCodec.decodeBase64ToImageBitmap(post.imageBase64)
+    }
 
     LaunchedEffect(post.id) {
         onLoadComments { loaded ->
@@ -2036,6 +2001,42 @@ private fun PostCommentsSheet(
             }
 
             Text(post.body, style = MaterialTheme.typography.bodyMedium)
+
+            if (attachedImg != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(170.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            onOpenFullScreenImage(attachedImg, post.title, "${post.authorName} • ${post.topic}")
+                        }
+                        .testTag("post_sheet_image_fullscreen")
+                ) {
+                    Image(
+                        bitmap = attachedImg,
+                        contentDescription = post.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    Surface(
+                        color = Color(0xAA060A10),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Icon(Icons.Default.Fullscreen, contentDescription = "Expand", tint = Color.White, modifier = Modifier.size(14.dp))
+                            Text("Tap to Expand", fontSize = 10.sp, color = Color.White)
+                        }
+                    }
+                }
+            }
 
             HorizontalDivider()
 
@@ -2135,9 +2136,11 @@ private fun ClipPlayerDialog(
         )
     }
     var frameIndex by remember(clip.id) { mutableIntStateOf(0) }
+    var isPlayingReel by remember(clip.id) { mutableStateOf(true) }
+    var showChrome by remember(clip.id) { mutableStateOf(true) }
 
-    LaunchedEffect(hasLocalFile, decodedFrames.size) {
-        if (!hasLocalFile && decodedFrames.size > 1) {
+    LaunchedEffect(hasLocalFile, decodedFrames.size, isPlayingReel) {
+        if (!hasLocalFile && decodedFrames.size > 1 && isPlayingReel) {
             while (true) {
                 delay(650L)
                 frameIndex = (frameIndex + 1) % decodedFrames.size
@@ -2149,14 +2152,60 @@ private fun ClipPlayerDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Surface(
-            color = Color(0xF5080B10),
-            modifier = Modifier.fillMaxSize()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFA04060A))
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { showChrome = !showChrome })
+                }
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            // Full-bleed video or highlight reel canvas
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                if (hasLocalFile) {
+                    var videoViewRef by remember { mutableStateOf<VideoView?>(null) }
+                    DisposableEffect(clip.localMediaUri) {
+                        onDispose { runCatching { videoViewRef?.stopPlayback() } }
+                    }
+                    AndroidView(
+                        factory = { ctx ->
+                            VideoView(ctx).apply {
+                                videoViewRef = this
+                                val mc = MediaController(ctx)
+                                mc.setAnchorView(this)
+                                setMediaController(mc)
+                                setVideoPath(clip.localMediaUri)
+                                setOnPreparedListener { mp ->
+                                    mp.isLooping = true
+                                    start()
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else if (decodedFrames.isNotEmpty()) {
+                    Image(
+                        bitmap = decodedFrames[frameIndex.coerceIn(0, decodedFrames.lastIndex)],
+                        contentDescription = clip.title,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text("Clip preview unavailable", color = Color.White)
+                }
+            }
+
+            if (showChrome) {
+                // Top full-screen header bar
                 Row(
                     modifier = Modifier
+                        .align(Alignment.TopCenter)
                         .fillMaxWidth()
+                        .background(Color(0xAA06090F))
+                        .statusBarsPadding()
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -2182,72 +2231,71 @@ private fun ClipPlayerDialog(
                                 Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = MacroCoral)
                             }
                         }
-                        IconButton(onClick = onDismiss) {
+                        IconButton(onClick = onDismiss, modifier = Modifier.testTag("clip_fullscreen_close_btn")) {
                             Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                         }
                     }
                 }
 
-                Box(
+                // Bottom playback & caption bar
+                Column(
                     modifier = Modifier
+                        .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .weight(1f)
-                        .padding(12.dp),
-                    contentAlignment = Alignment.Center
+                        .background(Color(0xAA06090F))
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (hasLocalFile) {
-                        var videoViewRef by remember { mutableStateOf<VideoView?>(null) }
-                        DisposableEffect(clip.localMediaUri) {
-                            onDispose { runCatching { videoViewRef?.stopPlayback() } }
-                        }
-                        AndroidView(
-                            factory = { ctx ->
-                                VideoView(ctx).apply {
-                                    videoViewRef = this
-                                    val mc = MediaController(ctx)
-                                    mc.setAnchorView(this)
-                                    setMediaController(mc)
-                                    setVideoPath(clip.localMediaUri)
-                                    setOnPreparedListener { mp ->
-                                        mp.isLooping = true
-                                        start()
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else if (decodedFrames.isNotEmpty()) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                    if (!hasLocalFile && decodedFrames.size > 1) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Image(
-                                bitmap = decodedFrames[frameIndex.coerceIn(0, decodedFrames.lastIndex)],
-                                contentDescription = clip.title,
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                            )
-                            Text(
-                                text = "Highlight Reel Preview (${frameIndex + 1}/${decodedFrames.size}) • ${CaptureBridge.formatDurationMs(clip.durationMs)}",
-                                color = Color(0xFF9FB0C7),
-                                fontFamily = JetBrainsMonoFontFamily,
-                                fontSize = 11.sp
-                            )
+                            IconButton(
+                                onClick = {
+                                    isPlayingReel = false
+                                    frameIndex = (frameIndex - 1 + decodedFrames.size) % decodedFrames.size
+                                }
+                            ) {
+                                Icon(Icons.Default.SkipPrevious, contentDescription = "Previous frame", tint = Color.White)
+                            }
+                            Surface(
+                                color = MaterialTheme.colorScheme.primary,
+                                shape = CircleShape
+                            ) {
+                                IconButton(onClick = { isPlayingReel = !isPlayingReel }) {
+                                    Icon(
+                                        imageVector = if (isPlayingReel) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (isPlayingReel) "Pause" else "Play",
+                                        tint = Color.Black
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = {
+                                    isPlayingReel = false
+                                    frameIndex = (frameIndex + 1) % decodedFrames.size
+                                }
+                            ) {
+                                Icon(Icons.Default.SkipNext, contentDescription = "Next frame", tint = Color.White)
+                            }
                         }
-                    } else {
-                        Text("Clip preview unavailable", color = Color.White)
+                        Text(
+                            text = "Frame ${frameIndex + 1}/${decodedFrames.size} • ${CaptureBridge.formatDurationMs(clip.durationMs)} • Tap video to hide controls",
+                            color = Color(0xFFB5C4D6),
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 11.sp
+                        )
                     }
-                }
-
-                if (clip.caption.isNotBlank()) {
-                    Text(
-                        text = clip.caption,
-                        color = Color(0xFFD0DCEB),
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(16.dp)
-                    )
+                    if (clip.caption.isNotBlank()) {
+                        Text(
+                            text = clip.caption,
+                            color = Color(0xFFE0E8F2),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
             }
         }
@@ -2259,14 +2307,30 @@ private fun NewDiscussionPostDialog(
     onDismiss: () -> Unit,
     onPublish: (topic: String, title: String, body: String, imageUri: Uri?) -> Unit
 ) {
+    val context = LocalContext.current
     var topic by remember { mutableStateOf("Dead by Daylight") }
     var title by remember { mutableStateOf("") }
     var body by remember { mutableStateOf("") }
     var pickedImageUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingEditUri by remember { mutableStateOf<Uri?>(null) }
+    var previewBmp by remember { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(pickedImageUri) {
+        val uri = pickedImageUri
+        previewBmp = if (uri == null) {
+            null
+        } else {
+            ImageEditProcessor.loadEditableBitmap(context, uri, maxEdge = 640)?.asImageBitmap()
+        }
+    }
 
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri -> if (uri != null) pickedImageUri = uri }
+    ) { uri ->
+        if (uri != null) {
+            pendingEditUri = uri
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2297,15 +2361,68 @@ private fun NewDiscussionPostDialog(
                     maxLines = 5,
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (previewBmp != null && pickedImageUri != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(132.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                    ) {
+                        Image(
+                            bitmap = previewBmp!!,
+                            contentDescription = "Edited post image preview",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Surface(
+                                color = Color(0xCC060A10),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .clickable { pendingEditUri = pickedImageUri }
+                                    .testTag("post_reedit_image_btn")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = "Edit image", tint = Color.White, modifier = Modifier.size(13.dp))
+                                    Text("Edit", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            Surface(
+                                color = Color(0xCC8A1C24),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.clickable { pickedImageUri = null }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Remove image", tint = Color.White, modifier = Modifier.size(13.dp))
+                                }
+                            }
+                        }
+                    }
+                }
                 OutlinedButton(
                     onClick = {
                         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("post_pick_image_btn")
                 ) {
                     Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(if (pickedImageUri != null) "Image Attached ✓" else "Attach Screenshot (Optional)")
+                    Text(if (pickedImageUri != null) "Replace & Edit Image" else "Attach & Edit Image (Optional)")
                 }
             }
         },
@@ -2321,6 +2438,19 @@ private fun NewDiscussionPostDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+
+    pendingEditUri?.let { rawUri ->
+        ImageEditorDialog(
+            sourceUri = rawUri,
+            title = "Edit Image Before Posting",
+            defaultCropAspect = ImageCropAspect.ORIGINAL,
+            onCancel = { pendingEditUri = null },
+            onApply = { editedUri ->
+                pickedImageUri = editedUri
+                pendingEditUri = null
+            }
+        )
+    }
 }
 
 @Composable
@@ -2333,10 +2463,11 @@ private fun EditProfileDialog(
 ) {
     var username by remember(profile.username) { mutableStateOf(profile.username) }
     var bio by remember(profile.bio) { mutableStateOf(profile.bio) }
+    var pendingRawAvatarUri by remember { mutableStateOf<Uri?>(null) }
 
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri -> if (uri != null) onPickAvatar(uri) }
+    ) { uri -> if (uri != null) pendingRawAvatarUri = uri }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2361,7 +2492,7 @@ private fun EditProfileDialog(
                     ) {
                         Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Upload Photo")
+                        Text("Edit & Upload Photo")
                     }
                     if (!profile.avatarBase64.isNullOrBlank()) {
                         TextButton(onClick = onRemoveAvatar) {
@@ -2400,6 +2531,19 @@ private fun EditProfileDialog(
             TextButton(onClick = onDismiss) { Text("Close") }
         }
     )
+
+    pendingRawAvatarUri?.let { rawUri ->
+        ImageEditorDialog(
+            sourceUri = rawUri,
+            title = "Edit Profile Picture",
+            defaultCropAspect = ImageCropAspect.SQUARE,
+            onCancel = { pendingRawAvatarUri = null },
+            onApply = { editedUri ->
+                pendingRawAvatarUri = null
+                onPickAvatar(editedUri)
+            }
+        )
+    }
 }
 
 @Composable

@@ -29,6 +29,7 @@ import com.example.model.AppColorSchemeConfig
 import com.example.model.AppFontConfig
 import com.example.model.AppFontPreset
 import com.example.model.AppLanguage
+import com.example.model.AppPlatformTheme
 import com.example.model.BindingDomain
 import com.example.model.ButtonThemePreset
 import com.example.model.CapturedMediaItem
@@ -155,6 +156,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
 
     val localButtonThemes: StateFlow<List<ButtonThemePreset>> = themeLocalStore.localThemes
     val activeButtonThemeId: StateFlow<String?> = themeLocalStore.activeThemeId
+    val autoSavedThemeDraft: StateFlow<ButtonThemePreset?> = themeLocalStore.autoSavedDraft
     val activeButtonTheme: StateFlow<ButtonThemePreset?> = combine(
         themeLocalStore.localThemes,
         themeLocalStore.activeThemeId
@@ -977,6 +979,55 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setPlatformTheme(theme: AppPlatformTheme) {
+        viewModelScope.launch {
+            prefsRepo.setPlatformTheme(theme)
+            _snackbarMessage.value = "Switched interface to ${theme.displayName}"
+        }
+    }
+
+    fun setNintendoSwitchDarkMode(dark: Boolean) {
+        viewModelScope.launch {
+            prefsRepo.setNintendoSwitchDarkMode(dark)
+            _snackbarMessage.value = if (dark) {
+                "Nintendo Switch set to Basic Black (Dark)"
+            } else {
+                "Nintendo Switch set to Basic White (Light)"
+            }
+        }
+    }
+
+    fun completeOnboarding(username: String, bio: String, editedAvatarUri: Uri?) {
+        viewModelScope.launch {
+            val cleanName = username.trim().take(36)
+            prefsRepo.setOnboardingCompleted(completed = true, displayName = cleanName)
+            val user = _cloudUser.value
+            if (user != null) {
+                val existing = _myPublicProfile.value
+                val encodedAvatar = if (editedAvatarUri != null) {
+                    ButtonImageCodec.encodeUriToBase64(
+                        context = getApplication(),
+                        uri = editedAvatarUri,
+                        cropSquare = true,
+                        maxDimPx = 144,
+                        maxEncodedBytes = 42_000
+                    ).getOrNull()
+                } else {
+                    existing?.avatarBase64
+                }
+                communityRepo.upsertPublicProfile(
+                    username = cleanName.ifBlank { existing?.username ?: user.displayName },
+                    bio = bio.trim(),
+                    avatarBase64 = encodedAvatar,
+                    avatarUrl = existing?.avatarUrl ?: user.photoUrl
+                ).onSuccess { updated ->
+                    _myPublicProfile.value = updated
+                }
+            }
+            _snackbarMessage.value = "Welcome to XenosPad${if (cleanName.isNotBlank()) ", $cleanName" else ""}!"
+        }
+    }
+
     // GitHub Releases In-App Updater
     fun checkForUpdates(explicitRepoInput: String? = null, silent: Boolean = false) {
         val rawRepo = (explicitRepoInput ?: settings.value.githubRepoSlug)
@@ -1455,9 +1506,26 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
     fun getLocalButtonTheme(themeId: String): ButtonThemePreset? =
         themeLocalStore.localThemes.value.firstOrNull { it.id == themeId }
 
+    fun autoSaveButtonThemeDraft(theme: ButtonThemePreset) {
+        viewModelScope.launch {
+            themeLocalStore.saveAutoDraft(theme)
+        }
+    }
+
+    fun autoSaveButtonThemeDraftSync(theme: ButtonThemePreset) {
+        themeLocalStore.saveAutoDraftSync(theme)
+    }
+
+    fun clearAutoSavedThemeDraft() {
+        viewModelScope.launch {
+            themeLocalStore.clearAutoDraft()
+        }
+    }
+
     fun saveButtonThemeDraft(theme: ButtonThemePreset, activate: Boolean = false) {
         viewModelScope.launch {
             themeLocalStore.upsertTheme(theme.copy(isDraft = true))
+            themeLocalStore.clearAutoDraft()
             if (activate) {
                 themeLocalStore.setActiveThemeId(theme.id)
                 _snackbarMessage.value = "Draft \"${theme.name}\" saved & activated for testing"
@@ -1514,6 +1582,7 @@ class NexusViewModel(application: Application) : AndroidViewModel(application) {
             communityRepo.publishTheme(theme, author)
                 .onSuccess { published ->
                     themeLocalStore.upsertTheme(published)
+                    themeLocalStore.clearAutoDraft()
                     themeLocalStore.setActiveThemeId(published.id)
                     _workshopThemes.update { list ->
                         listOf(published) + list.filterNot { it.id == published.id }

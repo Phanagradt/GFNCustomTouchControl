@@ -2178,6 +2178,26 @@ class ExampleUnitTest {
             "",
             com.example.ui.components.buildControlBadgeText(blankCtrl, "SPACE", isToggled = false)
         )
+        val toggleDragBlank = blankCtrl.copy(
+            behavior = com.example.model.TriggerBehavior.TOGGLE,
+            dragToAimEnabled = true
+        )
+        assertEquals(
+            "Toggle + Draggable button with blank label must not render TGL or AIM over custom images",
+            "",
+            com.example.ui.components.buildControlBadgeText(toggleDragBlank, "SPACE", isToggled = false)
+        )
+        assertEquals(
+            "Active Toggle + Draggable button with blank label must not render ON or AIM over custom images",
+            "",
+            com.example.ui.components.buildControlBadgeText(toggleDragBlank, "SPACE", isToggled = true)
+        )
+        val labeledToggleDrag = toggleDragBlank.copy(label = "Crouch")
+        assertEquals(
+            "Labeled Toggle + Draggable button should only show key code without TGL or AIM",
+            "SPACE",
+            com.example.ui.components.buildControlBadgeText(labeledToggleDrag, "SPACE", isToggled = false)
+        )
         val (wDp, hDp) = com.example.ui.components.computeControlDimensionsDp(blankCtrl)
         assertEquals(96f, wDp, 0.01f)
         assertEquals(48f, hDp, 0.01f)
@@ -2294,8 +2314,22 @@ class ExampleUnitTest {
         assertEquals("item_tag_1", profileWithBadges.equippedNameTagId)
         assertEquals("item_icon_1", profileWithBadges.equippedVerificationIconId)
     }
+
+    @Test
+    fun `only Steam Deck Epic Games and Xbox platform themes expose live GeForce NOW storefronts`() {
+        assertTrue(com.example.model.AppPlatformTheme.STEAM_DECK.hasLiveGfnStore)
+        assertTrue(com.example.model.AppPlatformTheme.EPIC_GAMES.hasLiveGfnStore)
+        assertTrue(com.example.model.AppPlatformTheme.XBOX.hasLiveGfnStore)
+
+        assertFalse(com.example.model.AppPlatformTheme.NINTENDO_SWITCH.hasLiveGfnStore)
+        assertFalse(com.example.model.AppPlatformTheme.PLAYSTATION.hasLiveGfnStore)
+        assertFalse(com.example.model.AppPlatformTheme.XENOS_DEFAULT.hasLiveGfnStore)
+
+        assertEquals("https://store.steampowered.com/", com.example.model.AppPlatformTheme.STEAM_DECK.storeHomeUrl)
+        assertEquals("https://store.epicgames.com/", com.example.model.AppPlatformTheme.EPIC_GAMES.storeHomeUrl)
+        assertEquals("https://www.xbox.com/en-US/games/all-games", com.example.model.AppPlatformTheme.XBOX.storeHomeUrl)
+        assertEquals(null, com.example.model.AppPlatformTheme.NINTENDO_SWITCH.storeHomeUrl)
+        assertEquals(null, com.example.model.AppPlatformTheme.PLAYSTATION.storeHomeUrl)
+        assertEquals(null, com.example.model.AppPlatformTheme.XENOS_DEFAULT.storeHomeUrl)
+    }
 }
-
-
-
-

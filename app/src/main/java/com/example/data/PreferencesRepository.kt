@@ -12,6 +12,7 @@ import com.example.model.AppColorSchemeConfig
 import com.example.model.AppFontConfig
 import com.example.model.AppFontPreset
 import com.example.model.AppLanguage
+import com.example.model.AppPlatformTheme
 import com.example.model.ControllerNotation
 import com.example.model.CrosshairSettings
 import com.example.model.FloatingBubbleConfig
@@ -80,7 +81,11 @@ data class OverlaySettings(
     val webPlayerConfig: WebStreamQualityConfig = WebStreamQualityConfig(),
     val physicalController: PhysicalControllerConfig = PhysicalControllerConfig(),
     val pinnedGames: List<PinnedGame> = emptyList(),
-    val appearanceUpdatedAtMs: Long = 0L
+    val appearanceUpdatedAtMs: Long = 0L,
+    val platformTheme: AppPlatformTheme = AppPlatformTheme.XENOS_DEFAULT,
+    val nintendoSwitchDarkMode: Boolean = false,
+    val hasCompletedOnboarding: Boolean = false,
+    val localDisplayName: String = ""
 ) {
     val hapticsEnabled: Boolean
         get() = vibrationMode != VibrationMode.NONE
@@ -135,6 +140,10 @@ class PreferencesRepository(private val context: Context) {
         val PHYSICAL_CONTROLLER_JSON = stringPreferencesKey("physical_controller_json")
         val PINNED_GAMES_JSON = stringPreferencesKey("pinned_games_json")
         val APPEARANCE_UPDATED_AT = longPreferencesKey("appearance_updated_at_ms")
+        val PLATFORM_THEME = stringPreferencesKey("app_platform_theme")
+        val NINTENDO_SWITCH_DARK_MODE = booleanPreferencesKey("nintendo_switch_dark_mode")
+        val ONBOARDING_COMPLETED = booleanPreferencesKey("has_completed_onboarding")
+        val LOCAL_DISPLAY_NAME = stringPreferencesKey("local_display_name")
     }
 
     val settingsFlow: Flow<OverlaySettings> = context.nexusDataStore.data.map { prefs ->
@@ -178,6 +187,10 @@ class PreferencesRepository(private val context: Context) {
         val physicalController = decodePhysicalController(prefs[Keys.PHYSICAL_CONTROLLER_JSON])
         val pinnedGames = decodePinnedGames(prefs[Keys.PINNED_GAMES_JSON])
 
+        val platformThemeName = prefs[Keys.PLATFORM_THEME] ?: AppPlatformTheme.XENOS_DEFAULT.name
+        val platformTheme = runCatching { AppPlatformTheme.valueOf(platformThemeName) }
+            .getOrDefault(AppPlatformTheme.XENOS_DEFAULT)
+
         OverlaySettings(
             vibrationMode = vibrationMode,
             globalOpacity = prefs[Keys.GLOBAL_OPACITY] ?: 0.85f,
@@ -207,7 +220,11 @@ class PreferencesRepository(private val context: Context) {
             webPlayerConfig = webPlayerConfig,
             physicalController = physicalController,
             pinnedGames = pinnedGames,
-            appearanceUpdatedAtMs = prefs[Keys.APPEARANCE_UPDATED_AT] ?: 0L
+            appearanceUpdatedAtMs = prefs[Keys.APPEARANCE_UPDATED_AT] ?: 0L,
+            platformTheme = platformTheme,
+            nintendoSwitchDarkMode = prefs[Keys.NINTENDO_SWITCH_DARK_MODE] ?: false,
+            hasCompletedOnboarding = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
+            localDisplayName = prefs[Keys.LOCAL_DISPLAY_NAME] ?: ""
         )
     }
 
@@ -454,6 +471,29 @@ class PreferencesRepository(private val context: Context) {
     suspend fun setLastSeenWhatsNewVersionCode(versionCode: Int) {
         context.nexusDataStore.edit { prefs ->
             prefs[Keys.LAST_SEEN_WHATS_NEW_CODE] = versionCode
+        }
+    }
+
+    suspend fun setPlatformTheme(theme: AppPlatformTheme) {
+        context.nexusDataStore.edit { prefs ->
+            prefs[Keys.PLATFORM_THEME] = theme.name
+            prefs[Keys.APPEARANCE_UPDATED_AT] = System.currentTimeMillis()
+        }
+    }
+
+    suspend fun setNintendoSwitchDarkMode(dark: Boolean) {
+        context.nexusDataStore.edit { prefs ->
+            prefs[Keys.NINTENDO_SWITCH_DARK_MODE] = dark
+            prefs[Keys.APPEARANCE_UPDATED_AT] = System.currentTimeMillis()
+        }
+    }
+
+    suspend fun setOnboardingCompleted(completed: Boolean, displayName: String? = null) {
+        context.nexusDataStore.edit { prefs ->
+            prefs[Keys.ONBOARDING_COMPLETED] = completed
+            if (!displayName.isNullOrBlank()) {
+                prefs[Keys.LOCAL_DISPLAY_NAME] = displayName.trim().take(36)
+            }
         }
     }
 

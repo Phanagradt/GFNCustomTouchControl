@@ -32,6 +32,16 @@ data class DomKeyMapping(
 object BetterGfnScriptEngine {
 
     const val GFN_WEB_URL = "https://play.geforcenow.com"
+    const val XBOX_CLOUD_URL = "https://www.xbox.com/play"
+
+    fun isXboxCloudUrl(url: String?): Boolean {
+        if (url.isNullOrBlank()) return false
+        val lower = url.lowercase(Locale.US)
+        return lower.contains("xbox.com") ||
+            lower.contains("xboxlive.com") ||
+            lower.contains("gamepass.com") ||
+            lower.contains("xcloud.microsoft.com")
+    }
 
     fun isTrustedGfnOrigin(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
@@ -39,7 +49,11 @@ object BetterGfnScriptEngine {
         return lower.startsWith("https://") && (
             lower.contains("geforcenow.com") ||
                 lower.contains("nvidia.com") ||
-                lower.contains("nvidiagrid.net")
+                lower.contains("nvidiagrid.net") ||
+                lower.contains("xbox.com") ||
+                lower.contains("xboxlive.com") ||
+                lower.contains("gamepass.com") ||
+                lower.contains("xcloud.microsoft.com")
             )
     }
 
@@ -881,12 +895,18 @@ object BetterGfnScriptEngine {
               }
               window.__xenosBetterGfnInstalled = true;
 
-              // 1. Better xCloud-style Region Bypass (NVIDIA / GeForce NOW hosts only)
-              function isNvidiaHost(urlStr) {
+              // 1. Better xCloud-style Region Bypass (GeForce NOW + Xbox Cloud Gaming hosts)
+              function isCloudBypassHost(urlStr) {
                 try {
                   var u = new URL(urlStr, window.location.href);
                   var h = (u.hostname || '').toLowerCase();
-                  return h.endsWith('geforcenow.com') || h.endsWith('nvidia.com') || h.endsWith('nvidiagrid.net');
+                  return h.endsWith('geforcenow.com') ||
+                    h.endsWith('nvidia.com') ||
+                    h.endsWith('nvidiagrid.net') ||
+                    h.endsWith('xbox.com') ||
+                    h.endsWith('xboxlive.com') ||
+                    h.endsWith('gamepass.com') ||
+                    h.endsWith('xcloud.microsoft.com');
                 } catch (e) {
                   return false;
                 }
@@ -898,7 +918,7 @@ object BetterGfnScriptEngine {
                   try {
                     var cfg = window.__xenosConfig;
                     var urlStr = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
-                    if (cfg && cfg.regionEnabled && cfg.fakeIp && isNvidiaHost(urlStr)) {
+                    if (cfg && cfg.regionEnabled && cfg.fakeIp && isCloudBypassHost(urlStr)) {
                       var nextInit = Object.assign({}, init || {});
                       var headers = new Headers(nextInit.headers || (input && input.headers) || {});
                       headers.set('X-Forwarded-For', cfg.fakeIp);
@@ -921,7 +941,7 @@ object BetterGfnScriptEngine {
                 XMLHttpRequest.prototype.send = function() {
                   try {
                     var cfg = window.__xenosConfig;
-                    if (cfg && cfg.regionEnabled && cfg.fakeIp && isNvidiaHost(this.__xenosUrl || '')) {
+                    if (cfg && cfg.regionEnabled && cfg.fakeIp && isCloudBypassHost(this.__xenosUrl || '')) {
                       this.setRequestHeader('X-Forwarded-For', cfg.fakeIp);
                       if (cfg.acceptLang) this.setRequestHeader('Accept-Language', cfg.acceptLang);
                     }

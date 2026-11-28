@@ -70,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.VibrationMode
+import com.example.model.AppPlatformTheme
 import com.example.model.BindingDomain
 import com.example.model.ControlType
 import com.example.model.ControllerProfile
@@ -82,8 +83,14 @@ import com.example.capture.CaptureBridge
 import com.example.ui.SystemReadiness
 import com.example.ui.components.BetterGfnCockpitCard
 import com.example.ui.components.PinnedGamesHubCard
+import com.example.ui.components.PlatformHeroDashboardCard
 import com.example.ui.theme.JetBrainsMonoFontFamily
+import com.example.ui.theme.LocalAppPlatformTheme
 import com.example.ui.theme.MacroCoral
+import com.example.cloud.CloudUserInfo
+import com.example.model.ButtonThemePreset
+import com.example.model.CommunityTopicPost
+import com.example.model.CommunityUserProfile
 import com.example.ui.theme.MacroViolet
 import com.example.ui.theme.TacticalCyan
 import com.example.ui.theme.TurboAmber
@@ -119,9 +126,213 @@ fun CockpitScreen(
     onOpenImeSettings: () -> Unit,
     onOpenAccessibilitySettings: () -> Unit,
     onLaunchGeForceNow: () -> Unit,
+    onOpenStore: (() -> Unit)? = null,
+    workshopThemes: List<ButtonThemePreset> = emptyList(),
+    communityPosts: List<CommunityTopicPost> = emptyList(),
+    onOpenWorkshop: () -> Unit = {},
+    onOpenFilters: () -> Unit = {},
+    onOpenGallery: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+    onOpenSteamQuickAccess: () -> Unit = {},
+    steamSelectTrigger: Int = 0,
+    cloudUser: CloudUserInfo? = null,
+    myProfile: CommunityUserProfile? = null,
+    displayName: String = "Player",
+    onSignIn: () -> Unit = {},
+    onOpenMyProfile: () -> Unit = {},
+    onOpenPublicProfile: (String) -> Unit = {},
+    onOpenProfiles: () -> Unit = {},
+    xboxSelectTrigger: Int = 0,
+    onLaunchXboxCloud: () -> Unit = {},
+    onOpenPs5ControlCenter: () -> Unit = {},
+    ps5SelectTrigger: Int = 0,
+    nintendoSwitchDarkMode: Boolean = false,
+    onOpenSwitchQuickMenu: () -> Unit = {},
+    switchSelectTrigger: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val strings = LocalNexusStrings.current
+    val platformTheme = LocalAppPlatformTheme.current
+
+    if (platformTheme == AppPlatformTheme.STEAM_DECK) {
+        SteamBigPictureHomeScreen(
+            activeProfile = activeProfile,
+            allProfiles = allProfiles,
+            readiness = readiness,
+            isOverlayRunning = isOverlayRunning,
+            webPlayerConfig = webPlayerConfig,
+            pinnedGames = pinnedGames,
+            filterState = filterState,
+            updateState = updateState,
+            workshopThemes = workshopThemes,
+            communityPosts = communityPosts,
+            steamSelectTrigger = steamSelectTrigger,
+            onDownloadUpdate = onDownloadUpdate,
+            onInstallUpdate = onInstallUpdate,
+            onLaunchWebPlayer = onLaunchWebPlayer,
+            onLaunchPinnedGame = onLaunchPinnedGame,
+            onSavePinnedGame = onSavePinnedGame,
+            onDeletePinnedGame = onDeletePinnedGame,
+            onToggleOverlay = onToggleOverlay,
+            onSelectProfile = onSelectProfile,
+            onOpenEditor = onOpenEditor,
+            onOpenStore = { onOpenStore?.invoke() },
+            onOpenWorkshop = onOpenWorkshop,
+            onOpenFilters = onOpenFilters,
+            onOpenGallery = onOpenGallery,
+            onOpenSandbox = onOpenSandbox,
+            onOpenSettings = onOpenSettings,
+            onOpenQuickAccess = onOpenSteamQuickAccess,
+            onRequestOverlayPermission = onRequestOverlayPermission,
+            modifier = modifier
+        )
+        return
+    }
+
+    if (platformTheme == AppPlatformTheme.EPIC_GAMES) {
+        EpicGamesHomeScreen(
+            cloudUser = cloudUser,
+            myProfile = myProfile,
+            displayName = displayName,
+            activeProfile = activeProfile,
+            allProfiles = allProfiles,
+            readiness = readiness,
+            isOverlayRunning = isOverlayRunning,
+            webPlayerConfig = webPlayerConfig,
+            pinnedGames = pinnedGames,
+            filterState = filterState,
+            updateState = updateState,
+            workshopThemes = workshopThemes,
+            communityPosts = communityPosts,
+            onSignIn = onSignIn,
+            onDownloadUpdate = onDownloadUpdate,
+            onInstallUpdate = onInstallUpdate,
+            onLaunchWebPlayer = onLaunchWebPlayer,
+            onLaunchPinnedGame = onLaunchPinnedGame,
+            onSavePinnedGame = onSavePinnedGame,
+            onToggleOverlay = onToggleOverlay,
+            onOpenEditor = onOpenEditor,
+            onOpenStore = { onOpenStore?.invoke() },
+            onOpenWorkshop = onOpenWorkshop,
+            onOpenMyProfile = onOpenMyProfile,
+            onOpenPublicProfile = onOpenPublicProfile,
+            onOpenFilters = onOpenFilters,
+            onOpenGallery = onOpenGallery,
+            onOpenSandbox = onOpenSandbox,
+            onRequestOverlayPermission = onRequestOverlayPermission,
+            modifier = modifier
+        )
+        return
+    }
+
+    if (platformTheme == AppPlatformTheme.XBOX) {
+        XboxHomeScreen(
+            activeProfile = activeProfile,
+            allProfiles = allProfiles,
+            readiness = readiness,
+            isOverlayRunning = isOverlayRunning,
+            webPlayerConfig = webPlayerConfig,
+            pinnedGames = pinnedGames,
+            filterState = filterState,
+            updateState = updateState,
+            workshopThemes = workshopThemes,
+            communityPosts = communityPosts,
+            xboxSelectTrigger = xboxSelectTrigger,
+            onDownloadUpdate = onDownloadUpdate,
+            onInstallUpdate = onInstallUpdate,
+            onLaunchWebPlayer = onLaunchWebPlayer,
+            onLaunchXboxCloud = onLaunchXboxCloud,
+            onLaunchPinnedGame = onLaunchPinnedGame,
+            onSavePinnedGame = onSavePinnedGame,
+            onToggleOverlay = onToggleOverlay,
+            onSelectProfile = onSelectProfile,
+            onOpenEditor = onOpenEditor,
+            onOpenProfiles = onOpenProfiles,
+            onOpenStore = { onOpenStore?.invoke() },
+            onOpenWorkshop = onOpenWorkshop,
+            onOpenPublicProfile = onOpenPublicProfile,
+            onOpenFilters = onOpenFilters,
+            onOpenGallery = onOpenGallery,
+            onOpenSandbox = onOpenSandbox,
+            onOpenSettings = onOpenSettings,
+            onRequestOverlayPermission = onRequestOverlayPermission,
+            modifier = modifier
+        )
+        return
+    }
+
+    if (platformTheme == AppPlatformTheme.PLAYSTATION) {
+        PlayStationHomeScreen(
+            activeProfile = activeProfile,
+            allProfiles = allProfiles,
+            readiness = readiness,
+            isOverlayRunning = isOverlayRunning,
+            webPlayerConfig = webPlayerConfig,
+            pinnedGames = pinnedGames,
+            filterState = filterState,
+            updateState = updateState,
+            workshopThemes = workshopThemes,
+            communityPosts = communityPosts,
+            ps5SelectTrigger = ps5SelectTrigger,
+            onDownloadUpdate = onDownloadUpdate,
+            onInstallUpdate = onInstallUpdate,
+            onLaunchGeForceNow = onLaunchWebPlayer,
+            onLaunchXboxCloud = onLaunchXboxCloud,
+            onLaunchPinnedGame = onLaunchPinnedGame,
+            onSavePinnedGame = onSavePinnedGame,
+            onToggleOverlay = onToggleOverlay,
+            onSelectProfile = onSelectProfile,
+            onOpenEditor = onOpenEditor,
+            onOpenProfiles = onOpenProfiles,
+            onOpenWorkshop = onOpenWorkshop,
+            onOpenPublicProfile = onOpenPublicProfile,
+            onOpenFilters = onOpenFilters,
+            onOpenGallery = onOpenGallery,
+            onOpenSandbox = onOpenSandbox,
+            onOpenControlCenter = onOpenPs5ControlCenter,
+            onRequestOverlayPermission = onRequestOverlayPermission,
+            modifier = modifier
+        )
+        return
+    }
+
+    if (platformTheme == AppPlatformTheme.NINTENDO_SWITCH) {
+        NintendoSwitchHomeScreen(
+            isDarkMode = nintendoSwitchDarkMode,
+            activeProfile = activeProfile,
+            allProfiles = allProfiles,
+            readiness = readiness,
+            isOverlayRunning = isOverlayRunning,
+            webPlayerConfig = webPlayerConfig,
+            pinnedGames = pinnedGames,
+            filterState = filterState,
+            updateState = updateState,
+            workshopThemes = workshopThemes,
+            communityPosts = communityPosts,
+            switchSelectTrigger = switchSelectTrigger,
+            onDownloadUpdate = onDownloadUpdate,
+            onInstallUpdate = onInstallUpdate,
+            onLaunchGeForceNow = onLaunchWebPlayer,
+            onLaunchXboxCloud = onLaunchXboxCloud,
+            onLaunchPinnedGame = onLaunchPinnedGame,
+            onSavePinnedGame = onSavePinnedGame,
+            onToggleOverlay = onToggleOverlay,
+            onSelectProfile = onSelectProfile,
+            onOpenEditor = onOpenEditor,
+            onOpenProfiles = onOpenProfiles,
+            onOpenWorkshop = onOpenWorkshop,
+            onOpenPublicProfile = onOpenPublicProfile,
+            onOpenFilters = onOpenFilters,
+            onOpenGallery = onOpenGallery,
+            onOpenSandbox = onOpenSandbox,
+            onOpenSettings = onOpenSettings,
+            onOpenQuickMenu = onOpenSwitchQuickMenu,
+            onRequestOverlayPermission = onRequestOverlayPermission,
+            modifier = modifier
+        )
+        return
+    }
+
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
@@ -130,8 +341,8 @@ fun CockpitScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .widthIn(max = 880.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             if (updateState is UpdateUiState.UpdateAvailable ||
                 updateState is UpdateUiState.Downloading ||
@@ -149,19 +360,34 @@ fun CockpitScreen(
             }
 
             item {
-                HeroCockpitCard(
-                    activeProfile = activeProfile,
-                    isOverlayRunning = isOverlayRunning,
-                    onToggleOverlay = onToggleOverlay,
-                    onOpenEditor = { activeProfile?.let { onOpenEditor(it.id) } }
-                )
+                if (platformTheme != AppPlatformTheme.XENOS_DEFAULT) {
+                    PlatformHeroDashboardCard(
+                        platformTheme = platformTheme,
+                        activeProfile = activeProfile,
+                        pinnedGames = pinnedGames,
+                        isOverlayRunning = isOverlayRunning,
+                        onToggleOverlay = onToggleOverlay,
+                        onOpenEditor = { activeProfile?.let { onOpenEditor(it.id) } },
+                        onLaunchWebPlayer = onLaunchWebPlayer,
+                        onLaunchPinnedGame = onLaunchPinnedGame,
+                        onOpenStore = if (platformTheme.hasLiveGfnStore) onOpenStore else null
+                    )
+                } else {
+                    HeroCockpitCard(
+                        activeProfile = activeProfile,
+                        isOverlayRunning = isOverlayRunning,
+                        onToggleOverlay = onToggleOverlay,
+                        onOpenEditor = { activeProfile?.let { onOpenEditor(it.id) } }
+                    )
+                }
             }
 
             item {
                 BetterGfnCockpitCard(
                     config = webPlayerConfig,
                     onSelectRegion = onSelectWebRegion,
-                    onLaunchWebPlayer = onLaunchWebPlayer
+                    onLaunchWebPlayer = onLaunchWebPlayer,
+                    onLaunchXboxCloud = onLaunchXboxCloud
                 )
             }
 

@@ -11,36 +11,30 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.FolderCopy
-import androidx.compose.material.icons.filled.Gamepad
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.FolderCopy
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
@@ -49,10 +43,7 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
@@ -60,8 +51,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -72,10 +61,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -96,17 +83,30 @@ import com.example.model.ControllerProfile
 import com.example.model.LocalNexusStrings
 import com.example.service.OverlayControllerService
 import com.example.service.ScreenCaptureService
+import com.example.model.AppPlatformTheme
 import com.example.ui.NexusViewModel
-import com.example.ui.components.AdminRoleBadge
+import com.example.ui.components.EpicBorderColor
+import com.example.ui.components.EpicLauncherSidebarContent
+import com.example.ui.components.EpicLeftDrawerOverlay
+import com.example.ui.components.EpicSocialPanelDrawerOverlay
+import com.example.ui.components.NintendoSwitchQuickMenuOverlay
+import com.example.ui.components.PlatformBottomNavigationBar
+import com.example.ui.components.PlatformNavItem
+import com.example.ui.components.PlatformTopBar
+import com.example.ui.components.Ps5ControlCenterOverlay
+import com.example.ui.components.SteamBigPictureLeftMenuOverlay
+import com.example.ui.components.SteamQuickAccessMenuOverlay
 import com.example.ui.components.WhatsNewDialog
+import com.example.ui.components.XboxGuideOverlay
 import com.example.ui.screens.AdminPanelScreen
 import com.example.ui.screens.ButtonThemeCreatorScreen
 import com.example.ui.screens.CockpitScreen
-import com.example.ui.screens.CommunityAvatar
 import com.example.ui.screens.CommunityHubScreen
 import com.example.ui.screens.GalleryScreen
 import com.example.ui.screens.GameFilterScreen
 import com.example.ui.screens.LayoutEditorScreen
+import com.example.ui.screens.OnboardingSetupScreen
+import com.example.ui.screens.PlatformStoreScreen
 import com.example.ui.screens.ProfilesScreen
 import com.example.ui.screens.SetupScreen
 import com.example.ui.screens.TestArenaScreen
@@ -118,6 +118,7 @@ import com.example.webplayer.XenosWebPlayerActivity
 
 object NexusRoutes {
     const val COCKPIT = "cockpit"
+    const val STORE = "store"
     const val PROFILES = "profiles"
     const val FILTERS = "filters"
     const val GALLERY = "gallery"
@@ -135,14 +136,6 @@ object NexusRoutes {
         if (themeId.isNullOrBlank()) "theme_creator" else "theme_creator?themeId=$themeId"
     fun userProfile(userId: String): String = "user_profile/$userId"
 }
-
-private data class NavTab(
-    val route: String,
-    val label: String,
-    val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector,
-    val testTag: String
-)
 
 class MainActivity : ComponentActivity() {
 
@@ -164,7 +157,9 @@ class MainActivity : ComponentActivity() {
                 NexusPadTheme(
                     darkTheme = settings.darkTheme,
                     colorSchemeConfig = settings.colorScheme,
-                    fontConfig = settings.fontConfig
+                    fontConfig = settings.fontConfig,
+                    platformTheme = settings.platformTheme,
+                    nintendoSwitchDarkMode = settings.nintendoSwitchDarkMode
                 ) {
                     NexusPadAppShell(
                         activity = this@MainActivity,
@@ -225,16 +220,6 @@ private fun NexusPadAppShell(
     openVisualsTrigger: Int
 ) {
     val strings = LocalNexusStrings.current
-    val primaryTabs = remember(strings) {
-        listOf(
-            NavTab(NexusRoutes.COCKPIT, strings.navCockpit, Icons.Filled.Dashboard, Icons.Outlined.Dashboard, "nav_cockpit"),
-            NavTab(NexusRoutes.PROFILES, strings.navProfiles, Icons.Filled.FolderCopy, Icons.Outlined.FolderCopy, "nav_profiles"),
-            NavTab(NexusRoutes.FILTERS, strings.navVisuals, Icons.Filled.Tune, Icons.Outlined.Tune, "nav_filters"),
-            NavTab(NexusRoutes.GALLERY, strings.navGallery, Icons.Filled.PhotoLibrary, Icons.Outlined.PhotoLibrary, "nav_gallery"),
-            NavTab(NexusRoutes.SANDBOX, strings.navSandbox, Icons.Filled.TouchApp, Icons.Outlined.TouchApp, "nav_sandbox"),
-            NavTab(NexusRoutes.SETUP, strings.navSetup, Icons.Filled.Settings, Icons.Outlined.Settings, "nav_setup")
-        )
-    }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val navController = rememberNavController()
@@ -274,6 +259,7 @@ private fun NexusPadAppShell(
     val connectedControllers by viewModel.connectedControllers.collectAsStateWithLifecycle()
     val localButtonThemes by viewModel.localButtonThemes.collectAsStateWithLifecycle()
     val activeButtonThemeId by viewModel.activeButtonThemeId.collectAsStateWithLifecycle()
+    val autoSavedThemeDraft by viewModel.autoSavedThemeDraft.collectAsStateWithLifecycle()
     val workshopThemes by viewModel.workshopThemes.collectAsStateWithLifecycle()
     val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
     val favoriteThemeIds by viewModel.favoriteThemeIds.collectAsStateWithLifecycle()
@@ -299,20 +285,65 @@ private fun NexusPadAppShell(
     val isPrimaryAdmin = cloudUser?.isPrimaryAdmin() == true
     val hasUpdateBadge = updateState is UpdateUiState.UpdateAvailable || updateState is UpdateUiState.ReadyToInstall
 
+    // Dynamic tabs: Store tab is ONLY active for Steam Deck, Epic Games, and Xbox themes (GeForce NOW storefronts)
+    val primaryTabs = remember(strings, settings.platformTheme.hasLiveGfnStore, hasUpdateBadge) {
+        buildList {
+            add(PlatformNavItem(NexusRoutes.COCKPIT, strings.navCockpit, Icons.Filled.Dashboard, Icons.Outlined.Dashboard, "nav_cockpit"))
+            if (settings.platformTheme.hasLiveGfnStore) {
+                add(PlatformNavItem(NexusRoutes.STORE, "Store", Icons.Filled.Storefront, Icons.Outlined.Storefront, "nav_store"))
+            }
+            add(PlatformNavItem(NexusRoutes.PROFILES, strings.navProfiles, Icons.Filled.FolderCopy, Icons.Outlined.FolderCopy, "nav_profiles"))
+            add(PlatformNavItem(NexusRoutes.FILTERS, strings.navVisuals, Icons.Filled.Tune, Icons.Outlined.Tune, "nav_filters"))
+            add(PlatformNavItem(NexusRoutes.GALLERY, strings.navGallery, Icons.Filled.PhotoLibrary, Icons.Outlined.PhotoLibrary, "nav_gallery"))
+            add(PlatformNavItem(NexusRoutes.SANDBOX, strings.navSandbox, Icons.Filled.TouchApp, Icons.Outlined.TouchApp, "nav_sandbox"))
+            add(PlatformNavItem(NexusRoutes.SETUP, strings.navSetup, Icons.Filled.Settings, Icons.Outlined.Settings, "nav_setup", showBadge = hasUpdateBadge))
+        }
+    }
+
     var showOverlayPermissionDialog by remember { mutableStateOf(false) }
     var showWhatsNewDialog by remember { mutableStateOf(false) }
     var didTriggerAutoWhatsNew by remember { mutableStateOf(false) }
     var pendingExportProfile by remember { mutableStateOf<ControllerProfile?>(null) }
+    var showSteamMenu by remember { mutableStateOf(false) }
+    var showSteamQuickAccess by remember { mutableStateOf(false) }
+    var steamSelectTrigger by remember { mutableIntStateOf(0) }
+    var showEpicLeftDrawer by remember { mutableStateOf(false) }
+    var showEpicSocialDrawer by remember { mutableStateOf(false) }
+    var showXboxGuide by remember { mutableStateOf(false) }
+    var xboxSelectTrigger by remember { mutableIntStateOf(0) }
+    var showPs5ControlCenter by remember { mutableStateOf(false) }
+    var ps5SelectTrigger by remember { mutableIntStateOf(0) }
+    var showSwitchQuickMenu by remember { mutableStateOf(false) }
+    var switchSelectTrigger by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         viewModel.attemptSilentCloudSignIn(activity)
     }
 
-    LaunchedEffect(hasLoadedSettings, settings.lastSeenWhatsNewVersionCode) {
-        if (hasLoadedSettings && !didTriggerAutoWhatsNew && settings.lastSeenWhatsNewVersionCode < BuildConfig.VERSION_CODE) {
+    LaunchedEffect(hasLoadedSettings, settings.hasCompletedOnboarding, settings.lastSeenWhatsNewVersionCode) {
+        if (hasLoadedSettings && settings.hasCompletedOnboarding && !didTriggerAutoWhatsNew && settings.lastSeenWhatsNewVersionCode < BuildConfig.VERSION_CODE) {
             didTriggerAutoWhatsNew = true
             showWhatsNewDialog = true
         }
+    }
+
+    // First-launch setup wizard: Sign In/Sign Up, Username & Profile Picture, and Platform UI Theme
+    if (hasLoadedSettings && !settings.hasCompletedOnboarding) {
+        OnboardingSetupScreen(
+            cloudUser = cloudUser,
+            myProfile = myPublicProfile,
+            selectedPlatformTheme = settings.platformTheme,
+            nintendoSwitchDarkMode = settings.nintendoSwitchDarkMode,
+            onSignInWithGoogle = { viewModel.signInForCloudSave(activity) },
+            onSelectPlatformTheme = viewModel::setPlatformTheme,
+            onNintendoSwitchDarkModeChange = viewModel::setNintendoSwitchDarkMode,
+            onUploadAvatarUri = viewModel::uploadMyProfileAvatar,
+            onCompleteOnboarding = { username, bio, editedAvatarUri ->
+                viewModel.completeOnboarding(username, bio, editedAvatarUri)
+                viewModel.markWhatsNewSeen(BuildConfig.VERSION_CODE)
+            }
+        )
+        return
     }
 
     val notificationLauncher = rememberLauncherForActivityResult(
@@ -412,109 +443,178 @@ private fun NexusPadAppShell(
         currentRoute?.startsWith("user_profile/") == true ||
         currentRoute == NexusRoutes.ADMIN_PANEL
 
+    val navigatePrimaryTab: (String) -> Unit = { route ->
+        navController.navigate(route) {
+            popUpTo(navController.graph.findStartDestination().id) {
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    LaunchedEffect(settings.platformTheme.hasLiveGfnStore, currentRoute) {
+        if (!settings.platformTheme.hasLiveGfnStore && currentRoute == NexusRoutes.STORE) {
+            navigatePrimaryTab(NexusRoutes.COCKPIT)
+        }
+    }
+
+    val topBarDisplayName = myPublicProfile?.username?.takeIf { it.isNotBlank() }
+        ?: settings.localDisplayName.takeIf { it.isNotBlank() }
+        ?: cloudUser?.displayName?.takeIf { it.isNotBlank() }
+        ?: "Player"
+
+    val xboxGamerscore = remember(
+        profiles.size,
+        settings.pinnedGames.size,
+        localButtonThemes.size,
+        myProfilePosts.size,
+        myProfileClips.size
+    ) {
+        1250 +
+            profiles.size * 350 +
+            settings.pinnedGames.size * 250 +
+            localButtonThemes.size * 400 +
+            myProfilePosts.size * 150 +
+            myProfileClips.size * 200
+    }
+
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val useRail = maxWidth >= 680.dp
+        val isSteamBigPicture = settings.platformTheme == AppPlatformTheme.STEAM_DECK
+        val isEpicGames = settings.platformTheme == AppPlatformTheme.EPIC_GAMES
+        val isXbox = settings.platformTheme == AppPlatformTheme.XBOX
+        val isPlayStation = settings.platformTheme == AppPlatformTheme.PLAYSTATION
+        val isSwitch = settings.platformTheme == AppPlatformTheme.NINTENDO_SWITCH
+        val useEpicSidebar = maxWidth >= 680.dp && isEpicGames
+        val useRail = maxWidth >= 680.dp && !isSteamBigPicture && !isEpicGames && !isXbox && !isPlayStation && !isSwitch
 
         Scaffold(
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             contentWindowInsets = if (isInFullscreenSubscreen) WindowInsets(0) else WindowInsets.safeDrawing,
             topBar = {
-                if (!isInFullscreenSubscreen) {
-                    TopAppBar(
-                        title = {
-                            Row(
-                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                            ) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.ic_xenospad_fg),
-                                    contentDescription = "XenosPad logo",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .size(30.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                )
-                                Spacer(Modifier.size(10.dp))
-                                Text(
-                                    text = "XenosPad",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                if (!isInFullscreenSubscreen && !useEpicSidebar) {
+                    PlatformTopBar(
+                        platformTheme = settings.platformTheme,
+                        isPrimaryAdmin = isPrimaryAdmin,
+                        avatarBase64 = myPublicProfile?.avatarBase64,
+                        displayName = topBarDisplayName,
+                        onOpenAdminPanel = { navController.navigate(NexusRoutes.ADMIN_PANEL) },
+                        onOpenWorkshop = { navController.navigate(NexusRoutes.workshop(0)) },
+                        onOpenProfile = { navController.navigate(NexusRoutes.workshop(2)) },
+                        onOpenStore = if (settings.platformTheme.hasLiveGfnStore) {
+                            { navigatePrimaryTab(NexusRoutes.STORE) }
+                        } else {
+                            null
                         },
-                        actions = {
-                            if (isPrimaryAdmin) {
-                                IconButton(
-                                    onClick = { navController.navigate(NexusRoutes.ADMIN_PANEL) },
-                                    modifier = Modifier.testTag("topbar_admin_panel_button")
-                                ) {
-                                    AdminRoleBadge(size = 28.dp)
-                                }
-                            }
-                            IconButton(
-                                onClick = { navController.navigate(NexusRoutes.workshop(0)) },
-                                modifier = Modifier.testTag("topbar_workshop_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Palette,
-                                    contentDescription = "Button Theme Workshop & Community",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            IconButton(
-                                onClick = { navController.navigate(NexusRoutes.workshop(2)) },
-                                modifier = Modifier.testTag("topbar_profile_button")
-                            ) {
-                                CommunityAvatar(
-                                    avatarBase64 = myPublicProfile?.avatarBase64,
-                                    username = myPublicProfile?.username ?: cloudUser?.displayName ?: "Me",
-                                    size = 30.dp
-                                )
-                            }
+                        onOpenEpicMenu = {
+                            showEpicSocialDrawer = false
+                            showEpicLeftDrawer = !showEpicLeftDrawer
                         },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.background
-                        )
+                        onOpenEpicSocial = {
+                            showEpicLeftDrawer = false
+                            showEpicSocialDrawer = !showEpicSocialDrawer
+                        },
+                        currentRoute = currentRoute,
+                        hasUpdateBadge = hasUpdateBadge,
+                        isOverlayRunning = isOverlayRunning,
+                        xboxGamerscore = xboxGamerscore,
+                        onOpenXboxGuide = { showXboxGuide = !showXboxGuide },
+                        onOpenXboxLibrary = { navigatePrimaryTab(NexusRoutes.PROFILES) },
+                        onLaunchXboxCloudPlay = { XenosWebPlayerActivity.launchXboxCloud(context) },
+                        onOpenXboxSettings = { navigatePrimaryTab(NexusRoutes.SETUP) },
+                        onSelectPs5Games = { navigatePrimaryTab(NexusRoutes.COCKPIT) },
+                        onSelectPs5Media = { navigatePrimaryTab(NexusRoutes.GALLERY) },
+                        onOpenPs5Settings = { navigatePrimaryTab(NexusRoutes.SETUP) },
+                        nintendoSwitchDarkMode = settings.nintendoSwitchDarkMode,
+                        communityPosts = communityPosts,
+                        onOpenPublicProfile = { uid -> navController.navigate(NexusRoutes.userProfile(uid)) },
+                        onToggleNintendoSwitchDarkMode = {
+                            viewModel.setNintendoSwitchDarkMode(!settings.nintendoSwitchDarkMode)
+                        }
                     )
                 }
             },
             bottomBar = {
-                if (!isInFullscreenSubscreen && !useRail) {
-                    NavigationBar(windowInsets = WindowInsets.navigationBars) {
-                        primaryTabs.forEach { tab ->
-                            val selected = currentRoute == tab.route
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = {
-                                    navController.navigate(tab.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
-                                icon = {
-                                    if (tab.route == NexusRoutes.SETUP && hasUpdateBadge) {
-                                        BadgedBox(
-                                            badge = { Badge(containerColor = MaterialTheme.colorScheme.primary) }
-                                        ) {
-                                            Icon(
-                                                imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                                contentDescription = tab.label
-                                            )
-                                        }
-                                    } else {
-                                        Icon(
-                                            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                            contentDescription = tab.label
-                                        )
-                                    }
-                                },
-                                label = { Text(tab.label) },
-                                modifier = Modifier.testTag(tab.testTag)
-                            )
+                if (!isInFullscreenSubscreen && !useRail && !useEpicSidebar) {
+                    PlatformBottomNavigationBar(
+                        platformTheme = settings.platformTheme,
+                        tabs = primaryTabs,
+                        currentRoute = currentRoute,
+                        onSelectRoute = navigatePrimaryTab,
+                        onOpenSteamMenu = {
+                            showSteamQuickAccess = false
+                            showSteamMenu = !showSteamMenu
+                        },
+                        onOpenSteamQuickAccess = {
+                            showSteamMenu = false
+                            showSteamQuickAccess = !showSteamQuickAccess
+                        },
+                        onSteamPrimaryAction = {
+                            if (currentRoute == NexusRoutes.COCKPIT) {
+                                steamSelectTrigger++
+                            } else {
+                                navigatePrimaryTab(NexusRoutes.COCKPIT)
+                            }
+                        },
+                        onSteamBackAction = {
+                            when {
+                                showSteamMenu -> showSteamMenu = false
+                                showSteamQuickAccess -> showSteamQuickAccess = false
+                                currentRoute != NexusRoutes.COCKPIT -> navigatePrimaryTab(NexusRoutes.COCKPIT)
+                                else -> showSteamMenu = true
+                            }
+                        },
+                        isOverlayRunning = isOverlayRunning,
+                        onOpenXboxGuide = { showXboxGuide = !showXboxGuide },
+                        onXboxPrimaryAction = {
+                            if (currentRoute == NexusRoutes.COCKPIT) {
+                                xboxSelectTrigger++
+                            } else {
+                                navigatePrimaryTab(NexusRoutes.COCKPIT)
+                            }
+                        },
+                        onXboxToggleHud = toggleOverlayAction,
+                        onXboxBackAction = {
+                            when {
+                                showXboxGuide -> showXboxGuide = false
+                                currentRoute != NexusRoutes.COCKPIT -> navigatePrimaryTab(NexusRoutes.COCKPIT)
+                                else -> showXboxGuide = true
+                            }
+                        },
+                        onOpenPs5ControlCenter = { showPs5ControlCenter = !showPs5ControlCenter },
+                        onPs5PrimaryAction = {
+                            if (currentRoute == NexusRoutes.COCKPIT) {
+                                ps5SelectTrigger++
+                            } else {
+                                navigatePrimaryTab(NexusRoutes.COCKPIT)
+                            }
+                        },
+                        onPs5ToggleHud = toggleOverlayAction,
+                        onPs5BackAction = {
+                            when {
+                                showPs5ControlCenter -> showPs5ControlCenter = false
+                                currentRoute != NexusRoutes.COCKPIT -> navigatePrimaryTab(NexusRoutes.COCKPIT)
+                                else -> showPs5ControlCenter = true
+                            }
+                        },
+                        nintendoSwitchDarkMode = settings.nintendoSwitchDarkMode,
+                        onOpenSwitchQuickMenu = { showSwitchQuickMenu = !showSwitchQuickMenu },
+                        onSwitchPrimaryAction = {
+                            if (currentRoute == NexusRoutes.COCKPIT) {
+                                switchSelectTrigger++
+                            } else {
+                                navigatePrimaryTab(NexusRoutes.COCKPIT)
+                            }
+                        },
+                        onSwitchToggleHud = toggleOverlayAction,
+                        onSwitchBackAction = {
+                            when {
+                                showSwitchQuickMenu -> showSwitchQuickMenu = false
+                                currentRoute != NexusRoutes.COCKPIT -> navigatePrimaryTab(NexusRoutes.COCKPIT)
+                                else -> showSwitchQuickMenu = true
+                            }
                         }
-                    }
+                    )
                 }
             }
         ) { innerPadding ->
@@ -525,7 +625,23 @@ private fun NexusPadAppShell(
                         if (isInFullscreenSubscreen) Modifier else Modifier.padding(innerPadding)
                     )
             ) {
-                if (!isInFullscreenSubscreen && useRail) {
+                if (!isInFullscreenSubscreen && useEpicSidebar) {
+                    EpicLauncherSidebarContent(
+                        currentRoute = currentRoute,
+                        displayName = topBarDisplayName,
+                        avatarBase64 = myPublicProfile?.avatarBase64,
+                        hasUpdateBadge = hasUpdateBadge,
+                        isPrimaryAdmin = isPrimaryAdmin,
+                        onNavigateRoute = navigatePrimaryTab,
+                        onOpenWorkshop = { navController.navigate(NexusRoutes.workshop(0)) },
+                        onOpenProfile = { navController.navigate(NexusRoutes.workshop(2)) },
+                        onOpenAdminPanel = { navController.navigate(NexusRoutes.ADMIN_PANEL) },
+                        onExitEpicTheme = { viewModel.setPlatformTheme(AppPlatformTheme.XENOS_DEFAULT) },
+                        modifier = Modifier
+                            .width(216.dp)
+                            .border(1.dp, EpicBorderColor)
+                    )
+                } else if (!isInFullscreenSubscreen && useRail) {
                     NavigationRail(
                         modifier = Modifier
                             .fillMaxHeight()
@@ -636,6 +752,48 @@ private fun NexusPadAppShell(
                                     if (!launched) {
                                         viewModel.showMessage("GeForce NOW not installed — opening Play Store")
                                     }
+                                },
+                                onOpenStore = if (settings.platformTheme.hasLiveGfnStore) {
+                                    { navigatePrimaryTab(NexusRoutes.STORE) }
+                                } else {
+                                    null
+                                },
+                                workshopThemes = workshopThemes,
+                                communityPosts = communityPosts,
+                                onOpenWorkshop = { navController.navigate(NexusRoutes.workshop(0)) },
+                                onOpenFilters = { navigatePrimaryTab(NexusRoutes.FILTERS) },
+                                onOpenGallery = { navigatePrimaryTab(NexusRoutes.GALLERY) },
+                                onOpenSettings = { navigatePrimaryTab(NexusRoutes.SETUP) },
+                                onOpenSteamQuickAccess = {
+                                    showSteamMenu = false
+                                    showSteamQuickAccess = true
+                                },
+                                steamSelectTrigger = steamSelectTrigger,
+                                cloudUser = cloudUser,
+                                myProfile = myPublicProfile,
+                                displayName = topBarDisplayName,
+                                onSignIn = { viewModel.signInForCloudSave(activity) },
+                                onOpenMyProfile = { navController.navigate(NexusRoutes.workshop(2)) },
+                                onOpenPublicProfile = { uid -> navController.navigate(NexusRoutes.userProfile(uid)) },
+                                onOpenProfiles = { navigatePrimaryTab(NexusRoutes.PROFILES) },
+                                xboxSelectTrigger = xboxSelectTrigger,
+                                onLaunchXboxCloud = { XenosWebPlayerActivity.launchXboxCloud(context) },
+                                onOpenPs5ControlCenter = { showPs5ControlCenter = true },
+                                ps5SelectTrigger = ps5SelectTrigger,
+                                nintendoSwitchDarkMode = settings.nintendoSwitchDarkMode,
+                                onOpenSwitchQuickMenu = { showSwitchQuickMenu = true },
+                                switchSelectTrigger = switchSelectTrigger
+                            )
+                        }
+
+                        composable(NexusRoutes.STORE) {
+                            PlatformStoreScreen(
+                                platformTheme = settings.platformTheme,
+                                onLaunchGeForceNowWebPlay = {
+                                    XenosWebPlayerActivity.launch(context)
+                                },
+                                onLaunchXboxCloud = {
+                                    XenosWebPlayerActivity.launchXboxCloud(context)
                                 }
                             )
                         }
@@ -780,6 +938,8 @@ private fun NexusPadAppShell(
                                 onGridDivisionsChange = viewModel::setGridDivisions,
                                 onNotationChange = viewModel::setControllerNotation,
                                 onDarkThemeChange = viewModel::setDarkTheme,
+                                onPlatformThemeChange = viewModel::setPlatformTheme,
+                                onNintendoSwitchDarkModeChange = viewModel::setNintendoSwitchDarkMode,
                                 onColorSchemeChange = viewModel::updateColorScheme,
                                 onFontConfigChange = viewModel::updateFontConfig,
                                 onPickCustomFont = viewModel::importCustomFont,
@@ -971,9 +1131,13 @@ private fun NexusPadAppShell(
                             }
                             ButtonThemeCreatorScreen(
                                 initialTheme = initialTheme,
+                                autoSavedDraft = if (editId == null) autoSavedThemeDraft else null,
                                 isSignedIn = cloudUser != null,
                                 isPublishing = isPublishingTheme,
                                 notation = settings.controllerNotation,
+                                onAutoSaveDraft = viewModel::autoSaveButtonThemeDraft,
+                                onAutoSaveDraftSync = viewModel::autoSaveButtonThemeDraftSync,
+                                onClearAutoSavedDraft = viewModel::clearAutoSavedThemeDraft,
                                 onSaveDraft = { draft ->
                                     viewModel.saveButtonThemeDraft(draft, activate = false)
                                 },
@@ -1057,6 +1221,192 @@ private fun NexusPadAppShell(
                     }
                 }
             }
+        }
+
+        if (isSteamBigPicture && showSteamMenu) {
+            SteamBigPictureLeftMenuOverlay(
+                currentRoute = currentRoute,
+                hasUpdateBadge = hasUpdateBadge,
+                isPrimaryAdmin = isPrimaryAdmin,
+                onNavigateRoute = navigatePrimaryTab,
+                onOpenWorkshop = { navController.navigate(NexusRoutes.workshop(0)) },
+                onOpenProfile = { navController.navigate(NexusRoutes.workshop(2)) },
+                onOpenAdminPanel = { navController.navigate(NexusRoutes.ADMIN_PANEL) },
+                onExitBigPicture = { viewModel.setPlatformTheme(AppPlatformTheme.XENOS_DEFAULT) },
+                onDismiss = { showSteamMenu = false }
+            )
+        }
+
+        if (isSteamBigPicture && showSteamQuickAccess) {
+            SteamQuickAccessMenuOverlay(
+                activeProfile = activeProfile,
+                allProfiles = profiles,
+                isOverlayRunning = isOverlayRunning,
+                filterState = liveFilterState,
+                selectedRegion = settings.webPlayerConfig.regionPreset,
+                vibrationMode = settings.vibrationMode,
+                onToggleOverlay = toggleOverlayAction,
+                onLaunchWebPlayer = { XenosWebPlayerActivity.launch(context) },
+                onSelectProfile = viewModel::setActiveProfile,
+                onSelectRegion = { region ->
+                    viewModel.updateWebPlayerConfig(settings.webPlayerConfig.copy(regionPreset = region))
+                },
+                onVibrationModeChange = viewModel::setVibrationMode,
+                onOpenFilters = { navigatePrimaryTab(NexusRoutes.FILTERS) },
+                onOpenSettings = { navigatePrimaryTab(NexusRoutes.SETUP) },
+                onSwitchTheme = viewModel::setPlatformTheme,
+                onDismiss = { showSteamQuickAccess = false }
+            )
+        }
+
+        if (isEpicGames && showEpicLeftDrawer) {
+            EpicLeftDrawerOverlay(
+                currentRoute = currentRoute,
+                displayName = topBarDisplayName,
+                avatarBase64 = myPublicProfile?.avatarBase64,
+                hasUpdateBadge = hasUpdateBadge,
+                isPrimaryAdmin = isPrimaryAdmin,
+                onNavigateRoute = navigatePrimaryTab,
+                onOpenWorkshop = { navController.navigate(NexusRoutes.workshop(0)) },
+                onOpenProfile = { navController.navigate(NexusRoutes.workshop(2)) },
+                onOpenAdminPanel = { navController.navigate(NexusRoutes.ADMIN_PANEL) },
+                onExitEpicTheme = { viewModel.setPlatformTheme(AppPlatformTheme.XENOS_DEFAULT) },
+                onDismiss = { showEpicLeftDrawer = false }
+            )
+        }
+
+        if (isEpicGames && showEpicSocialDrawer) {
+            EpicSocialPanelDrawerOverlay(
+                cloudUser = cloudUser,
+                myProfile = myPublicProfile,
+                displayName = topBarDisplayName,
+                activeProfileName = activeProfile?.name,
+                isOverlayRunning = isOverlayRunning,
+                workshopThemes = workshopThemes,
+                communityPosts = communityPosts,
+                onSignIn = { viewModel.signInForCloudSave(activity) },
+                onOpenMyProfile = {
+                    showEpicSocialDrawer = false
+                    navController.navigate(NexusRoutes.workshop(2))
+                },
+                onOpenWorkshop = {
+                    showEpicSocialDrawer = false
+                    navController.navigate(NexusRoutes.workshop(0))
+                },
+                onOpenPublicProfile = { uid ->
+                    showEpicSocialDrawer = false
+                    navController.navigate(NexusRoutes.userProfile(uid))
+                },
+                onDismiss = { showEpicSocialDrawer = false }
+            )
+        }
+
+        if (isXbox && showXboxGuide) {
+            XboxGuideOverlay(
+                currentRoute = currentRoute,
+                cloudUser = cloudUser,
+                myProfile = myPublicProfile,
+                displayName = topBarDisplayName,
+                activeProfile = activeProfile,
+                allProfiles = profiles,
+                isOverlayRunning = isOverlayRunning,
+                filterState = liveFilterState,
+                selectedRegion = settings.webPlayerConfig.regionPreset,
+                vibrationMode = settings.vibrationMode,
+                hasUpdateBadge = hasUpdateBadge,
+                isPrimaryAdmin = isPrimaryAdmin,
+                workshopThemes = workshopThemes,
+                communityPosts = communityPosts,
+                onNavigateRoute = navigatePrimaryTab,
+                onLaunchWebPlayer = { XenosWebPlayerActivity.launch(context) },
+                onLaunchXboxCloud = { XenosWebPlayerActivity.launchXboxCloud(context) },
+                onToggleOverlay = toggleOverlayAction,
+                onSelectProfile = viewModel::setActiveProfile,
+                onOpenEditor = { id ->
+                    viewModel.openEditor(id)
+                    navController.navigate(NexusRoutes.editor(id))
+                },
+                onSelectRegion = { region ->
+                    viewModel.updateWebPlayerConfig(settings.webPlayerConfig.copy(regionPreset = region))
+                },
+                onVibrationModeChange = viewModel::setVibrationMode,
+                onSignIn = { viewModel.signInForCloudSave(activity) },
+                onOpenWorkshop = { navController.navigate(NexusRoutes.workshop(0)) },
+                onOpenProfile = { navController.navigate(NexusRoutes.workshop(2)) },
+                onOpenPublicProfile = { uid -> navController.navigate(NexusRoutes.userProfile(uid)) },
+                onOpenAdminPanel = { navController.navigate(NexusRoutes.ADMIN_PANEL) },
+                onSwitchTheme = viewModel::setPlatformTheme,
+                onDismiss = { showXboxGuide = false }
+            )
+        }
+
+        if (isPlayStation && showPs5ControlCenter) {
+            Ps5ControlCenterOverlay(
+                currentRoute = currentRoute,
+                displayName = topBarDisplayName,
+                avatarBase64 = myPublicProfile?.avatarBase64,
+                activeProfile = activeProfile,
+                allProfiles = profiles,
+                isOverlayRunning = isOverlayRunning,
+                filterState = liveFilterState,
+                selectedRegion = settings.webPlayerConfig.regionPreset,
+                vibrationMode = settings.vibrationMode,
+                hasUpdateBadge = hasUpdateBadge,
+                isPrimaryAdmin = isPrimaryAdmin,
+                onNavigateRoute = navigatePrimaryTab,
+                onLaunchGeForceNow = { XenosWebPlayerActivity.launch(context) },
+                onLaunchXboxCloud = { XenosWebPlayerActivity.launchXboxCloud(context) },
+                onToggleOverlay = toggleOverlayAction,
+                onSelectProfile = viewModel::setActiveProfile,
+                onOpenEditor = { id ->
+                    viewModel.openEditor(id)
+                    navController.navigate(NexusRoutes.editor(id))
+                },
+                onSelectRegion = { region ->
+                    viewModel.updateWebPlayerConfig(settings.webPlayerConfig.copy(regionPreset = region))
+                },
+                onVibrationModeChange = viewModel::setVibrationMode,
+                onOpenWorkshop = { navController.navigate(NexusRoutes.workshop(0)) },
+                onOpenProfile = { navController.navigate(NexusRoutes.workshop(2)) },
+                onOpenAdminPanel = { navController.navigate(NexusRoutes.ADMIN_PANEL) },
+                onSwitchTheme = viewModel::setPlatformTheme,
+                onDismiss = { showPs5ControlCenter = false }
+            )
+        }
+
+        if (isSwitch && showSwitchQuickMenu) {
+            NintendoSwitchQuickMenuOverlay(
+                isDarkMode = settings.nintendoSwitchDarkMode,
+                currentRoute = currentRoute,
+                displayName = topBarDisplayName,
+                avatarBase64 = myPublicProfile?.avatarBase64,
+                activeProfile = activeProfile,
+                allProfiles = profiles,
+                isOverlayRunning = isOverlayRunning,
+                filterState = liveFilterState,
+                selectedRegion = settings.webPlayerConfig.regionPreset,
+                vibrationMode = settings.vibrationMode,
+                isPrimaryAdmin = isPrimaryAdmin,
+                onToggleDarkMode = viewModel::setNintendoSwitchDarkMode,
+                onNavigateRoute = navigatePrimaryTab,
+                onLaunchGeForceNow = { XenosWebPlayerActivity.launch(context) },
+                onLaunchXboxCloud = { XenosWebPlayerActivity.launchXboxCloud(context) },
+                onToggleOverlay = toggleOverlayAction,
+                onSelectProfile = viewModel::setActiveProfile,
+                onOpenEditor = { id ->
+                    viewModel.openEditor(id)
+                    navController.navigate(NexusRoutes.editor(id))
+                },
+                onSelectRegion = { region ->
+                    viewModel.updateWebPlayerConfig(settings.webPlayerConfig.copy(regionPreset = region))
+                },
+                onVibrationModeChange = viewModel::setVibrationMode,
+                onOpenWorkshop = { navController.navigate(NexusRoutes.workshop(0)) },
+                onOpenProfile = { navController.navigate(NexusRoutes.workshop(2)) },
+                onOpenAdminPanel = { navController.navigate(NexusRoutes.ADMIN_PANEL) },
+                onSwitchTheme = viewModel::setPlatformTheme,
+                onDismiss = { showSwitchQuickMenu = false }
+            )
         }
     }
 

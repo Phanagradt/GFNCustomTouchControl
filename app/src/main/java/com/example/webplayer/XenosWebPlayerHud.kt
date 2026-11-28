@@ -32,19 +32,26 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BatteryStd
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.DeviceThermostat
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -76,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
+import com.example.capture.CaptureBridge
 import com.example.model.ControllerProfile
 import com.example.model.GameFilterState
 import com.example.model.GameFilterStyle
@@ -106,6 +114,10 @@ fun WebPlayerStatsPill(
     accentColor: Color,
     antiAfkEnabled: Boolean = false,
     connectedControllerName: String? = null,
+    isXboxCloud: Boolean = false,
+    isInstantReplayOn: Boolean = false,
+    isRecording: Boolean = false,
+    recordingElapsedMs: Long = 0L,
     modifier: Modifier = Modifier
 ) {
     val displayFps = if (streamStats.fps > 0) streamStats.fps else perfStats.fps
@@ -140,6 +152,52 @@ fun WebPlayerStatsPill(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            if (isXboxCloud) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF107C10).copy(alpha = 0.35f)
+                ) {
+                    Text(
+                        text = "XCLOUD",
+                        color = Color(0xFF3AE635),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JetBrainsMonoFontFamily,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
+            }
+
+            if (isRecording) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MacroCoral.copy(alpha = 0.25f)
+                ) {
+                    Text(
+                        text = "REC ${CaptureBridge.formatDurationMs(recordingElapsedMs)}",
+                        color = MacroCoral,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JetBrainsMonoFontFamily,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
+            } else if (isInstantReplayOn) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = TacticalCyan.copy(alpha = 0.22f)
+                ) {
+                    Text(
+                        text = "REPLAY",
+                        color = TacticalCyan,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JetBrainsMonoFontFamily,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
+            }
+
             if (region.isEnabled) {
                 Surface(
                     shape = RoundedCornerShape(6.dp),
@@ -282,6 +340,8 @@ fun WebPlayerQuickBubble(
     accentColor: Color,
     regionActive: Boolean,
     controlsVisible: Boolean,
+    isRecording: Boolean = false,
+    isInstantReplayOn: Boolean = false,
     onClick: () -> Unit,
     onDrag: (dx: Float, dy: Float) -> Unit,
     modifier: Modifier = Modifier
@@ -292,8 +352,13 @@ fun WebPlayerQuickBubble(
             .clip(CircleShape)
             .background(Color(0xFF13111E).copy(alpha = 0.88f))
             .border(
-                width = 1.6.dp,
-                color = if (regionActive) TacticalCyan else accentColor,
+                width = if (isRecording) 2.dp else 1.6.dp,
+                color = when {
+                    isRecording -> MacroCoral
+                    isInstantReplayOn -> TacticalCyan
+                    regionActive -> TacticalCyan
+                    else -> accentColor
+                },
                 shape = CircleShape
             )
             .pointerInput(Unit) {
@@ -308,7 +373,7 @@ fun WebPlayerQuickBubble(
     ) {
         Image(
             painter = painterResource(id = R.drawable.ic_xenospad_fg),
-            contentDescription = "Open XenosPad Better-GFN Menu",
+            contentDescription = "Open XenosPad Cloud Player Menu",
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .size(34.dp)
@@ -322,6 +387,8 @@ fun WebPlayerQuickBubble(
                 .clip(CircleShape)
                 .background(
                     when {
+                        isRecording -> MacroCoral
+                        isInstantReplayOn -> TacticalCyan
                         !controlsVisible -> TurboAmber
                         regionActive -> TacticalCyan
                         else -> accentColor
@@ -349,6 +416,17 @@ fun WebPlayerQuickMenuCard(
     connectedControllerName: String? = null,
     autoHideTouchForController: Boolean = true,
     touchAutoHiddenByController: Boolean = false,
+    isXboxCloud: Boolean = false,
+    isInstantReplayOn: Boolean = false,
+    isRecording: Boolean = false,
+    recordingElapsedMs: Long = 0L,
+    replayDurationSec: Int = 30,
+    onSwitchCloudService: (Boolean) -> Unit = {},
+    onToggleInstantReplay: () -> Unit = {},
+    onSaveInstantReplay: () -> Unit = {},
+    onReplayDurationChange: (Int) -> Unit = {},
+    onToggleManualRecord: () -> Unit = {},
+    onTakeScreenshot: () -> Unit = {},
     onClose: () -> Unit,
     onToggleControlsVisible: () -> Unit,
     onEnterLiveEdit: () -> Unit,
@@ -409,14 +487,14 @@ fun WebPlayerQuickMenuCard(
                     )
                     Column {
                         Text(
-                            text = strings.webPlayerTitle,
+                            text = if (isXboxCloud) "Xbox Cloud Gaming" else strings.webPlayerTitle,
                             color = Color.White,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = activeProfile?.name ?: "play.geforcenow.com",
-                            color = accentColor,
+                            text = activeProfile?.name ?: if (isXboxCloud) "xbox.com/play" else "play.geforcenow.com",
+                            color = if (isXboxCloud) Color(0xFF3AE635) else accentColor,
                             fontSize = 11.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -432,6 +510,80 @@ fun WebPlayerQuickMenuCard(
                         contentDescription = strings.commonClose,
                         tint = Color.White
                     )
+                }
+            }
+
+            // Cloud Service Switcher (GeForce NOW <-> Xbox Cloud Gaming)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val gfnSelected = !isXboxCloud
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 38.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (gfnSelected) accentColor.copy(alpha = 0.24f) else Color(0xFF1F1C33))
+                        .border(
+                            1.dp,
+                            if (gfnSelected) accentColor else Color.White.copy(alpha = 0.1f),
+                            RoundedCornerShape(10.dp)
+                        )
+                        .clickable { if (isXboxCloud) onSwitchCloudService(false) }
+                        .testTag("web_menu_service_gfn"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.CloudQueue,
+                            contentDescription = null,
+                            tint = if (gfnSelected) accentColor else Color(0xFFB5C0D0),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "GeForce NOW",
+                            color = if (gfnSelected) Color.White else Color(0xFFB5C0D0),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 38.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (isXboxCloud) Color(0xFF107C10).copy(alpha = 0.36f) else Color(0xFF1F1C33))
+                        .border(
+                            1.dp,
+                            if (isXboxCloud) Color(0xFF3AE635) else Color.White.copy(alpha = 0.1f),
+                            RoundedCornerShape(10.dp)
+                        )
+                        .clickable { if (!isXboxCloud) onSwitchCloudService(true) }
+                        .testTag("web_menu_service_xcloud"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.SportsEsports,
+                            contentDescription = null,
+                            tint = if (isXboxCloud) Color(0xFF3AE635) else Color(0xFFB5C0D0),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "Xbox Cloud",
+                            color = if (isXboxCloud) Color.White else Color(0xFFB5C0D0),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
@@ -576,6 +728,112 @@ fun WebPlayerQuickMenuCard(
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = JetBrainsMonoFontFamily
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider(color = Color.White.copy(alpha = 0.10f))
+
+            // Instant Replay, Manual Record & Screenshot inside Web Play Mode
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Videocam,
+                        contentDescription = null,
+                        tint = if (isRecording) MacroCoral else TacticalCyan,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = if (isRecording) {
+                            "Recording • ${CaptureBridge.formatDurationMs(recordingElapsedMs)}"
+                        } else if (isInstantReplayOn) {
+                            "Instant Replay ON (${replayDurationSec}s)"
+                        } else {
+                            "Capture & Instant Replay"
+                        },
+                        color = if (isRecording) MacroCoral else TacticalCyan,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                QuickMenuTile(
+                    icon = Icons.Default.History,
+                    label = if (isInstantReplayOn) "Replay ON" else "Replay",
+                    active = isInstantReplayOn,
+                    accentColor = TacticalCyan,
+                    onClick = onToggleInstantReplay,
+                    testTag = "web_menu_toggle_instant_replay",
+                    modifier = Modifier.weight(1f)
+                )
+                QuickMenuTile(
+                    icon = Icons.Default.Save,
+                    label = "Save ${replayDurationSec}s",
+                    active = isInstantReplayOn,
+                    accentColor = Color(0xFF4ADE80),
+                    onClick = onSaveInstantReplay,
+                    testTag = "web_menu_save_instant_replay",
+                    modifier = Modifier.weight(1f)
+                )
+                QuickMenuTile(
+                    icon = if (isRecording) Icons.Default.Stop else Icons.Default.FiberManualRecord,
+                    label = if (isRecording) "Stop REC" else "Record",
+                    active = isRecording,
+                    accentColor = MacroCoral,
+                    onClick = onToggleManualRecord,
+                    testTag = "web_menu_toggle_manual_record",
+                    modifier = Modifier.weight(1f)
+                )
+                QuickMenuTile(
+                    icon = Icons.Default.CameraAlt,
+                    label = "Shot",
+                    active = false,
+                    accentColor = TurboAmber,
+                    onClick = onTakeScreenshot,
+                    testTag = "web_menu_take_screenshot",
+                    modifier = Modifier.weight(0.85f)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(15, 30, 60).forEach { sec ->
+                    val selected = replayDurationSec == sec
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 32.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (selected) TacticalCyan.copy(alpha = 0.22f) else Color(0xFF1F1C33))
+                            .border(
+                                1.dp,
+                                if (selected) TacticalCyan else Color.White.copy(alpha = 0.08f),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .clickable { onReplayDurationChange(sec) }
+                            .testTag("web_menu_replay_sec_$sec"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "${sec}s Buffer",
+                            color = if (selected) TacticalCyan else Color(0xFFC8D2E0),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }

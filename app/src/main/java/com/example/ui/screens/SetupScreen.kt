@@ -82,6 +82,7 @@ import com.example.input.PhysicalControllerInfo
 import com.example.model.AppColorSchemeConfig
 import com.example.model.AppFontConfig
 import com.example.model.AppLanguage
+import com.example.model.AppPlatformTheme
 import com.example.model.ControllerNotation
 import com.example.model.FloatingBubbleConfig
 import com.example.model.LocalNexusStrings
@@ -102,6 +103,7 @@ import com.example.ui.components.FontCustomizationCard
 import com.example.ui.components.GyroAimSetupCard
 import com.example.ui.components.PerfHudSetupCard
 import com.example.ui.components.PhysicalControllerSetupCard
+import com.example.ui.components.PlatformThemeSelectorCard
 import com.example.ui.components.SmoothSlider
 import com.example.ui.components.WebPlayerSetupCard
 import com.example.ui.theme.JetBrainsMonoFontFamily
@@ -139,6 +141,8 @@ fun SetupScreen(
     onGridDivisionsChange: (Int) -> Unit,
     onNotationChange: (ControllerNotation) -> Unit,
     onDarkThemeChange: (Boolean) -> Unit,
+    onPlatformThemeChange: (AppPlatformTheme) -> Unit = {},
+    onNintendoSwitchDarkModeChange: (Boolean) -> Unit = {},
     onColorSchemeChange: (AppColorSchemeConfig) -> Unit,
     onFontConfigChange: (AppFontConfig) -> Unit,
     onPickCustomFont: (Uri) -> Unit,
@@ -184,12 +188,40 @@ fun SetupScreen(
             item {
                 Text(
                     text = strings.setupTitle,
-                    style = MaterialTheme.typography.headlineSmall
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = strings.setupSubtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Moved Check for Updates to the very top of Settings as requested
+            item {
+                GitHubUpdateCard(
+                    savedRepoSlug = settings.githubRepoSlug,
+                    autoCheckUpdates = settings.autoCheckUpdates,
+                    canInstallPackages = readiness.canInstallPackages,
+                    updateState = updateState,
+                    onSaveRepoSlug = onGithubRepoSlugChange,
+                    onAutoCheckChange = onAutoCheckUpdatesChange,
+                    onCheckNow = onCheckForUpdates,
+                    onDownloadUpdate = onDownloadUpdate,
+                    onCancelDownload = onCancelUpdateDownload,
+                    onInstallUpdate = onInstallUpdate,
+                    onOpenWhatsNew = onOpenWhatsNew,
+                    onOpenReleaseUrl = { url -> GitHubUpdateManager.openReleaseInBrowser(context, url) }
+                )
+            }
+
+            item {
+                PlatformThemeSelectorCard(
+                    selectedTheme = settings.platformTheme,
+                    onSelectTheme = onPlatformThemeChange,
+                    nintendoSwitchDarkMode = settings.nintendoSwitchDarkMode,
+                    onNintendoSwitchDarkModeChange = onNintendoSwitchDarkModeChange
                 )
             }
 
@@ -381,23 +413,6 @@ fun SetupScreen(
                     fps = settings.recordingFps,
                     onResolutionChange = onRecordingResolutionChange,
                     onFpsChange = onRecordingFpsChange
-                )
-            }
-
-            item {
-                GitHubUpdateCard(
-                    savedRepoSlug = settings.githubRepoSlug,
-                    autoCheckUpdates = settings.autoCheckUpdates,
-                    canInstallPackages = readiness.canInstallPackages,
-                    updateState = updateState,
-                    onSaveRepoSlug = onGithubRepoSlugChange,
-                    onAutoCheckChange = onAutoCheckUpdatesChange,
-                    onCheckNow = onCheckForUpdates,
-                    onDownloadUpdate = onDownloadUpdate,
-                    onCancelDownload = onCancelUpdateDownload,
-                    onInstallUpdate = onInstallUpdate,
-                    onOpenWhatsNew = onOpenWhatsNew,
-                    onOpenReleaseUrl = { url -> GitHubUpdateManager.openReleaseInBrowser(context, url) }
                 )
             }
 

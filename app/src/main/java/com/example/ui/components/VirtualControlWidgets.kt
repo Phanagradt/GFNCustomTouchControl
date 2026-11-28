@@ -100,16 +100,9 @@ fun buildControlBadgeText(
     isToggled: Boolean
 ): String = buildString {
     if (control.label.isNotBlank() && control.label != displayCode) append(displayCode)
-    if (control.behavior == TriggerBehavior.TOGGLE) {
-        if (isNotEmpty()) append(" • ")
-        append(if (isToggled) "ON" else "TGL")
-    } else if (control.behavior == TriggerBehavior.TURBO) {
+    if (control.behavior == TriggerBehavior.TURBO) {
         if (isNotEmpty()) append(" • ")
         append("${control.turboRateHz}Hz")
-    }
-    if (control.dragToAimEnabled) {
-        if (isNotEmpty()) append(" • ")
-        append("AIM")
     }
 }
 

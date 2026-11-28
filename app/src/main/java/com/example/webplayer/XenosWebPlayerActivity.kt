@@ -113,6 +113,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import com.example.capture.CaptureBridge
 import com.example.data.ButtonThemeLocalStore
 import com.example.data.NexusDatabase
 import com.example.data.OverlaySettings
@@ -135,6 +136,7 @@ import com.example.model.StickerPreset
 import com.example.model.WebRtcStreamStats
 import com.example.model.WebStreamQualityConfig
 import com.example.service.PerformanceMonitor
+import com.example.service.ScreenCaptureService
 import com.example.ui.components.CommandPickerSheetContent
 import com.example.ui.components.ControlInspectorSheetContent
 import com.example.ui.components.CrosshairOverlayCanvas
@@ -184,6 +186,8 @@ class XenosWebPlayerActivity : ComponentActivity() {
 
     private var mainWebView: WebView? = null
     private var initialLaunchUrl: String? = null
+    private val _activeServiceUrl = MutableStateFlow(BetterGfnScriptEngine.GFN_WEB_URL)
+    private val activeServiceUrl = _activeServiceUrl.asStateFlow()
     private var latestWebConfig: WebStreamQualityConfig = WebStreamQualityConfig()
     private var latestSettings: OverlaySettings = OverlaySettings()
 
@@ -280,6 +284,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
         initialLaunchUrl = intent?.getStringExtra(EXTRA_INITIAL_URL)?.takeIf {
             it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true)
         }
+        _activeServiceUrl.value = initialLaunchUrl ?: BetterGfnScriptEngine.GFN_WEB_URL
 
         prefsRepo = PreferencesRepository(applicationContext)
         profileRepo = ProfileRepository(NexusDatabase.getInstance(applicationContext).profileDao())
@@ -325,6 +330,20 @@ class XenosWebPlayerActivity : ComponentActivity() {
             val pressedIds by InputBridge.pressedControlIds.collectAsStateWithLifecycle()
             val toggledIds by InputBridge.toggledControlIds.collectAsStateWithLifecycle()
             val connectedControllers by PhysicalControllerMonitor.connectedControllers.collectAsStateWithLifecycle()
+            val currentServiceUrl by activeServiceUrl.collectAsStateWithLifecycle()
+            val isXboxCloud = remember(currentServiceUrl) { BetterGfnScriptEngine.isXboxCloudUrl(currentServiceUrl) }
+            val isInstantReplayOn by CaptureBridge.isInstantReplayOn.collectAsStateWithLifecycle()
+            val isRecording by CaptureBridge.isRecording.collectAsStateWithLifecycle()
+            val recordingElapsedMs by CaptureBridge.recordingElapsedMs.collectAsStateWithLifecycle()
+            val captureBanner by CaptureBridge.statusBanner.collectAsStateWithLifecycle()
+
+            LaunchedEffect(captureBanner) {
+                val msg = captureBanner
+                if (!msg.isNullOrBlank()) {
+                    Toast.makeText(this@XenosWebPlayerActivity, msg, Toast.LENGTH_SHORT).show()
+                    CaptureBridge.postBanner(null)
+                }
+            }
 
             LaunchedEffect(settings.gameFilter) {
                 GameFilterBridge.syncFromPersisted(settings.gameFilter)
@@ -375,7 +394,42 @@ class XenosWebPlayerActivity : ComponentActivity() {
                         onClosePopup = { closePopupWebView() },
                         onBindMainWebView = { webView ->
                             mainWebView = webView
-                            loadGeForceNow(webView, effectiveSettings.webPlayerConfig, initialLaunchUrl)
+                            loadGeForceNow(webView, effectiveSettings.webPlayerConfig, _activeServiceUrl.value)
+                        },
+                        isXboxCloud = isXboxCloud,
+                        isInstantReplayOn = isInstantReplayOn,
+                        isRecording = isRecording,
+                        recordingElapsedMs = recordingElapsedMs,
+                        onSwitchCloudService = { toXboxCloud ->
+                            val nextUrl = if (toXboxCloud) {
+                                BetterGfnScriptEngine.XBOX_CLOUD_URL
+                            } else {
+                                BetterGfnScriptEngine.GFN_WEB_URL
+                            }
+                            _activeServiceUrl.value = nextUrl
+                            mainWebView?.let { loadGeForceNow(it, latestWebConfig, nextUrl) }
+                        },
+                        onToggleInstantReplay = {
+                            ScreenCaptureService.toggleInstantReplay(
+                                this@XenosWebPlayerActivity,
+                                effectiveSettings.instantReplayDurationSec
+                            )
+                        },
+                        onSaveInstantReplay = {
+                            ScreenCaptureService.saveInstantReplayClip(
+                                this@XenosWebPlayerActivity,
+                                effectiveSettings.instantReplayDurationSec
+                            )
+                        },
+                        onReplayDurationChange = { sec ->
+                            CaptureBridge.setReplayDurationSec(sec)
+                            lifecycleScope.launch { prefsRepo.setInstantReplayDurationSec(sec) }
+                        },
+                        onToggleManualRecord = {
+                            ScreenCaptureService.toggleRecording(this@XenosWebPlayerActivity)
+                        },
+                        onTakeScreenshot = {
+                            ScreenCaptureService.requestScreenshot(this@XenosWebPlayerActivity)
                         },
                         onSelectProfile = { id ->
                             lifecycleScope.launch { profileRepo.setActiveProfile(id) }
@@ -400,7 +454,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
                             val next = effectiveSettings.webPlayerConfig.copy(regionPreset = region)
                             latestWebConfig = next
                             lifecycleScope.launch { prefsRepo.updateWebPlayerConfig(next) }
-                            mainWebView?.let { loadGeForceNow(it, next) }
+                            mainWebView?.let { loadGeForceNow(it, next, _activeServiceUrl.value) }
                         },
                         onSelectFilterSlot = { slot ->
                             GameFilterBridge.selectLiveSlot(slot)
@@ -508,7 +562,7 @@ class XenosWebPlayerActivity : ComponentActivity() {
                             mainWebView?.let { if (it.canGoBack()) it.goBack() }
                         },
                         onBrowserReload = {
-                            mainWebView?.let { loadGeForceNow(it, latestWebConfig, initialLaunchUrl) }
+                            mainWebView?.let { loadGeForceNow(it, latestWebConfig, _activeServiceUrl.value) }
                         },
                         onResetInputs = {
                             InputBridge.releaseAll()
@@ -1253,6 +1307,10 @@ class XenosWebPlayerActivity : ComponentActivity() {
             }
             context.startActivity(intent)
         }
+
+        fun launchXboxCloud(context: Context) {
+            launch(context, BetterGfnScriptEngine.XBOX_CLOUD_URL)
+        }
     }
 }
 
@@ -1274,6 +1332,16 @@ private fun WebPlayerScreenContent(
     popupWebView: WebView?,
     onClosePopup: () -> Unit,
     onBindMainWebView: (WebView) -> Unit,
+    isXboxCloud: Boolean,
+    isInstantReplayOn: Boolean,
+    isRecording: Boolean,
+    recordingElapsedMs: Long,
+    onSwitchCloudService: (Boolean) -> Unit,
+    onToggleInstantReplay: () -> Unit,
+    onSaveInstantReplay: () -> Unit,
+    onReplayDurationChange: (Int) -> Unit,
+    onToggleManualRecord: () -> Unit,
+    onTakeScreenshot: () -> Unit,
     onSelectProfile: (String) -> Unit,
     onSaveEditedProfile: (ControllerProfile) -> Unit,
     onGridSnapChange: (Boolean) -> Unit,
@@ -1586,6 +1654,10 @@ private fun WebPlayerScreenContent(
                 accentColor = accent,
                 antiAfkEnabled = settings.webPlayerConfig.antiAfkEnabled,
                 connectedControllerName = primaryControllerName,
+                isXboxCloud = isXboxCloud,
+                isInstantReplayOn = isInstantReplayOn,
+                isRecording = isRecording,
+                recordingElapsedMs = recordingElapsedMs,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 12.dp, end = 16.dp)
@@ -1840,6 +1912,8 @@ private fun WebPlayerScreenContent(
                 accentColor = accent,
                 regionActive = settings.webPlayerConfig.regionPreset.isEnabled,
                 controlsVisible = effectiveControlsVisible,
+                isRecording = isRecording,
+                isInstantReplayOn = isInstantReplayOn,
                 onClick = {
                     val opening = !menuExpanded
                     if (opening) {
@@ -1895,6 +1969,23 @@ private fun WebPlayerScreenContent(
                 connectedControllerName = primaryControllerName,
                 autoHideTouchForController = settings.physicalController.autoHideTouchControls,
                 touchAutoHiddenByController = touchAutoHidden,
+                isXboxCloud = isXboxCloud,
+                isInstantReplayOn = isInstantReplayOn,
+                isRecording = isRecording,
+                recordingElapsedMs = recordingElapsedMs,
+                replayDurationSec = settings.instantReplayDurationSec,
+                onSwitchCloudService = { toXbox ->
+                    onSwitchCloudService(toXbox)
+                    menuExpanded = false
+                },
+                onToggleInstantReplay = onToggleInstantReplay,
+                onSaveInstantReplay = onSaveInstantReplay,
+                onReplayDurationChange = onReplayDurationChange,
+                onToggleManualRecord = onToggleManualRecord,
+                onTakeScreenshot = {
+                    menuExpanded = false
+                    onTakeScreenshot()
+                },
                 onClose = { menuExpanded = false },
                 onToggleControlsVisible = {
                     if (touchAutoHidden) {
